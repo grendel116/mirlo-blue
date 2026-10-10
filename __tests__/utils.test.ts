@@ -2,9 +2,31 @@ import {
   audioTrackType,
   isTrackOwned,
   isTrackOwnedOrPreview,
+  resolveArtworkUrl,
 } from "@/scripts/utils";
 import { createMockUser } from "@/__mocks__/mockUser";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
+
+describe("resolveArtworkUrl", () => {
+  test("returns empty string for undefined or empty input", () => {
+    expect(resolveArtworkUrl(undefined)).toBe("");
+    expect(resolveArtworkUrl("")).toBe("");
+    expect(resolveArtworkUrl("   ")).toBe("");
+  });
+
+  test("preserves absolute HTTP, HTTPS, and file URLs", () => {
+    expect(resolveArtworkUrl("https://example.com/cover.jpg")).toBe("https://example.com/cover.jpg");
+    expect(resolveArtworkUrl("http://example.com/cover.jpg")).toBe("http://example.com/cover.jpg");
+    expect(resolveArtworkUrl("file:///data/cover.jpg")).toBe("file:///data/cover.jpg");
+    expect(resolveArtworkUrl("data:image/png;base64,abc")).toBe("data:image/png;base64,abc");
+  });
+
+  test("prefixes relative URLs with API_ROOT", () => {
+    const result = resolveArtworkUrl("/media/covers/album.jpg");
+    expect(result).toMatch(/\/media\/covers\/album\.jpg$/);
+    expect(result.startsWith("http")).toBe(true);
+  });
+});
 
 describe("audioTrackType", () => {
   test("returns 'hls' for .m3u8 URLs", () => {

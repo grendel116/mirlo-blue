@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useSearch } from "@/state/SearchContext";
 import { toUpper } from "lodash";
 import { useTranslation } from "react-i18next";
+import { theme } from "@/constants/theme";
 
 type Result = {
   result: {
@@ -37,7 +38,7 @@ export default function SearchItem({ result, index }: Result) {
   const router = useRouter();
   const { setSearchResults, setShowSuggestions } = useSearch();
   return (
-    <View style={{ marginVertical: 5 }}>
+    <View style={styles.container}>
       <Pressable
         onPress={() => {
           setSearchResults([]);
@@ -45,47 +46,47 @@ export default function SearchItem({ result, index }: Result) {
           router.back();
           router.navigate(constructUrl(result));
         }}
+        style={styles.pressable}
       >
-        <View style={styles.listItem}>
-          <Image
-            source={
-              result.trackGroupCover?.sizes?.[120]
-                ? { uri: result.trackGroupCover.sizes[120] }
-                : result.avatar?.sizes?.[120]
-                  ? { uri: result.avatar.sizes[120] }
-                  : require("@/assets/images/mirlo-logo-logoOnly-light.png")
-            }
-            style={styles.image}
-          />
-          <View style={{ marginLeft: 15, width: 300, gap: 2 }}>
+        <Image
+          source={
+            result.trackGroupCover?.sizes?.[120]
+              ? { uri: result.trackGroupCover.sizes[120] }
+              : result.avatar?.sizes?.[120]
+                ? { uri: result.avatar.sizes[120] }
+                : require("@/assets/images/mirlo-logo-logoOnly-light.png")
+          }
+          style={styles.image}
+        />
+        <View style={styles.textContainer}>
+          <Text
+            ellipsizeMode="tail"
+            numberOfLines={1}
+            style={styles.name}
+          >
+            {result.name.trim()}
+          </Text>
+          {result.artistName && (
             <Text
               ellipsizeMode="tail"
               numberOfLines={1}
-              style={{ fontSize: 18 }}
+              style={styles.artistName}
             >
-              {result.name.trim()}
+              {t("profile.albumLink")
+                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                .trim()}{" "}
+              {result.artistName.trim()}
             </Text>
-            {result.artistName && (
-              <Text
-                ellipsizeMode="tail"
-                numberOfLines={1}
-                style={{ fontSize: 15, color: "grey" }}
-              >
-                {t("profile.albumLink")
-                  .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                  .trim()}{" "}
-                {result.artistName.trim()}
-              </Text>
-            )}
-            <Text style={{ fontSize: 12, color: "grey" }}>
-              {toUpper(result.category)}
-            </Text>
-          </View>
+          )}
+          <Text style={styles.category}>
+            {toUpper(result.category)}
+          </Text>
         </View>
       </Pressable>
     </View>
   );
 }
+
 const constructUrl = (r: any) => {
   if (!r) {
     return "/";
@@ -94,25 +95,51 @@ const constructUrl = (r: any) => {
   if (r.isTrack) {
     return `/artist/${r.artistId}/album/${r.trackGroupId}/tracks/${r.id}` as const;
   } else if (r.isTrackGroup) {
-    return `/artist/${r.artistId}/album/${r.trackGroupId}/album-tracks` as const; // as const tells typescript this is a literal string pattern
+    return `/artist/${r.artistId}/album/${r.trackGroupId}/album-tracks` as const;
   } else if (r.isArtist) {
     return `/artist/${r.artistId}/artist-page` as const;
   } else {
-    console.log(r.name);
     return `/tags/${r.name}` as const;
   }
 };
 
 const styles = StyleSheet.create({
-  listItem: {
+  container: {
+    marginVertical: 4,
+  },
+  pressable: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 5,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
   },
   image: {
-    width: 60,
-    height: 60,
-    borderRadius: 1,
-    backgroundColor: "white", // placeholder color while loading
+    width: 48,
+    height: 48,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  textContainer: {
+    marginLeft: 12,
+    flex: 1,
+    gap: 2,
+  },
+  name: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.textPrimary,
+  },
+  artistName: {
+    fontSize: 13,
+    color: theme.colors.textCyan,
+  },
+  category: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
 });

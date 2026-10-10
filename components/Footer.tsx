@@ -7,271 +7,351 @@ import {
   Text,
   useWindowDimensions,
   Platform,
+  Pressable,
 } from "react-native";
-import Slider from "@react-native-community/slider";
-import TrackPlayer, {
-  PlaybackState,
-  State,
-  useProgress,
-} from "react-native-track-player";
+import { useProgress } from "react-native-track-player";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import { Pressable } from "react-native";
 import { Link, router, usePathname } from "expo-router";
-import { isTrackOwned } from "@/scripts/utils";
-import { useAuthContext } from "@/state/AuthContext";
-import { mirloRed } from "@/constants/mirlo-red";
+import { theme } from "@/constants/theme";
 
 export default function Footer({ style }: ViewProps) {
   const progress = useProgress();
   const { bottom } = useSafeAreaInsets();
-  const { playableTracks, activeTrack } = usePlayer() as {
-    activeTrack: RNTrack | undefined;
-    playableTracks: RNTrack[];
-  };
+  const { activeTrack, isPlaying, togglePlayPause, skipNext } = usePlayer();
   const pathname = usePathname();
-  const { user } = useAuthContext();
-  const { width, height } = useWindowDimensions();
-  const size = width < 380 ? 30 : 40;
+  const { width } = useWindowDimensions();
+
+  const isTrackScreen =
+    pathname === "/now-playing" ||
+    pathname.includes("/tracks/") ||
+    pathname.endsWith("/tracks");
+
+  const progressPercent =
+    progress.duration > 0
+      ? Math.min(100, Math.max(0, (progress.position / progress.duration) * 100))
+      : 0;
+
   return (
-    <View
-      style={[
-        styles.footer,
-        { paddingBottom: bottom, height: 80 + bottom, position: "relative" },
-        style,
-      ]}
-    >
-      <Slider
-        style={styles.progressBar}
-        value={progress.position}
-        minimumValue={0}
-        maximumValue={progress.duration}
-        thumbTintColor="transparent"
-        minimumTrackTintColor="#BE3455"
-        maximumTrackTintColor="#d6d6d6"
-        onSlidingComplete={async (value) => await TrackPlayer.seekTo(value)}
-      />
-      <View
-        style={{
-          flexDirection: "row",
-          width: "100%",
-          height: "100%",
-          // On Android, the bottom safe-area inset can be unexpectedly large
-          // on some skins/emulators, which used to leave empty white space
-          // between centered icons and the gesture bar. Anchoring the icon
-          // rows to the bottom of the content area keeps them flush above
-          // the gesture bar regardless of inset size. iOS keeps top anchoring
-          // because its layout is hand-tuned with the negative marginTop
-          // below.
-          alignItems: Platform.OS === "ios" ? "flex-start" : "flex-end",
-          justifyContent: "space-between",
-        }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            // On Android we want the icon row to size to its content so it
-            // can sit at the bottom of the parent (alignItems:flex-end above).
-            // On iOS, full-height + negative marginTop is the original layout.
-            height: Platform.OS === "ios" ? "100%" : undefined,
-            alignItems: "center",
-            marginLeft: 20,
-            // Hand-calibrated lift for iOS home-indicator geometry; on Android
-            // we already anchor to the bottom via the parent's alignItems, so
-            // no lift is needed.
-            marginTop: Platform.OS === "ios" ? -20 : 0,
-          }}
-        >
+    <View style={[styles.container, style]}>
+      {/* Glossy Docked Mini-Player when a track is active and not on dedicated track / player screen */}
+      {activeTrack && !isTrackScreen && (
+        <View style={styles.miniPlayer}>
+          {/* Progress bar line */}
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          </View>
+
           <Pressable
+            style={styles.miniPlayerContent}
             onPress={() => {
-              router.dismissTo("/");
+              router.navigate({
+                pathname: "/now-playing",
+                params: {
+                  id: activeTrack.trackGroup?.artistId,
+                  slug: activeTrack.trackGroup?.urlSlug,
+                },
+              });
             }}
-            style={{ justifyContent: "center", alignItems: "center" }}
+            accessibilityRole="button"
+            accessibilityLabel="Open now playing"
           >
-            <Ionicons
-              name={pathname === "/" ? "home" : "home-outline"}
-              accessibilityLabel="Recent Releases"
+            {activeTrack.artwork ? (
+              <Image source={{ uri: activeTrack.artwork }} style={styles.miniArtwork} />
+            ) : (
+              <View style={[styles.miniArtwork, styles.artworkPlaceholder]}>
+                <Ionicons name="musical-notes" size={18} color={theme.colors.primary} />
+              </View>
+            )}
+
+            <View style={styles.miniTrackInfo}>
+              <Text style={styles.miniTitle} numberOfLines={1}>
+                {activeTrack.title}
+              </Text>
+              <Text style={styles.miniArtist} numberOfLines={1}>
+                {activeTrack.artist}
+              </Text>
+            </View>
+          </Pressable>
+
+          <View style={styles.miniControls}>
+            <TouchableOpacity
+              onPress={togglePlayPause}
+              style={styles.miniPlayBtn}
               accessibilityRole="button"
-              accessibilityHint="Navigates to recent releases"
-              size={size}
-              color={pathname === "/" ? "#BE3455" : "#ababab"}
-            ></Ionicons>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              if (!user) {
-                router.push({
-                  pathname: "/emailVerificationModal",
-                });
-              } else {
-                if (pathname === "/") {
-                  router.navigate("/collections");
-                } else if (pathname === "/collections") {
-                  return;
-                } else {
-                  router.dismissTo("/collections");
-                }
-              }
-            }}
-            accessibilityLabel="Your Collection"
-            accessibilityRole="button"
-            accessibilityHint="Navigates to your collection page"
-            style={{
-              justifyContent: "center",
-              alignItems: "center",
-              marginLeft: 10,
-            }}
-          >
-            <Ionicons
-              //name="heart-outline"
-              name={pathname === "/collections" ? "library" : "library-outline"}
-              size={size}
-              color={pathname === "/collections" ? "#BE3455" : "#ababab"}
-              style={{ marginHorizontal: 15 }}
-              // #BE3455
-            ></Ionicons>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              if (!user) {
-                router.push({
-                  pathname: "/emailVerificationModal",
-                });
-              } else {
-                if (pathname === "/") {
-                  router.navigate("/wishlist");
-                } else if (pathname === "/wishlist") {
-                  return;
-                } else {
-                  router.dismissTo("/wishlist");
-                }
-              }
-            }}
-            accessibilityLabel="Your Wishlist"
-            accessibilityRole="button"
-            accessibilityHint="Navigates to your wishlist page"
-            style={{
-              justifyContent: "center",
-              alignItems: "center",
-              marginLeft: 10,
-            }}
-          >
-            <Ionicons
-              //name="heart-outline"
-              name={pathname === "/wishlist" ? "heart" : "heart-outline"}
-              size={size}
-              color={pathname === "/wishlist" ? "#BE3455" : "#ababab"}
-              // #BE3455
-            ></Ionicons>
-          </Pressable>
+              accessibilityLabel={isPlaying ? "Pause" : "Play"}
+            >
+              <Ionicons
+                name={isPlaying ? "pause" : "play"}
+                size={22}
+                color={theme.colors.playButtonIcon}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={skipNext}
+              style={styles.miniSkipBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Skip Next"
+            >
+              <Ionicons name="play-skip-forward" size={18} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View
-          style={{
-            flexDirection: "row",
-            // Match the left icons' Android sizing: auto-height so the row
-            // can sit at flex-end of the parent.
-            height: Platform.OS === "ios" ? "100%" : undefined,
-            alignItems: "center",
-            marginTop: Platform.OS === "ios" ? -20 : 0,
-          }}
+      )}
+
+      {/* Consolidated 3-Tab Bottom Navigation Bar */}
+      <View
+        style={[
+          styles.navBar,
+          {
+            paddingBottom: Math.max(bottom, 8),
+            height: 60 + Math.max(bottom, 8),
+          },
+        ]}
+      >
+        {/* Tab 1: Home */}
+        <Pressable
+          onPress={() => router.dismissTo("/")}
+          style={styles.navTab}
+          accessibilityRole="button"
+          accessibilityLabel="Home"
         >
-          {activeTrack && <FooterPlayButton />}
-          <Link
-            href={{
-              pathname: "/now-playing",
-              params: {
-                id: activeTrack?.trackGroup.artistId,
-                slug: activeTrack?.trackGroup.urlSlug,
-              },
-            }}
-            disabled={activeTrack ? false : true}
+          <Ionicons
+            name={pathname === "/" ? "home" : "home-outline"}
+            size={24}
+            color={pathname === "/" ? theme.colors.primary : theme.colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.navLabel,
+              pathname === "/" && styles.navLabelActive,
+            ]}
           >
-          {activeTrack && activeTrack.artwork ?
-<Image
-              source={
-                  { uri: activeTrack.artwork }
-              }
-              style={styles.image}
-            /> : null}
-          </Link>
-        </View>
+            Home
+          </Text>
+        </Pressable>
+
+        {/* Tab 2: Queue */}
+        <Pressable
+          onPress={() => {
+            if (pathname === "/feed") return;
+            router.navigate("/feed");
+          }}
+          style={styles.navTab}
+          accessibilityRole="button"
+          accessibilityLabel="Queue"
+        >
+          <StackedBoxesIcon
+            color={pathname === "/feed" ? theme.colors.primary : theme.colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.navLabel,
+              pathname === "/feed" && styles.navLabelActive,
+            ]}
+          >
+            Queue
+          </Text>
+        </Pressable>
+
+        {/* Tab 3: Consolidated Library (Likes, Wishlist & Purchases) */}
+        <Pressable
+          onPress={() => {
+            if (pathname === "/library") return;
+            router.navigate("/library");
+          }}
+          style={styles.navTab}
+          accessibilityRole="button"
+          accessibilityLabel="Library"
+        >
+          <SimpleLibraryIcon
+            color={pathname === "/library" ? theme.colors.primary : theme.colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.navLabel,
+              pathname === "/library" && styles.navLabelActive,
+            ]}
+          >
+            Library
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
-function FooterPlayButton() {
-  const { playbackState, isPlaying } = usePlayer();
-  const playIcon = <Ionicons name="play" size={40} />;
-  const pauseIcon = <Ionicons name="pause" size={40} />;
+const styles = StyleSheet.create({
+  container: {
+    width: "100%",
+    backgroundColor: theme.colors.background,
+  },
+  miniPlayer: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  progressBarBg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2.5,
+    backgroundColor: theme.colors.progressTrack,
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: theme.colors.primary,
+    ...(Platform.OS === "web" ? ({ transition: "width 0.25s linear" } as any) : {}),
+  },
+  miniPlayerContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  miniArtwork: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  artworkPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  miniTrackInfo: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  miniTitle: {
+    color: theme.colors.textPrimary,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  miniArtist: {
+    color: theme.colors.textCyan,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  miniControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 10,
+    gap: 8,
+  },
+  miniPlayBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  miniSkipBtn: {
+    padding: 6,
+  },
+  navBar: {
+    width: "100%",
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surfaceCardBorder,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingTop: 8,
+  },
+  navTab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: "500",
+  },
+  navLabelActive: {
+    color: theme.colors.primary,
+    fontWeight: "700",
+  },
+});
 
-  async function onPress(playbackState: PlaybackState | { state: undefined }) {
-    try {
-      if (
-        playbackState.state === State.Paused ||
-        playbackState.state === State.Ready
-      ) {
-        await TrackPlayer.play();
-        return;
-      } else if (
-        playbackState.state === State.Playing ||
-        playbackState.state === State.Buffering
-      ) {
-        await TrackPlayer.pause();
-        return;
-      } else {
-        console.error(`playback state: ${playbackState.state} not expected`);
-      }
-    } catch (error) {
-      console.error("issue with player toggle playback botton", error);
-    }
-  }
-
+function SimpleLibraryIcon({ color }: { color: string }) {
   return (
-    <TouchableOpacity
-      style={styles.button}
-      onPress={() => onPress(playbackState)}
-    >
-      <Ionicons
-        name={
-          playbackState.state === State.Buffering || isPlaying
-            ? "pause-outline"
-            : "play"
-        }
-        size={40}
-      />
-    </TouchableOpacity>
+    <View style={iconStyles.container}>
+      <View style={[iconStyles.bar, { backgroundColor: color, height: 16 }]} />
+      <View style={[iconStyles.bar, { backgroundColor: color, height: 20 }]} />
+      <View style={[iconStyles.bar, { backgroundColor: color, height: 13, transform: [{ rotate: "18deg" }] }]} />
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  footer: {
-    width: "100%",
-    backgroundColor: "white",
-    // borderWidth: 1,
-    // borderColor: "black",
-  },
-  progressBar: {
-    alignSelf: "stretch",
-    marginLeft: -16,
-    marginRight: -20,
-    padding: 0,
-    marginTop: -21,
-  },
-  image: {
-    width: 80,
-    height: "100%",
-    //marginTop: -20,
-  },
-  button: {
-    // borderWidth: 1,
-    // borderColor: "black",
-    //marginTop: -20,
-    height: "100%",
+function StackedBoxesIcon({ color }: { color: string }) {
+  return (
+    <View style={stackedBoxStyles.container}>
+      {/* Back box (offset upper-right) */}
+      <View style={[stackedBoxStyles.backBox, { borderColor: color }]} />
+      {/* Front box (offset lower-left) */}
+      <View style={[stackedBoxStyles.frontBox, { borderColor: color }]} />
+    </View>
+  );
+}
+
+const iconStyles = StyleSheet.create({
+  container: {
+    width: 24,
+    height: 24,
+    flexDirection: "row",
+    alignItems: "flex-end",
     justifyContent: "center",
-    marginRight: 10,
+    gap: 3.5,
+  },
+  bar: {
+    width: 3.5,
+    borderRadius: 1.5,
   },
 });
+
+const stackedBoxStyles = StyleSheet.create({
+  container: {
+    width: 24,
+    height: 24,
+    position: "relative",
+  },
+  backBox: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 2,
+    opacity: 0.55,
+  },
+  frontBox: {
+    position: "absolute",
+    bottom: 2,
+    left: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 2,
+    backgroundColor: theme.colors.surface,
+  },
+});
+

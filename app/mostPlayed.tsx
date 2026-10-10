@@ -4,18 +4,18 @@ import {
   View,
   FlatList,
   Pressable,
+  StyleSheet,
 } from "react-native";
 import MenuButton from "@/components/MenuButton";
-import { StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import TrackGroupItem from "@/components/TrackGroupItem";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Link } from "expo-router";
 import { useRouter } from "expo-router";
 import { queryMostPlayed } from "@/queries/queries";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import ErrorNotification from "@/components/ErrorNotification";
 import { useState } from "react";
+import { theme } from "@/constants/theme";
 
 export default function Index() {
   const { isPending, isError, data, error } = useQuery(queryMostPlayed({}));
@@ -26,20 +26,15 @@ export default function Index() {
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   if (isError) {
-    console.error(error);
     return (
-      <View style={{ flex: 1 }}>
+      <View style={styles.loadingContainer}>
         <ErrorNotification
           visible={showError}
           onDismiss={() => setShowError(false)}
@@ -50,82 +45,87 @@ export default function Index() {
   }
 
   return (
-    <View style={{ flex: 1, paddingTop: top, backgroundColor: "white" }}>
-      <View style={styles.container}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: 10,
-            width: "100%",
-            height: 60,
-            borderBottomWidth: 3,
-            borderBottomColor: "#e8e9eb",
-            backgroundColor: "white",
-          }}
+    <View style={[styles.mainWrapper, { paddingTop: top }]}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => router.dismiss()}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
         >
-          <Pressable onPress={() => router.dismiss()}>
-            <Ionicons
-              name="chevron-back-outline"
-              size={40}
-              style={{ color: "#696969" }}
-            ></Ionicons>
-          </Pressable>
-          <Text style={{ fontSize: 20, flex: 1, textAlign: "center" }}>
-            Most Listened To
-          </Text>
-          <MenuButton style={{ marginHorizontal: 10 }} />
-        </View>
+          <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
+        </Pressable>
+        <Text style={styles.headerTitle}>MOST LISTENED TO</Text>
+        <MenuButton />
+      </View>
 
-        <FlatList
-          style={{ width: "100%" }}
-          contentContainerStyle={styles.listContainer}
-          data={trackGroups}
-          keyExtractor={(item, index) => `${item.id}-${index}`}
-          renderItem={({ item }) => (
-            <Link
-              href={{
+      <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={trackGroups}
+        keyExtractor={(item, index) => `${item.id}-${index}`}
+        renderItem={({ item }) => (
+          <Pressable
+            onPress={() =>
+              router.navigate({
                 pathname: "/artist/[id]/album/[slug]/album-tracks",
                 params: { id: item.artistId, slug: item.urlSlug },
-              }}
-            >
-              <TrackGroupItem
-                id={item.id}
-                cover={item.cover}
-                title={item.title}
-                artist={item.artist}
-                artistId={item.artistId}
-                urlSlug={item.urlSlug}
-                userTrackGroupPurchases={item.userTrackGroupPurchases}
-                releaseDate={item.releaseDate}
-                tracks={item.tracks}
-                trackGroupId={item.trackGroupId}
-              ></TrackGroupItem>
-            </Link>
-          )}
-        ></FlatList>
-      </View>
+              })
+            }
+          >
+            <TrackGroupItem
+              id={item.id}
+              cover={item.cover}
+              title={item.title}
+              artist={item.artist}
+              artistId={item.artistId}
+              urlSlug={item.urlSlug}
+              userTrackGroupPurchases={item.userTrackGroupPurchases}
+              releaseDate={item.releaseDate}
+              tracks={item.tracks}
+              trackGroupId={item.trackGroupId}
+            />
+          </Pressable>
+        )}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  mainWrapper: {
     flex: 1,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: theme.colors.background,
+  },
+  header: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-evenly",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    height: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.surfaceCardBorder,
+    backgroundColor: theme.colors.surface,
   },
-  listContainer: {
-    backgroundColor: "#FFF",
-    zIndex: 10,
+  backBtn: {
+    padding: 6,
   },
-  text: {
-    padding: 10,
-    fontWeight: "bold",
+  headerTitle: {
+    ...theme.typography.sectionHeader,
+    fontSize: 14,
+    color: theme.colors.primary,
   },
-  loadSpinner: {
+  list: {
     flex: 1,
+  },
+  listContent: {
+    padding: 16,
+    gap: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

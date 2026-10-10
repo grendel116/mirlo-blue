@@ -42,7 +42,7 @@ export default function FavoriteTrackButton({
   return (
     <Pressable onPress={onPress} style={style}>
       <Ionicons
-        name={isInFavorites ? "star" : "star-outline"}
+        name={isInFavorites ? "heart" : "heart-outline"}
         color={isInFavorites ? "#BE3455" : "#ababab"}
         size={size}
       />

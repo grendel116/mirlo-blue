@@ -67,8 +67,17 @@ export default function AddAlbumButton({
     }
   }, [setModalVisible, user, trackGroup, router]);
   return ids && ids.includes(trackGroup.id) ? null : (
-    <Pressable onPress={onPress} style={style}>
-      <Ionicons name="add-circle-outline" size={size} color="#ababab" />
+    <Pressable
+      onPress={onPress}
+      style={style}
+      accessibilityRole="button"
+      accessibilityLabel={
+        trackGroup.minPrice === 0 || trackGroup.minPrice === null
+          ? "Add free album to collection"
+          : "Purchase album"
+      }
+    >
+      <Ionicons name="bag-handle-outline" size={size} color="#ababab" />
     </Pressable>
   );
 }

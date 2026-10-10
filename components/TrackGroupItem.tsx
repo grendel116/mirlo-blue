@@ -1,5 +1,5 @@
 import { View, Text, Image, StyleSheet } from "react-native";
-import { Link } from "expo-router";
+import { theme } from "@/constants/theme";
 
 export default function TrackGroupItem({
   id,
@@ -15,19 +15,25 @@ export default function TrackGroupItem({
         source={
           cover?.sizes
             ? { uri: cover?.sizes[120] }
-            : { uri: require("@/assets/images/mirlo-logo-logoOnly-light.png") }
+            : require("@/assets/images/mirlo-logo-logoOnly-light.png")
         }
         style={styles.image}
       />
-      <View style={{ marginLeft: 15, width: 300 }}>
+      <View style={styles.textContainer}>
         <Text
-          style={{ color: "black", fontSize: 15, fontWeight: "bold" }}
+          style={styles.title}
           ellipsizeMode="tail"
           numberOfLines={1}
         >
           {title}
         </Text>
-        <Text style={{ color: "black", fontSize: 14 }}>{artist.name}</Text>
+        <Text
+          style={styles.artist}
+          ellipsizeMode="tail"
+          numberOfLines={1}
+        >
+          {artist.name}
+        </Text>
       </View>
     </View>
   );
@@ -37,12 +43,31 @@ const styles = StyleSheet.create({
   listItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 5,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+    marginVertical: 4,
   },
   image: {
-    width: 60,
-    height: 60,
-    borderRadius: 1,
-    backgroundColor: "#f0f0f0", // placeholder color while loading
+    width: 52,
+    height: 52,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  textContainer: {
+    marginLeft: 14,
+    flex: 1,
+    gap: 4,
+  },
+  title: {
+    color: theme.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  artist: {
+    color: theme.colors.textCyan,
+    fontSize: 13,
   },
 });

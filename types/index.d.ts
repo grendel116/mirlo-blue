@@ -145,6 +145,10 @@ interface RNTrack {
   order: number;
   headers: {};
   type?: "default" | "hls" | "dash" | "smoothstreaming";
+  // Added by autoplay after the chosen playlist ran out
+  autoplay?: boolean;
+  // Station id of a live radio stream: no duration, no seeking, nothing queued after it
+  liveStation?: string;
 }
 
 interface PlayButtonProps {

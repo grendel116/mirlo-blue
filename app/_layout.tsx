@@ -57,10 +57,27 @@ export default function RootLayout() {
         <AuthContextProvider>
           <PlayerContextProvider>
             <SearchContextProvider>
-              <Stack screenOptions={{ animation: "none" }}>
+              <Stack
+                screenOptions={{
+                  animation: "none",
+                  contentStyle: { backgroundColor: "#070b14" },
+                }}
+              >
                 <Stack.Screen name="login" options={{ headerShown: false }} />
                 <Stack.Screen
                   name="index"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="feed"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="library"
                   options={{
                     headerShown: false,
                   }}
@@ -175,7 +192,7 @@ export default function RootLayout() {
                 />
               </Stack>
               <Footer />
-              <StatusBar style="dark" backgroundColor="white" />
+              <StatusBar style="light" backgroundColor="#070b14" />
             </SearchContextProvider>
           </PlayerContextProvider>
         </AuthContextProvider>

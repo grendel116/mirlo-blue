@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useCallback,
 } from "react";
 import TrackPlayer, {
   AppKilledPlaybackBehavior,
@@ -19,9 +20,17 @@ import TrackPlayer, {
   State,
 } from "react-native-track-player";
 import { useAuthContext } from "./AuthContext";
-import { isTrackOwned } from "@/scripts/utils";
+import { isTrackOwned, audioTrackType, resolveArtworkUrl } from "@/scripts/utils";
+import { API_ROOT } from "@/constants/api-root";
+import { API_KEY } from "@/constants/api-key";
 import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
+import { recordHistoryItem } from "@/scripts/historyManager";
+import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
+
+// Autoplay tops up Next Up when fewer than this many tracks remain
+const AUTOPLAY_THRESHOLD = 2;
+const AUTOPLAY_ALBUMS_PER_BATCH = 5;
 
 const setupPlayerOptions = {
   autoHandleInterruptions: true,
@@ -56,11 +65,10 @@ const updatePlayerOptions = {
     Capability.SkipToPrevious,
     Capability.SeekTo,
   ],
-  progressUpdateEventInterval: 2, // Every 2 seconds
+  progressUpdateEventInterval: 2,
 };
 
 let playerSetupPromise: Promise<void> | null = null;
-let trackPlayerMethodsPatched = false;
 
 function isAlreadyInitializedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -70,72 +78,85 @@ function isAlreadyInitializedError(error: unknown): boolean {
   );
 }
 
-async function initializeTrackPlayer(): Promise<void> {
-  try {
-    await TrackPlayer.setupPlayer(setupPlayerOptions);
-  } catch (error) {
-    if (!isAlreadyInitializedError(error)) {
-      throw error;
-    }
-  }
-
-  // Always apply options even if the player was already initialized.
-  await TrackPlayer.updateOptions(updatePlayerOptions);
-}
-
-async function ensureTrackPlayerInitialized(): Promise<void> {
+export async function ensureTrackPlayerInitialized(): Promise<void> {
   if (!playerSetupPromise) {
-    playerSetupPromise = initializeTrackPlayer().catch((error) => {
+    playerSetupPromise = (async () => {
+      try {
+        await TrackPlayer.setupPlayer(setupPlayerOptions);
+      } catch (error) {
+        if (!isAlreadyInitializedError(error)) {
+          throw error;
+        }
+      }
+      await TrackPlayer.updateOptions(updatePlayerOptions);
+    })().catch((error) => {
       playerSetupPromise = null;
       throw error;
     });
   }
-
-  await playerSetupPromise;
+  return playerSetupPromise;
 }
 
-function patchTrackPlayerMethodsForInitialization() {
-  if (trackPlayerMethodsPatched) return;
-
-  const methodsRequiringSetup = [
-    "play",
-    "pause",
-    "stop",
-    "seekTo",
-    "skip",
-    "skipToNext",
-    "skipToPrevious",
-    "setQueue",
-    "add",
-    "remove",
-    "removeUpcomingTracks",
-    "setRepeatMode",
-  ];
-
-  const trackPlayerAny = TrackPlayer as unknown as Record<
-    string,
-    (...args: unknown[]) => Promise<unknown>
-  >;
-
-  for (const methodName of methodsRequiringSetup) {
-    const originalMethod = trackPlayerAny[methodName];
-    if (typeof originalMethod !== "function") continue;
-
-    trackPlayerAny[methodName] = async (...args: unknown[]) => {
-      await ensureTrackPlayerInitialized();
-      return originalMethod(...args);
-    };
-  }
-
-  trackPlayerMethodsPatched = true;
+function resolveStreamUrl(rawAudio: string): string {
+  if (!rawAudio) return "";
+  if (/^(https?|file):\/\//.test(rawAudio)) return rawAudio;
+  const path = rawAudio.startsWith("/") ? rawAudio : `/${rawAudio}`;
+  if (API_ROOT && API_ROOT !== "/" && path.startsWith(`${API_ROOT}/`)) return path;
+  return `${API_ROOT}${path}`;
 }
 
-patchTrackPlayerMethodsForInitialization();
+// Prepares any track for the player: absolute stream URL, API key header, artwork, and artist
+function toPlayerTrack(
+  t: RNTrack,
+  fallback: { artwork?: string; artist?: string } = {},
+): RNTrack {
+  const cover = t.trackGroup?.cover as any;
+  const streamUrl = resolveStreamUrl(t.url || t.audio?.url || "");
+  const artwork = resolveArtworkUrl(
+    t.artwork ||
+      cover?.sizes?.[600] ||
+      cover?.sizes?.[300] ||
+      cover?.sizes?.[120] ||
+      (typeof cover === "string" ? cover : cover?.url) ||
+      fallback.artwork ||
+      "",
+  );
+  const artist =
+    (typeof t.artist === "string" && t.artist) ||
+    (t.artist as any)?.name ||
+    t.trackArtists?.[0]?.artistName ||
+    t.trackGroup?.artist?.name ||
+    fallback.artist ||
+    "";
 
-interface PlayerContextType {
+  return {
+    ...t,
+    url: streamUrl,
+    headers: t.headers || { "mirlo-api-key": API_KEY },
+    type: t.type || audioTrackType(streamUrl),
+    artwork,
+    artist,
+  };
+}
+
+export type QueueSection = "queue" | "upcoming";
+export type QueueSlot = { section: QueueSection; index: number };
+
+export interface PlayerContextType {
   playbackState: PlaybackState | { state: undefined };
   playableTracks: RNTrack[];
   setPlayableTracks: (tracks: RNTrack[]) => void;
+  // Tracks currently loaded in the player, and the name of where they came from
+  playingQueue: RNTrack[];
+  queueSource: string;
+  userQueue: RNTrack[];
+  setUserQueue: React.Dispatch<React.SetStateAction<RNTrack[]>>;
+  addToQueue: (track: RNTrack) => void;
+  removeFromUserQueue: (index: number) => void;
+  clearUserQueue: () => void;
+  moveQueueItem: (from: QueueSlot, to: QueueSlot) => Promise<void>;
+  playFromUserQueue: (index: number) => Promise<void>;
+  skipToUpcoming: (index: number) => Promise<void>;
   activeTrack: RNTrack | undefined;
   setActiveTrack: (track: RNTrack) => void;
   shuffled: boolean;
@@ -143,6 +164,12 @@ interface PlayerContextType {
   isPlaying: boolean;
   looping: "none" | "track" | "queue";
   setLooping: (looping: "none" | "track" | "queue") => void;
+  // Centralized transport actions
+  playTrack: (track: RNTrack, albumTracks?: RNTrack[], source?: string) => Promise<void>;
+  togglePlayPause: () => Promise<void>;
+  skipNext: () => Promise<void>;
+  skipPrevious: () => Promise<void>;
+  seekTo: (position: number) => Promise<void>;
 }
 
 export const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -152,9 +179,12 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [shuffled, setShuffled] = useState<boolean>(false);
   const [looping, setLooping] = useState<"none" | "track" | "queue">("none");
-  const [playableTracks, setPlayableTracks] = useState<RNTrack[]>([]); // Available Tracks to play when opening an album (sets the stage for a potenial queue change)
+  const [playableTracks, setPlayableTracks] = useState<RNTrack[]>([]);
+  const [playingQueue, setPlayingQueue] = useState<RNTrack[]>([]);
+  const [queueSource, setQueueSource] = useState<string>("");
+  const [userQueue, setUserQueue] = useState<RNTrack[]>([]);
   const [activeTrack, setActiveTrack] = useState<RNTrack>();
-  const [playerState, setPlayerState] = useState<any>(null);
+  const [playerState, setPlayerState] = useState<State | undefined>(undefined);
   const playBackState = usePlaybackState();
   const { user } = useAuthContext();
   const router = useRouter();
@@ -162,18 +192,29 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const activeTrackOwnedRef = useRef<boolean>(false);
   const activeTrackIdRef = useRef<number | null>(null);
+  const queueGenerationRef = useRef(0);
+  const autoplaySkipRef = useRef(0);
+  const autoplayFillingRef = useRef(false);
+  const [autoplayRecheck, setAutoplayRecheck] = useState(0);
 
-  useEffect(() => {
-    ensureTrackPlayerInitialized()
-      .then(() => {
-        console.log("track player set up");
-      })
-      .catch((err) => {
-        console.error("Issue setting up Track Player", err);
-      });
+  const addToQueue = useCallback((track: RNTrack) => {
+    setUserQueue((prev) => [...prev, track]);
   }, []);
 
-  // Clear cache when user changes (ownership might change with different users)
+  const removeFromUserQueue = useCallback((index: number) => {
+    setUserQueue((prev) => prev.filter((_, idx) => idx !== index));
+  }, []);
+
+  const clearUserQueue = useCallback(() => {
+    setUserQueue([]);
+  }, []);
+
+  useEffect(() => {
+    ensureTrackPlayerInitialized().catch((err) => {
+      console.error("Track Player initialization error:", err);
+    });
+  }, []);
+
   useEffect(() => {
     activeTrackOwnedRef.current = false;
     activeTrackIdRef.current = null;
@@ -181,8 +222,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useTrackPlayerEvents(
     [
-      Event.RemoteNext,
-      Event.RemotePrevious,
       Event.PlaybackActiveTrackChanged,
       Event.PlaybackState,
       Event.PlaybackProgressUpdated,
@@ -192,7 +231,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (event) => {
       if (
         event.type === Event.PlaybackError &&
-        event.message.includes("Track play limit exceeded")
+        event.message?.includes("Track play limit exceeded")
       ) {
         router.push("/maxPlaysReached");
         return;
@@ -200,110 +239,388 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (event.type === Event.PlaybackState) {
         setPlayerState(event.state);
+        return;
       }
-      if (
-        [
-          Event.RemoteNext,
-          Event.RemotePrevious,
-          Event.PlaybackActiveTrackChanged,
-        ].includes(event.type)
-      ) {
-        const track = (await TrackPlayer.getActiveTrack()) as RNTrack;
-        setActiveTrack(track);
 
-        // Cache ownership status when track changes
-        activeTrackOwnedRef.current = isTrackOwned(track);
-        activeTrackIdRef.current = track.id;
-        incrementedRef.current = false; // Reset for new track
-      }
       if (event.type === Event.PlaybackQueueEnded) {
-        await TrackPlayer.skip(0);
+        if (looping === "queue") {
+          await TrackPlayer.skip(0);
+        }
+        return;
       }
 
-      // Several events fire before the queue has an active track (cold-start
-      // PlaybackState/PlaybackError, non-"limit exceeded" PlaybackErrors).
-      // Bail out before touching track.trackGroup so we don't crash.
-      const track = (await TrackPlayer.getActiveTrack()) as
-        | RNTrack
-        | undefined;
-      if (!track) return;
+      if (event.type === Event.PlaybackActiveTrackChanged) {
+        const track = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+        if (track) {
+          setActiveTrack(track);
+          activeTrackOwnedRef.current = isTrackOwned(track);
+          activeTrackIdRef.current = track.id ?? null;
+          incrementedRef.current = false;
+        }
+        return;
+      }
 
-      // Handle playback progress
       if (
         !activeTrackOwnedRef.current &&
         event.type === Event.PlaybackProgressUpdated
       ) {
-        const progressRatio = event.position / event.duration;
-        // Reset incremented flag if playback is at the beginning (< 5% to be safe)
+        const progressRatio = event.duration > 0 ? event.position / event.duration : 0;
         if (progressRatio < 0.05) {
           incrementedRef.current = false;
         }
 
-        // Increment play count once when reaching 50%
         if (!incrementedRef.current && progressRatio >= 0.5) {
           incrementedRef.current = true;
-          console.log(
-            track.title + ": " + (activeTrackIdRef.current || track.id),
-          );
+          const currentTrack = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+          const targetId = activeTrackIdRef.current ?? currentTrack?.id;
 
-          // If there's not a logged-in user, we need to track plays locally. We only want to track plays if we need to -> if maxFreePlays is set.
-          // This way we don't take up memory tracking plays for songs that can be played an unlimited number of times without being purchased.
-          // We are tracking plays locally to determine if this device has reached maxFreePlays.
-          // The api point is used to register the trackPlay in the database.
-          if (!user && track.trackGroup.artist.maxFreePlays !== undefined) {
-            incrementPlayCount(activeTrackIdRef.current || track.id);
+          // Issue #67 fix: Strictly guard track ID to ensure it is a valid integer before telemetry
+          if (typeof targetId === "number" && Number.isInteger(targetId) && targetId > 0) {
+            if (!user && currentTrack?.trackGroup?.artist?.maxFreePlays !== undefined) {
+              incrementPlayCount(targetId);
+            }
+            try {
+              await api.get(`/v1/tracks/${targetId}/trackPlay`, {});
+            } catch (error) {
+              console.error("Failed to record track play:", error);
+            }
           }
-          try {
-            const res = await api.get(
-              `/v1/tracks/${activeTrackIdRef.current}/trackPlay`,
-              {},
-            );
-            console.log(res);
-          } catch (error) {
-            console.error("Failed to record track play:", error);
-          }
-        }
-      }
-
-      // Check for max plays reached
-      // Run only if user is not logged in since this is all tracked by the api for logged in users.
-      // Run only if the track has maxFreePlays set
-      // For logged in users, reachedMaxPlays modal will be pushed on playback Error
-      if (!user && track.trackGroup.artist.maxFreePlays !== undefined) {
-        if (
-          (event.type === Event.PlaybackActiveTrackChanged ||
-            (event.type === Event.PlaybackProgressUpdated &&
-              event.position === 0)) &&
-          (await reachedMaxPlays(
-            activeTrackIdRef.current || track.id,
-            track.trackGroup.artist.maxFreePlays,
-          ))
-        ) {
-          await TrackPlayer.stop();
-          router.push("/maxPlaysReached");
-          return;
         }
       }
     },
   );
 
-  const isPlaying = playerState === State.Playing;
+  const togglePlayPause = useCallback(async () => {
+    try {
+      await ensureTrackPlayerInitialized();
+      const state = playBackState.state;
+      if (state === State.Playing || state === State.Buffering) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+    } catch (err) {
+      console.error("Toggle playback error:", err);
+    }
+  }, [playBackState.state]);
+
+  const playTrack = useCallback(
+    async (track: RNTrack, albumTracks?: RNTrack[], source?: string) => {
+      try {
+        await ensureTrackPlayerInitialized();
+        const currentActive = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+
+        // If clicking the track that is already playing or paused: toggle play/pause
+        const isSameTrack =
+          currentActive &&
+          ((track.id !== undefined && currentActive.id === track.id) ||
+            (track.url && currentActive.url === track.url));
+
+        if (isSameTrack) {
+          await togglePlayPause();
+          return;
+        }
+
+        const queue = (await TrackPlayer.getQueue()) as RNTrack[];
+        const isSameAlbum =
+          currentActive &&
+          Boolean(track.trackGroup?.urlSlug) &&
+          currentActive.trackGroup?.urlSlug === track.trackGroup?.urlSlug &&
+          queue.length > 0;
+
+        // Only skip within current queue if no fresh custom album/playlist tracks list was provided
+        if (isSameAlbum && (!albumTracks || albumTracks.length === 0)) {
+          const indexInQueue = queue.findIndex(
+            (t) =>
+              (track.id !== undefined && t.id === track.id) ||
+              (track.url && t.url === track.url)
+          );
+          if (indexInQueue !== -1) {
+            await TrackPlayer.skip(indexInQueue);
+            await TrackPlayer.play();
+            return;
+          }
+        }
+
+        const enrichedTrack = toPlayerTrack(track);
+        const resolvedArtwork = enrichedTrack.artwork;
+        const enrichedArtist = enrichedTrack.artist;
+
+        // New album or new playlist: load fresh queue
+        const rawTracks = albumTracks && albumTracks.length > 0 ? albumTracks : [track];
+        const tracksToLoad = rawTracks.map((t) =>
+          toPlayerTrack(t, { artwork: resolvedArtwork, artist: enrichedArtist }),
+        );
+
+        setShuffled(false);
+        setPlayableTracks(tracksToLoad);
+        setPlayingQueue(tracksToLoad);
+        queueGenerationRef.current += 1;
+        autoplaySkipRef.current = 0;
+        setQueueSource(source || track.trackGroup?.title || "");
+        await TrackPlayer.setQueue(tracksToLoad);
+
+        // Always find the exact index of the clicked track in tracksToLoad by id, url, or title
+        let targetIndex = tracksToLoad.findIndex(
+          (t) =>
+            (track.id !== undefined && t.id === track.id) ||
+            (track.url && t.url === track.url) ||
+            (track.title && t.title === track.title)
+        );
+        if (targetIndex === -1) {
+          targetIndex = typeof track.queueIndex === "number" ? track.queueIndex : 0;
+        }
+        await TrackPlayer.skip(Math.max(0, targetIndex));
+        await TrackPlayer.play();
+
+        // Record to Viewing History if trackGroup information is available
+        if (track.trackGroup) {
+          recordHistoryItem({
+            id: track.trackGroup.id,
+            artistId: track.trackGroup.artistId,
+            urlSlug: track.trackGroup.urlSlug,
+            title: track.trackGroup.title || track.title,
+            artistName: enrichedArtist,
+            coverUri: resolvedArtwork,
+          });
+        }
+      } catch (err) {
+        console.error("Play track error:", err);
+      }
+    },
+    [togglePlayPause],
+  );
+
+  // Plays a track from "Your Queue" next, keeping the rest of the current playlist intact
+  const playFromUserQueue = useCallback(
+    async (index: number) => {
+      const queued = userQueue[index];
+      if (!queued) return;
+      try {
+        await ensureTrackPlayerInitialized();
+        const next = toPlayerTrack(queued);
+        setUserQueue((prev) => prev.filter((_, i) => i !== index));
+
+        const activeIndex = await TrackPlayer.getActiveTrackIndex();
+        if (activeIndex === undefined) {
+          await playTrack(next, [next], next.trackGroup?.title);
+          return;
+        }
+        const insertAt = activeIndex + 1;
+        await TrackPlayer.add(next, insertAt);
+        setPlayingQueue((prev) => [...prev.slice(0, insertAt), next, ...prev.slice(insertAt)]);
+        await TrackPlayer.skip(insertAt);
+        await TrackPlayer.play();
+      } catch (err) {
+        console.error("Play from queue error:", err);
+      }
+    },
+    [userQueue, playTrack],
+  );
+
+  const skipToUpcoming = useCallback(async (index: number) => {
+    try {
+      await ensureTrackPlayerInitialized();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      await TrackPlayer.skip((activeIndex ?? -1) + 1 + index);
+      await TrackPlayer.play();
+    } catch (err) {
+      console.error("Skip to upcoming error:", err);
+    }
+  }, []);
+
+  // Moves a track within or between "Your Queue" and "Next Up"
+  const moveQueueItem = useCallback(
+    async (from: QueueSlot, to: QueueSlot) => {
+      if (from.section === to.section && from.index === to.index) return;
+      try {
+        await ensureTrackPlayerInitialized();
+        const base = ((await TrackPlayer.getActiveTrackIndex()) ?? -1) + 1;
+        let nextUserQueue = [...userQueue];
+        let nextPlaying = [...playingQueue];
+
+        let item: RNTrack | undefined;
+        if (from.section === "queue") {
+          [item] = nextUserQueue.splice(from.index, 1);
+        } else {
+          [item] = nextPlaying.splice(base + from.index, 1);
+          await TrackPlayer.remove(base + from.index);
+        }
+        if (!item) return;
+
+        if (to.section === "queue") {
+          nextUserQueue.splice(to.index, 0, item);
+        } else {
+          const insertAt = base + to.index;
+          const prepared = toPlayerTrack(item);
+          nextPlaying.splice(insertAt, 0, prepared);
+          if (insertAt < nextPlaying.length - 1) {
+            await TrackPlayer.add(prepared, insertAt);
+          } else {
+            await TrackPlayer.add(prepared);
+          }
+        }
+
+        setUserQueue(nextUserQueue);
+        setPlayingQueue(nextPlaying);
+      } catch (err) {
+        console.error("Move queue item error:", err);
+      }
+    },
+    [userQueue, playingQueue],
+  );
+
+  // Keeps playback going: when Next Up runs low, append previews from recent releases
+  useEffect(() => {
+    if (looping !== "none" || !activeTrack || activeTrack.liveStation || playingQueue.length === 0) return;
+    const activeIndex = playingQueue.findIndex(
+      (t) =>
+        (activeTrack.id !== undefined && t.id === activeTrack.id) ||
+        (activeTrack.url && t.url === activeTrack.url),
+    );
+    if (activeIndex < 0) return;
+    if (playingQueue.length - activeIndex - 1 >= AUTOPLAY_THRESHOLD) return;
+    if (autoplayFillingRef.current) return;
+
+    autoplayFillingRef.current = true;
+    const generation = queueGenerationRef.current;
+    const known = new Set(playingQueue.map((t) => t.id));
+
+    (async () => {
+      try {
+        // Skip past albums whose previews are all already queued
+        let added: RNTrack[] = [];
+        for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
+          const batch = await fetchRecentReleaseTracks(
+            autoplaySkipRef.current,
+            AUTOPLAY_ALBUMS_PER_BATCH,
+          );
+          autoplaySkipRef.current += AUTOPLAY_ALBUMS_PER_BATCH;
+          if (batch.length === 0) break;
+          added = batch.filter((t) => !known.has(t.id)).map((t) => toPlayerTrack(t));
+        }
+        if (added.length === 0 || generation !== queueGenerationRef.current) return;
+
+        await TrackPlayer.add(added as any);
+        setPlayingQueue((prev) => [...prev, ...added]);
+      } catch (err) {
+        console.error("Autoplay error:", err);
+      } finally {
+        autoplayFillingRef.current = false;
+        if (generation !== queueGenerationRef.current) setAutoplayRecheck((n) => n + 1);
+      }
+    })();
+  }, [activeTrack, playingQueue, looping, autoplayRecheck]);
+
+  const skipNext = useCallback(async () => {
+    try {
+      await ensureTrackPlayerInitialized();
+      if (userQueue.length > 0) {
+        await playFromUserQueue(0);
+        return;
+      }
+      const queue = await TrackPlayer.getQueue();
+      const trackIndex = await TrackPlayer.getActiveTrackIndex();
+      if (queue.length === 0 || trackIndex === undefined) return;
+
+      if (trackIndex >= queue.length - 1) {
+        await TrackPlayer.skip(0);
+      } else {
+        await TrackPlayer.skipToNext();
+      }
+    } catch (err) {
+      console.error("Skip next error:", err);
+    }
+  }, [userQueue, playFromUserQueue]);
+
+  const skipPrevious = useCallback(async () => {
+    try {
+      await ensureTrackPlayerInitialized();
+      const progress = await TrackPlayer.getProgress();
+      if (progress.position > 3) {
+        await TrackPlayer.seekTo(0);
+        return;
+      }
+
+      const queue = await TrackPlayer.getQueue();
+      const trackIndex = await TrackPlayer.getActiveTrackIndex();
+      if (queue.length === 0 || trackIndex === undefined) return;
+
+      if (trackIndex === 0) {
+        await TrackPlayer.skip(queue.length - 1);
+      } else {
+        await TrackPlayer.skipToPrevious();
+      }
+    } catch (err) {
+      console.error("Skip previous error:", err);
+    }
+  }, []);
+
+  const seekTo = useCallback(async (position: number) => {
+    try {
+      await ensureTrackPlayerInitialized();
+      await TrackPlayer.seekTo(position);
+    } catch (err) {
+      console.error("Seek error:", err);
+    }
+  }, []);
+
+  const isPlaying =
+    playerState === State.Playing || playBackState.state === State.Playing;
 
   const value: PlayerContextType = useMemo(
     () => ({
       playbackState: playBackState,
-      playableTracks: playableTracks, // This was already memoized indirectly by the array reference, but explicit useMemo is fine
-      setPlayableTracks: setPlayableTracks,
-      activeTrack: activeTrack,
-      setActiveTrack: setActiveTrack,
-      shuffled: shuffled,
-      setShuffled: setShuffled,
-      isPlaying: isPlaying,
-      looping: looping,
-      setLooping: setLooping,
+      playableTracks,
+      setPlayableTracks,
+      playingQueue,
+      queueSource,
+      userQueue,
+      setUserQueue,
+      addToQueue,
+      removeFromUserQueue,
+      clearUserQueue,
+      moveQueueItem,
+      playFromUserQueue,
+      skipToUpcoming,
+      activeTrack,
+      setActiveTrack,
+      shuffled,
+      setShuffled,
+      isPlaying,
+      looping,
+      setLooping,
+      playTrack,
+      togglePlayPause,
+      skipNext,
+      skipPrevious,
+      seekTo,
     }),
-    [playBackState, playableTracks, activeTrack, shuffled, isPlaying, looping],
+    [
+      playBackState,
+      playableTracks,
+      playingQueue,
+      queueSource,
+      userQueue,
+      setUserQueue,
+      addToQueue,
+      removeFromUserQueue,
+      clearUserQueue,
+      moveQueueItem,
+      playFromUserQueue,
+      skipToUpcoming,
+      activeTrack,
+      shuffled,
+      isPlaying,
+      looping,
+      playTrack,
+      togglePlayPause,
+      skipNext,
+      skipPrevious,
+      seekTo,
+    ],
   );
+
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
   );
@@ -311,10 +628,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
 export const usePlayer = (): PlayerContextType => {
   const context = useContext(PlayerContext);
-
   if (!context) {
-    throw new Error("usePlayer must be used within a PlayerContext Provider");
+    throw new Error("usePlayer must be used within a PlayerContextProvider");
   }
-
   return context;
 };

@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 type WishlistButton = {
   trackGroup: {
     id: number;
+    tracks?: RNTrack[];
   };
   style?: ViewStyle;
   size?: number;
@@ -34,15 +35,34 @@ export default function WishlistButton({
       });
       return null;
     }
-    await api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
-      wishlist: !isInWishlist,
-    });
-    setIsInWishlist((val) => !val);
+
+    const nextState = !isInWishlist;
+    setIsInWishlist(nextState);
+
+    try {
+      await api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
+        wishlist: nextState,
+      });
+
+      // If liking the album, also automatically like all album tracks
+      if (trackGroup.tracks && Array.isArray(trackGroup.tracks)) {
+        await Promise.allSettled(
+          trackGroup.tracks.map((t) =>
+            api.post(`/v1/tracks/${t.id}/favorite`, {
+              favorite: nextState,
+            }),
+          ),
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update wishlist / track favorites:", err);
+    }
+
     queryClient.invalidateQueries({
       queryKey: ["fetchWishlist", { userId: user.id }],
     });
     refreshLoggedInUser();
-  }, [isInWishlist, trackGroup.id]);
+  }, [isInWishlist, trackGroup, user, queryClient, refreshLoggedInUser, router]);
 
   return (
     <Pressable onPress={onPress} style={style}>

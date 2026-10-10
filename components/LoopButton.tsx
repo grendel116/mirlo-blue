@@ -1,20 +1,13 @@
-import { Image, Text, View, TouchableOpacity, StyleSheet } from "react-native";
+import { Text, View, TouchableOpacity, StyleSheet } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import { API_ROOT } from "@/constants/api-root";
 import TrackPlayer, { RepeatMode } from "react-native-track-player";
-import { useState } from "react";
+import { theme } from "@/constants/theme";
 
 export default function LoopButton() {
-  // const [looping, setLooping] = useState<"none" | "track" | "queue">("none");
   const { looping, setLooping } = usePlayer();
-  const loopIcon = (
-    <Ionicons
-      name="repeat"
-      size={30}
-      color={looping === "queue" || looping === "track" ? "#BE3455" : "black"}
-    />
-  );
+  const isLoopActive = looping === "queue" || looping === "track";
+  const loopColor = isLoopActive ? theme.colors.primary : theme.colors.textSecondary;
 
   const onPress = async () => {
     try {
@@ -35,8 +28,17 @@ export default function LoopButton() {
 
   return (
     <View>
-      <TouchableOpacity style={styles.button} onPress={onPress}>
-        <Text>{loopIcon}</Text>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Loop mode: ${looping}`}
+      >
+        <Ionicons
+          name="repeat"
+          size={24}
+          color={loopColor}
+        />
         {looping === "track" && <LoopIndicator />}
       </TouchableOpacity>
     </View>
@@ -45,7 +47,7 @@ export default function LoopButton() {
 
 const LoopIndicator = () => {
   return (
-    <View style={{ position: "absolute", right: 10, top: 5 }}>
+    <View style={styles.indicatorContainer}>
       <Text style={styles.loopIndicator}>1</Text>
     </View>
   );
@@ -53,18 +55,17 @@ const LoopIndicator = () => {
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    marginHorizontal: 10,
-    flexDirection: "row",
+    padding: 8,
     position: "relative",
   },
-  loopingQueue: {
-    color: "#BE3455",
+  indicatorContainer: {
+    position: "absolute",
+    right: 2,
+    top: 2,
   },
   loopIndicator: {
-    fontSize: 12,
-    color: "#BE3455",
+    fontSize: 10,
+    fontWeight: "700",
+    color: theme.colors.primary,
   },
 });

@@ -30,4 +30,51 @@ describe("Queue Management", () => {
     expect(queue).toContain(previewTrack3);
     expect(queue).not.toContain(nonPreviewTrack);
   });
+
+  test("Allows adding, removing, and clearing userQueue", () => {
+    let userQueue: RNTrack[] = [];
+    const addToQueue = (track: RNTrack) => {
+      userQueue = [...userQueue, track];
+    };
+    const removeFromUserQueue = (index: number) => {
+      userQueue = userQueue.filter((_, i) => i !== index);
+    };
+    const clearUserQueue = () => {
+      userQueue = [];
+    };
+
+    const trackA = createMockRNTrack({ id: 101, title: "Song A" });
+    const trackB = createMockRNTrack({ id: 102, title: "Song B" });
+
+    addToQueue(trackA);
+    addToQueue(trackB);
+    expect(userQueue).toHaveLength(2);
+    expect(userQueue[0].title).toBe("Song A");
+
+    removeFromUserQueue(0);
+    expect(userQueue).toHaveLength(1);
+    expect(userQueue[0].title).toBe("Song B");
+
+    clearUserQueue();
+    expect(userQueue).toHaveLength(0);
+  });
+
+  test("Deduplicates combined library tracks across favorites, purchases, and downloads", () => {
+    const track1 = createMockRNTrack({ id: 1, title: "Duplicated Track" });
+    const track2 = createMockRNTrack({ id: 1, title: "Duplicated Track" });
+    const track3 = createMockRNTrack({ id: 2, title: "Unique Track" });
+
+    const trackMap = new Map<number, RNTrack>();
+    [track1, track2, track3].forEach((t) => {
+      if (!trackMap.has(t.id)) {
+        trackMap.set(t.id, t);
+      }
+    });
+
+    const combined = Array.from(trackMap.values());
+    expect(combined).toHaveLength(2);
+    expect(combined.map((t) => t.id)).toEqual([1, 2]);
+  });
 });
+
+

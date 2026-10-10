@@ -1,40 +1,51 @@
 import { useSearch } from "@/state/SearchContext";
 import { Controller, useForm } from "react-hook-form";
 import { useCallback } from "react";
-import { TextInput, useWindowDimensions, View } from "react-native";
+import { TextInput, StyleSheet, View } from "react-native";
+import { theme } from "@/constants/theme";
 
 export default function SearchInput() {
   const { searchValue, setSearchValue } = useSearch();
-  const {
-    control,
-    formState: { errors },
-  } = useForm();
-  const { width, height } = useWindowDimensions();
+  const { control } = useForm();
+
   const onChangeValue = useCallback((text: string) => {
     setSearchValue(text);
   }, []);
 
   return (
-    <View style={{ paddingVertical: 10, flex: 1 }}>
+    <View style={styles.container}>
       <Controller
         control={control}
         name="search"
         render={() => (
           <TextInput
-            style={{
-              backgroundColor: "#edebeb",
-              borderRadius: 10,
-              marginLeft: 10,
-              flex: 1,
-              height: "70%",
-              paddingHorizontal: 20,
-              fontSize: 20,
-            }}
+            style={styles.input}
+            placeholder="Search artists, tracks, tags..."
+            placeholderTextColor={theme.colors.textMuted}
             value={searchValue}
             onChangeText={onChangeValue}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         )}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  input: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+    color: theme.colors.textPrimary,
+    height: 42,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+});

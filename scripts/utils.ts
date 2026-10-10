@@ -1,4 +1,29 @@
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { API_ROOT } from "@/constants/api-root";
+
+// Mirlo serves every track's audio as an HLS playlist at this path.
+// List endpoints (wishlist, collection, favorites) omit audio.url, so derive it from the id.
+export function trackStreamPath(trackId: number | string): string {
+  return `/v1/tracks/${trackId}/stream/playlist.m3u8`;
+}
+
+export function resolveArtworkUrl(rawUrl?: string): string {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "";
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("file://") ||
+    trimmed.startsWith("data:")
+  ) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/")) {
+    return `${API_ROOT}${trimmed}`;
+  }
+  return `${API_ROOT}/${trimmed}`;
+}
 
 export function audioTrackType(url: string): "default" | "hls" | "dash" {
   if (url.endsWith(".m3u8")) return "hls";

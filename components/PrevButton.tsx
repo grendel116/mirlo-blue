@@ -1,50 +1,25 @@
-import { Text, View, TouchableOpacity, StyleSheet } from "react-native";
+import { TouchableOpacity, StyleSheet } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import TrackPlayer from "react-native-track-player";
+import { theme } from "@/constants/theme";
 
 export default function PrevButton() {
-  const { setActiveTrack } = usePlayer();
-  const prevIcon = <Ionicons name="play-skip-back" size={40} />;
-
-  const prevSong = async () => {
-    try {
-      const queue = await TrackPlayer.getQueue();
-      const activeTrackIndex = await TrackPlayer.getActiveTrackIndex();
-
-      if (activeTrackIndex === 0) {
-        await TrackPlayer.skip(queue.length - 1);
-        await TrackPlayer.play();
-      } else {
-        await TrackPlayer.skipToPrevious();
-        await TrackPlayer.play();
-      }
-
-      // const newTrack = (await TrackPlayer.getActiveTrack()) as RNTrack;
-      // if (newTrack) {
-      //   setActiveTrack(newTrack);
-      // } else {
-      //   throw new Error("Couldn't get previous track");
-      // }
-    } catch (err) {
-      console.error("issue setting the song to previous track in queue");
-    }
-  };
+  const { skipPrevious } = usePlayer();
 
   return (
-    <View>
-      <TouchableOpacity style={styles.button} onPress={prevSong}>
-        <Text>{prevIcon}</Text>
-      </TouchableOpacity>
-    </View>
+    <TouchableOpacity
+      style={styles.button}
+      onPress={skipPrevious}
+      accessibilityRole="button"
+      accessibilityLabel="Previous Track"
+    >
+      <Ionicons name="play-skip-back" size={32} color={theme.colors.textPrimary} />
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 5,
-    marginRight: 10,
+    padding: 8,
   },
 });
