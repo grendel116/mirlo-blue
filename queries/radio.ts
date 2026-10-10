@@ -109,11 +109,11 @@ export function queryRadioPlays(station: RadioStation | undefined) {
   });
 }
 
-// The station's live broadcast as a player track. Empty headers keep the Mirlo API key
-// off the station's servers
+// The station's live broadcast as a player track. It has no Mirlo track id; the player
+// tells stations apart by stream URL. Empty headers keep the Mirlo API key off the
+// station's servers
 export function liveTrack(station: RadioStation): RNTrack {
   return {
-    id: 0,
     title: station.liveName,
     artist: `Live from ${station.location}`,
     artwork: "",
