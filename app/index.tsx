@@ -26,6 +26,7 @@ import {
 } from "@/queries/radio";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { usePlayer } from "@/state/PlayerContext";
+import { useAppIsReadyContext } from "@/state/AppReadyContext";
 
 export default function Index() {
   const router = useRouter();
@@ -56,6 +57,12 @@ export default function Index() {
 
   const recentReleases = recentData?.results || [];
   const popularPurchases = topSoldData?.results || [];
+
+  // The splash screen stays up until Home has its first content (or an error to show)
+  const { setIsDataLoaded } = useAppIsReadyContext();
+  useEffect(() => {
+    if (!isRecentPending) setIsDataLoaded(true);
+  }, [isRecentPending, setIsDataLoaded]);
 
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
 

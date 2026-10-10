@@ -4,9 +4,9 @@
     "slug": "mirlo-blue",
     "version": "1.0.3",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true,
@@ -17,15 +17,11 @@
           "audio"
         ]
       },
-      "icon": {
-        "dark": "./assets/images/mirlo-logo-logoOnly-dark.png",
-        "light": "./assets/images/mirlo-app-icon-light.png"
-      },
       "runtimeVersion": "1.0.2"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/Logo-Mirlo_LogoOnly.png",
+        "foregroundImage": "./assets/images/mirlo-blue-adaptive.png",
         "backgroundColor": "#070b14"
       },
       "permissions": [
@@ -43,7 +39,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Logo-Mirlo_LogoOnly.png",
+          "image": "./assets/images/mirlo-blue-splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#070b14"
