@@ -4,7 +4,6 @@ import {
   StyleSheet,
   FlatList,
   Image,
-  ActivityIndicator,
   TouchableOpacity,
   Pressable,
   useWindowDimensions,
@@ -37,6 +36,7 @@ import { mirloRed } from "@/constants/mirlo-red";
 import { theme } from "@/constants/theme";
 import TagPill from "@/components/TagPill";
 import { recordHistoryItem } from "@/scripts/historyManager";
+import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
@@ -198,21 +198,7 @@ export default function AlbumTracks() {
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
-      </View>
-    );
-  }
-
-  if (isPending) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <LoadingScreen />
     );
   }
 

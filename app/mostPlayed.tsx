@@ -1,5 +1,4 @@
 import {
-  ActivityIndicator,
   Text,
   View,
   FlatList,
@@ -16,6 +15,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import ErrorNotification from "@/components/ErrorNotification";
 import { useState } from "react";
 import { theme } from "@/constants/theme";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function Index() {
   const { isPending, isError, data, error } = useQuery(queryMostPlayed({}));
@@ -26,9 +26,7 @@ export default function Index() {
 
   if (isPending) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <LoadingScreen />
     );
   }
 

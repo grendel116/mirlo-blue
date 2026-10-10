@@ -7,7 +7,6 @@ import {
   Text,
   Image,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
   FlatList,
   useWindowDimensions} from "react-native";
@@ -26,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import AddToQueueButton from "@/components/AddToQueueButton";
 import ErrorNotification from "@/components/ErrorNotification";
+import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
@@ -84,13 +84,7 @@ export default function TrackView() {
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
-      </View>
+      <LoadingScreen />
     );
   }
 
@@ -340,8 +334,5 @@ const styles = StyleSheet.create({
     height: 380,
     backgroundColor: "#f0f0f0", // placeholder color while loading
     alignSelf: "center",
-  },
-  loadSpinner: {
-    flex: 1,
   },
 });

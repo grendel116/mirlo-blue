@@ -4,7 +4,6 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import {
   View,
   Text,
-  ActivityIndicator,
   StyleSheet,
   Pressable,
   Image,
@@ -18,6 +17,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { linkifyUrls } from "@/scripts/utils";
 import { theme } from "@/constants/theme";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function ArtistPage() {
   const { id } = useLocalSearchParams();
@@ -29,9 +29,7 @@ export default function ArtistPage() {
 
   if (isPending) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <LoadingScreen />
     );
   }
 

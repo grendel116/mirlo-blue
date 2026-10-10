@@ -17,6 +17,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import ErrorNotification from "@/components/ErrorNotification";
 import { useState } from "react";
 import { theme } from "@/constants/theme";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function TagsView() {
   const { tag } = useLocalSearchParams();
@@ -52,9 +53,7 @@ export default function TagsView() {
 
   if (isPending) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <LoadingScreen />
     );
   }
 
