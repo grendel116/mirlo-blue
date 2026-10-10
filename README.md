@@ -37,14 +37,16 @@ Open http://localhost:8081. That's it.
 
 ## On your phone
 
-Expo Go won't play music, so you need a real build. Use Expo's free cloud builder:
+**Android:** [download the app](https://expo.dev/artifacts/eas/kSMPnASqMlZe4Z58DM3w3ksgT3CgRLq1jNV4BzvxHd0.apk) on your phone and install it. Android will ask you to allow installs from your browser. Say yes.
+
+Or open the [build page](https://expo.dev/accounts/drhodesw/projects/mirlo-blue/builds/204dd045-eb9f-4a23-8eca-1f1b72f0b9c9) and scan the QR code.
+
+Want to build it yourself? Expo Go won't play music, so use Expo's free cloud builder:
 
 ```bash
 npx eas-cli login
 npx eas-cli build -p android --profile preview
 ```
-
-It hands you a link. Open it on your phone and install.
 
 ## Tests
 
