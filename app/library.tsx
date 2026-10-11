@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   ScrollView,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useMemo } from "react";
@@ -35,6 +36,14 @@ import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+
+type LibrarySort = "newest" | "title" | "artist" | "album";
+const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
+  { id: "newest", label: "Newest" },
+  { id: "title", label: "Title" },
+  { id: "artist", label: "Artist" },
+  { id: "album", label: "Album" },
+];
 
 function resolveArtwork(obj: any): string {
   if (!obj) return "";
@@ -67,9 +76,7 @@ function resolveArtist(obj: any): string {
   if (typeof obj.artist === "string" && obj.artist.trim()) return obj.artist.trim();
   if (obj.artist?.name && typeof obj.artist.name === "string") return obj.artist.name.trim();
   if (Array.isArray(obj.trackArtists) && obj.trackArtists.length > 0) {
-    const names = obj.trackArtists
-      .map((a: any) => a?.artistName || a?.name || "")
-      .filter(Boolean);
+    const names = obj.trackArtists.map((a: any) => a?.artistName || a?.name || "").filter(Boolean);
     if (names.length > 0) return names.join(", ");
   }
   if (obj.trackGroup?.artist?.name) return obj.trackGroup.artist.name.trim();
@@ -104,30 +111,26 @@ export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { playTrack, activeTrack, isPlaying } = usePlayer();
-  const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">("library");
+  const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">(
+    "library",
+  );
   const [downloadedTracks, setDownloadedTracks] = useState<DownloadedTrack[]>([]);
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
   const userId = user?.id;
 
   // Purchases query
-  const {
-    data: collectionData,
-    isPending: isCollectionPending,
-  } = useQuery(queryUserCollection(userId));
+  const { data: collectionData, isPending: isCollectionPending } = useQuery(
+    queryUserCollection(userId),
+  );
 
   // Wishlist / Likes query
-  const {
-    data: wishlistData,
-    isPending: isWishlistPending,
-  } = useQuery(queryWishlist(userId));
+  const { data: wishlistData, isPending: isWishlistPending } = useQuery(queryWishlist(userId));
 
   // Catalog releases to enrich favorited tracks whose albums are not yet in purchases/wishlist
-  const { data: catalogData } = useQuery(
-    queryTrackGroups({ distinctArtists: false, take: 50 }),
-  );
-  const { data: topSoldData } = useQuery(
-    queryTopSold({ take: 50 }),
-  );
+  const { data: catalogData } = useQuery(queryTrackGroups({ distinctArtists: false, take: 50 }));
+  const { data: topSoldData } = useQuery(queryTopSold({ take: 50 }));
 
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   useEffect(() => {
@@ -146,6 +149,12 @@ export default function LibraryScreen() {
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
   const combinedTracks = useMemo(() => {
     const trackMap = new Map<number | string, RNTrack>();
+    // When each track joined the library; a track found in several places keeps the latest date
+    const addedAt = new Map<number | string, number>();
+    const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
+    const markAdded = (id: number | string, time: number) => {
+      addedAt.set(id, Math.max(addedAt.get(id) || 0, time));
+    };
 
     // Build album lookup map (by id, trackGroupId, slug, title) from all available sources
     const albumLookup = new Map<
@@ -218,11 +227,9 @@ export default function LibraryScreen() {
         if (albumLookup.has(String(id))) return albumLookup.get(String(id));
       }
 
-      const candidateSlugs = [
-        t?.trackGroup?.urlSlug,
-        t?.album?.urlSlug,
-        fav?.urlSlug,
-      ].filter(Boolean);
+      const candidateSlugs = [t?.trackGroup?.urlSlug, t?.album?.urlSlug, fav?.urlSlug].filter(
+        Boolean,
+      );
 
       for (const slug of candidateSlugs) {
         if (albumLookup.has(slug)) return albumLookup.get(slug);
@@ -248,10 +255,12 @@ export default function LibraryScreen() {
       t: any,
       fav?: any,
       albumFallback?: { artwork: string; artist: string; trackGroup: any },
+      added = 0,
     ) => {
       if (!t) return;
       const trackId = t.id ?? fav?.trackId ?? t.trackId;
       if (!trackId) return;
+      markAdded(trackId, added);
 
       const matched = matchAlbum(t, fav) || albumFallback;
       const rawAudio = t.audio?.url || trackStreamPath(trackId);
@@ -281,16 +290,18 @@ export default function LibraryScreen() {
         return;
       }
 
-      const trackGroup = t.trackGroup || t.album || matched?.trackGroup || {
-        id: t.trackGroupId || 0,
-        releaseDate: "",
-        trackGroupId: t.trackGroupId || 0,
-        title: t.title || "Track",
-        artist: { name: artist } as any,
-        artistId: 0,
-        urlSlug: "",
-        cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
-      };
+      const trackGroup = t.trackGroup ||
+        t.album ||
+        matched?.trackGroup || {
+          id: t.trackGroupId || 0,
+          releaseDate: "",
+          trackGroupId: t.trackGroupId || 0,
+          title: t.title || "Track",
+          artist: { name: artist } as any,
+          artistId: 0,
+          urlSlug: "",
+          cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
+        };
 
       trackMap.set(trackId, {
         ...t,
@@ -318,10 +329,11 @@ export default function LibraryScreen() {
     purchases.forEach((p: any) => {
       const tg = p?.trackGroup || p;
       const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
+      const added = timeOf(p?.datePurchased);
       if (tg?.tracks && Array.isArray(tg.tracks)) {
-        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback));
+        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
       } else if (p.track) {
-        addTrackToMap(p.track, p, albumFallback);
+        addTrackToMap(p.track, p, albumFallback, added);
       }
     });
 
@@ -329,23 +341,25 @@ export default function LibraryScreen() {
     wishlist.forEach((w: any) => {
       const tg = w?.trackGroup || w;
       const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
+      const added = timeOf(w?.createdAt);
       if (tg?.tracks && Array.isArray(tg.tracks)) {
-        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback));
+        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
       } else if (w.track) {
-        addTrackToMap(w.track, w, albumFallback);
+        addTrackToMap(w.track, w, albumFallback, added);
       }
     });
 
     // 3. Add tracks from user's explicit track favorites
     if (user?.trackFavorites) {
       user.trackFavorites.forEach((fav: any) => {
-        addTrackToMap(fav?.track || fav, fav);
+        addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
       });
     }
 
     // 4. Add tracks from downloaded files
     downloadedTracks.forEach((dl) => {
       if (dl && dl.id && !trackMap.has(dl.id)) {
+        markAdded(dl.id, dl.downloadedAt || 0);
         trackMap.set(dl.id, {
           id: dl.id,
           title: dl.title,
@@ -373,8 +387,33 @@ export default function LibraryScreen() {
       }
     });
 
-    return Array.from(trackMap.values());
+    // Newest additions first; tracks added together keep their album order
+    return Array.from(trackMap.values()).sort(
+      (a, b) => (addedAt.get(b.id) || 0) - (addedAt.get(a.id) || 0),
+    );
   }, [user, purchases, wishlist, catalogData, topSoldData, historyItems, downloadedTracks]);
+
+  // All Tracks as shown: matching the search, in the chosen order
+  const visibleTracks = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    const albumOf = (t: RNTrack) => t.trackGroup?.title || "";
+    const matches = query
+      ? combinedTracks.filter((t) =>
+          [t.title, t.artist, albumOf(t)].some((field) =>
+            String(field || "")
+              .toLowerCase()
+              .includes(query),
+          ),
+        )
+      : combinedTracks;
+    if (librarySort === "newest") return matches;
+    const key = (t: RNTrack) =>
+      String(
+        (librarySort === "title" ? t.title : librarySort === "artist" ? t.artist : albumOf(t)) ||
+          "",
+      );
+    return [...matches].sort((a, b) => key(a).localeCompare(key(b)));
+  }, [combinedTracks, librarySearch, librarySort]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -397,11 +436,11 @@ export default function LibraryScreen() {
             <Ionicons
               name="musical-notes"
               size={15}
-              color={activeTab === "library" ? theme.colors.playButtonIcon : theme.colors.textSecondary}
+              color={
+                activeTab === "library" ? theme.colors.playButtonIcon : theme.colors.textSecondary
+              }
             />
-            <Text
-              style={[styles.toggleText, activeTab === "library" && styles.toggleTextActive]}
-            >
+            <Text style={[styles.toggleText, activeTab === "library" && styles.toggleTextActive]}>
               All Tracks ({combinedTracks.length})
             </Text>
           </TouchableOpacity>
@@ -414,11 +453,11 @@ export default function LibraryScreen() {
             <Ionicons
               name="bag-handle-outline"
               size={15}
-              color={activeTab === "purchases" ? theme.colors.playButtonIcon : theme.colors.textSecondary}
+              color={
+                activeTab === "purchases" ? theme.colors.playButtonIcon : theme.colors.textSecondary
+              }
             />
-            <Text
-              style={[styles.toggleText, activeTab === "purchases" && styles.toggleTextActive]}
-            >
+            <Text style={[styles.toggleText, activeTab === "purchases" && styles.toggleTextActive]}>
               Purchases ({purchases.length})
             </Text>
           </TouchableOpacity>
@@ -431,11 +470,11 @@ export default function LibraryScreen() {
             <Ionicons
               name="heart-outline"
               size={15}
-              color={activeTab === "wishlist" ? theme.colors.playButtonIcon : theme.colors.textSecondary}
+              color={
+                activeTab === "wishlist" ? theme.colors.playButtonIcon : theme.colors.textSecondary
+              }
             />
-            <Text
-              style={[styles.toggleText, activeTab === "wishlist" && styles.toggleTextActive]}
-            >
+            <Text style={[styles.toggleText, activeTab === "wishlist" && styles.toggleTextActive]}>
               Likes & Wishlist ({wishlist.length})
             </Text>
           </TouchableOpacity>
@@ -448,11 +487,11 @@ export default function LibraryScreen() {
             <Ionicons
               name="download-outline"
               size={15}
-              color={activeTab === "downloads" ? theme.colors.playButtonIcon : theme.colors.textSecondary}
+              color={
+                activeTab === "downloads" ? theme.colors.playButtonIcon : theme.colors.textSecondary
+              }
             />
-            <Text
-              style={[styles.toggleText, activeTab === "downloads" && styles.toggleTextActive]}
-            >
+            <Text style={[styles.toggleText, activeTab === "downloads" && styles.toggleTextActive]}>
               Downloads ({downloadedTracks.length})
             </Text>
           </TouchableOpacity>
@@ -467,10 +506,7 @@ export default function LibraryScreen() {
           <Text style={styles.guestSubtitle}>
             Your purchases, wishlist, and favorited artists sync across all devices.
           </Text>
-          <TouchableOpacity
-            onPress={() => router.push("/login")}
-            style={styles.loginBtn}
-          >
+          <TouchableOpacity onPress={() => router.push("/login")} style={styles.loginBtn}>
             <Text style={styles.loginBtnText}>Sign In</Text>
           </TouchableOpacity>
         </View>
@@ -480,50 +516,90 @@ export default function LibraryScreen() {
             <Ionicons name="musical-notes-outline" size={48} color={theme.colors.textMuted} />
             <Text style={styles.emptyTitle}>Your library is empty</Text>
             <Text style={styles.emptySubtitle}>
-              Favorited songs, purchases, and on-device downloaded audio files will appear here together.
+              Favorited songs, purchases, and on-device downloaded audio files will appear here
+              together.
             </Text>
           </View>
         ) : (
-          <FlatList
-            data={combinedTracks}
-            keyExtractor={(item, index) => `track-${item.id}-${index}`}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => {
-              const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
-              return (
-                <Pressable
-                  onPress={() => playTrack(item, combinedTracks, "Your Library")}
-                  style={[styles.card, isSelected && styles.selectedCard]}
-                >
-                  {item.artwork ? (
-                    <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                  ) : (
-                    <View style={[styles.thumb, styles.placeholder]}>
-                      <Ionicons name="musical-notes" size={20} color={theme.colors.primary} />
-                    </View>
-                  )}
-                  <View style={styles.cardInfo}>
-                    <Text
-                      style={[
-                        styles.cardTitle,
-                        isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardArtist} numberOfLines={1}>
-                      {item.artist}
-                    </Text>
-                  </View>
-                  <View style={styles.actionRow}>
-                    <AddToQueueButton track={item} size={17} />
-                    <FavoriteTrackButton track={item} size={17} />
-                  </View>
+          <View style={styles.libraryPane}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color={theme.colors.textMuted} />
+              <TextInput
+                value={librarySearch}
+                onChangeText={setLibrarySearch}
+                placeholder="Search your library"
+                placeholderTextColor={theme.colors.textMuted}
+                style={styles.searchInput}
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {librarySearch ? (
+                <Pressable onPress={() => setLibrarySearch("")} accessibilityLabel="Clear search">
+                  <Ionicons name="close-circle" size={16} color={theme.colors.textMuted} />
                 </Pressable>
-              );
-            }}
-          />
+              ) : null}
+            </View>
+            <View style={styles.sortRow}>
+              {SORT_OPTIONS.map((option) => {
+                const active = librarySort === option.id;
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    onPress={() => setLibrarySort(option.id)}
+                    style={[styles.togglePill, active && styles.togglePillActive]}
+                  >
+                    <Text style={[styles.toggleText, active && styles.toggleTextActive]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <FlatList
+              data={visibleTracks}
+              keyExtractor={(item, index) => `track-${item.id}-${index}`}
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text style={styles.emptySubtitle}>No songs match "{librarySearch}"</Text>
+              }
+              renderItem={({ item }) => {
+                const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
+                return (
+                  <Pressable
+                    onPress={() => playTrack(item, visibleTracks, "Your Library")}
+                    style={[styles.card, isSelected && styles.selectedCard]}
+                  >
+                    {item.artwork ? (
+                      <Image source={{ uri: item.artwork }} style={styles.thumb} />
+                    ) : (
+                      <View style={[styles.thumb, styles.placeholder]}>
+                        <Ionicons name="musical-notes" size={20} color={theme.colors.primary} />
+                      </View>
+                    )}
+                    <View style={styles.cardInfo}>
+                      <Text
+                        style={[
+                          styles.cardTitle,
+                          isSelected && { color: theme.colors.primary, fontWeight: "700" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text style={styles.cardArtist} numberOfLines={1}>
+                        {item.artist}
+                      </Text>
+                    </View>
+                    <View style={styles.actionRow}>
+                      <AddToQueueButton track={item} size={17} />
+                      <FavoriteTrackButton track={item} size={17} />
+                    </View>
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
         )
       ) : activeTab === "downloads" ? (
         downloadedTracks.length === 0 ? (
@@ -531,7 +607,8 @@ export default function LibraryScreen() {
             <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
             <Text style={styles.emptyTitle}>No on-device downloads</Text>
             <Text style={styles.emptySubtitle}>
-              Audio files downloaded for offline playback will be stored on your device and displayed here.
+              Audio files downloaded for offline playback will be stored on your device and
+              displayed here.
             </Text>
           </View>
         ) : (
@@ -576,7 +653,11 @@ export default function LibraryScreen() {
                     <Image source={{ uri: item.artwork }} style={styles.thumb} />
                   ) : (
                     <View style={[styles.thumb, styles.placeholder]}>
-                      <Ionicons name="phone-portrait-outline" size={20} color={theme.colors.primary} />
+                      <Ionicons
+                        name="phone-portrait-outline"
+                        size={20}
+                        color={theme.colors.primary}
+                      />
                     </View>
                   )}
                   <View style={styles.cardInfo}>
@@ -767,6 +848,33 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 12,
     paddingBottom: 40,
+  },
+  libraryPane: {
+    flex: 1,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 4,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: theme.colors.textPrimary,
+  },
+  sortRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
   },
   card: {
     flexDirection: "row",
