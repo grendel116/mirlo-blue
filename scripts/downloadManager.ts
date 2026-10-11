@@ -1,70 +1,81 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// A song saved on the phone. Mirlo downloads keep their Mirlo track id, so the rest of the
+// app treats them as the same song and plays the saved file. Files added from the phone
+// get negative ids, which never collide with Mirlo's
 export type DownloadedTrack = {
   id: number;
   title: string;
   artist: string;
   albumTitle?: string;
   artwork?: string;
-  url: string; // local file uri or cached audio stream
+  url: string; // file:// uri of the saved audio
+  folder?: string; // file:// uri of the album folder it was unpacked into
   duration?: number;
+  bytes?: number;
   downloadedAt: number;
-  fileSize?: string;
+  source: "mirlo" | "file";
 };
 
-const DOWNLOADS_STORAGE_KEY = "mirlo_blue_downloaded_tracks_v1";
+const DOWNLOADS_STORAGE_KEY = "mirlo_blue_downloads_v2";
+
+// Formats offered for Mirlo downloads; Mirlo also has WAV, ALAC, Opus, and smaller MP3s
+export type DownloadFormat = "320.mp3" | "flac";
+export const DOWNLOAD_FORMATS: { id: DownloadFormat; label: string }[] = [
+  { id: "320.mp3", label: "MP3 320" },
+  { id: "flac", label: "FLAC" },
+];
+
+// Mirlo builds the zip, the phone downloads it, then unpacks it
+export type DownloadStage = "preparing" | "downloading" | "unpacking";
 
 type DownloadListener = (tracks: DownloadedTrack[]) => void;
 const listeners = new Set<DownloadListener>();
 
-export async function getDownloadedTracks(): Promise<DownloadedTrack[]> {
-  try {
-    const raw = await AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-    return [];
-  } catch (err) {
-    console.error("Failed to load downloads:", err);
-    return [];
-  }
+// In-memory copy so the player can look up a saved file without waiting on storage
+let downloads: DownloadedTrack[] = [];
+let loaded: Promise<DownloadedTrack[]> | null = null;
+
+function publish(next: DownloadedTrack[]) {
+  downloads = next;
+  listeners.forEach((listener) => {
+    try {
+      listener(next);
+    } catch {}
+  });
 }
 
-export async function saveDownloadedTrack(track: DownloadedTrack): Promise<void> {
-  try {
-    const current = await getDownloadedTracks();
-    const existingIndex = current.findIndex((t) => t.id === track.id);
-    let updated: DownloadedTrack[];
-    if (existingIndex >= 0) {
-      updated = [...current];
-      updated[existingIndex] = track;
-    } else {
-      updated = [track, ...current];
-    }
-    await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(updated));
-    listeners.forEach((listener) => {
-      try {
-        listener(updated);
-      } catch {}
-    });
-  } catch (err) {
-    console.error("Failed to save downloaded track:", err);
-  }
+async function persist(next: DownloadedTrack[]) {
+  await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(next));
+  publish(next);
 }
 
-export async function removeDownloadedTrack(trackId: number): Promise<void> {
-  try {
-    const current = await getDownloadedTracks();
-    const updated = current.filter((t) => t.id !== trackId);
-    await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(updated));
-    listeners.forEach((listener) => {
-      try {
-        listener(updated);
-      } catch {}
-    });
-  } catch (err) {
-    console.error("Failed to remove downloaded track:", err);
+export function getDownloadedTracks(): Promise<DownloadedTrack[]> {
+  if (!loaded) {
+    loaded = AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY)
+      .then((raw) => {
+        const parsed = raw ? JSON.parse(raw) : [];
+        downloads = Array.isArray(parsed) ? parsed : [];
+        return downloads;
+      })
+      .catch((err) => {
+        console.error("Failed to load downloads:", err);
+        return [];
+      });
   }
+  return loaded;
+}
+
+// Newest first; a song downloaded again replaces its earlier copy
+export async function saveDownloadedTracks(tracks: DownloadedTrack[]): Promise<void> {
+  const current = await getDownloadedTracks();
+  const ids = new Set(tracks.map((t) => t.id));
+  await persist([...tracks, ...current.filter((t) => !ids.has(t.id))]);
+}
+
+export async function forgetDownloadedTrack(trackId: number): Promise<void> {
+  const current = await getDownloadedTracks();
+  await persist(current.filter((t) => t.id !== trackId));
 }
 
 export function subscribeDownloads(listener: DownloadListener): () => void {
@@ -72,4 +83,38 @@ export function subscribeDownloads(listener: DownloadListener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+// The saved copy of a song, if there is one
+export function findDownload(trackId: number | undefined): DownloadedTrack | undefined {
+  if (trackId === undefined) return undefined;
+  return downloads.find((t) => t.id === trackId);
+}
+
+// A saved song as a player track
+export function downloadToTrack(dl: DownloadedTrack): RNTrack {
+  return {
+    id: dl.id,
+    title: dl.title,
+    artist: dl.artist,
+    artwork: dl.artwork,
+    url: dl.url,
+    queueIndex: 0,
+    trackGroupId: 0,
+    trackGroup: {
+      id: 0,
+      releaseDate: "",
+      trackGroupId: 0,
+      title: dl.albumTitle || "On this phone",
+      artist: { name: dl.artist } as any,
+      artistId: 0,
+      urlSlug: "",
+      cover: { sizes: {} as any },
+    },
+    audio: { url: dl.url, duration: dl.duration },
+    isPreview: false,
+    order: 1,
+    headers: {},
+    allowIndividualSale: false,
+  } as RNTrack;
 }

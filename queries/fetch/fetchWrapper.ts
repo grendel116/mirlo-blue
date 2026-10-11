@@ -4,6 +4,25 @@ import { MirloFetchError } from "./MirloFetchError";
 import * as SecureStorage from "expo-secure-store";
 
 /**
+ * Headers that identify the app and the logged-in user to Mirlo's API.
+ * File downloads use these too, so they authenticate exactly like API calls.
+ */
+export async function mirloHeaders(): Promise<Record<string, string>> {
+  const jwtToken = await SecureStorage.getItemAsync("jwt");
+  const refreshToken = await SecureStorage.getItemAsync("refresh");
+  const headers: Record<string, string> = {};
+
+  let cookieHeader = "";
+  if (jwtToken) cookieHeader += `jwt=${jwtToken}; `;
+  if (refreshToken) cookieHeader += `refresh=${refreshToken}`;
+  if (cookieHeader) headers["Cookie"] = cookieHeader;
+  if (jwtToken) headers["x-mirlo-jwt"] = jwtToken;
+  if (refreshToken) headers["x-mirlo-refresh"] = refreshToken;
+  if (API_KEY) headers["mirlo-api-key"] = API_KEY;
+  return headers;
+}
+
+/**
  * Wraps fetch() calls to Mirlo's API with error handling.
  *
  * @param endpoint The API request path (appended to API_ROOT)
@@ -16,28 +35,8 @@ async function fetchWrapper<R>(
   endpoint: string,
   init: RequestInit,
 ): Promise<R> {
-  const jwtToken = await SecureStorage.getItemAsync("jwt");
-  const refreshToken = await SecureStorage.getItemAsync("refresh");
-
-  let cookieHeader = "";
-  if (jwtToken) cookieHeader += `jwt=${jwtToken}; `;
-  if (refreshToken) cookieHeader += `refresh=${refreshToken}`;
-
   const headers = new Headers(init.headers);
-
-  if (cookieHeader) {
-    headers.append("Cookie", cookieHeader);
-  }
-  if (jwtToken) {
-    headers.append("x-mirlo-jwt", jwtToken);
-  }
-  if (refreshToken) {
-    headers.append("x-mirlo-refresh", refreshToken);
-  }
-
-  if (API_KEY) {
-    headers.append("mirlo-api-key", API_KEY);
-  }
+  Object.entries(await mirloHeaders()).forEach(([key, value]) => headers.append(key, value));
 
   const res = await fetch(`${API_ROOT}${endpoint}`, {
     ...init,

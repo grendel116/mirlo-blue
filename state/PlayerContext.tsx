@@ -29,6 +29,7 @@ import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
+import { findDownload, getDownloadedTracks } from "@/scripts/downloadManager";
 
 // Autoplay tops up when fewer than this many previews wait after the playlist
 const AUTOPLAY_THRESHOLD = 2;
@@ -132,13 +133,15 @@ function resolveStreamUrl(rawAudio: string): string {
   return `${API_ROOT}${path}`;
 }
 
-// Prepares any track for the player: absolute stream URL, API key header, artwork, and artist
+// Prepares any track for the player: absolute stream URL, API key header, artwork, and artist.
+// A song saved on the phone plays from its file instead of streaming
 function toPlayerTrack(
   t: RNTrack,
   fallback: { artwork?: string; artist?: string } = {},
 ): RNTrack {
   const cover = t.trackGroup?.cover as any;
-  const streamUrl = resolveStreamUrl(t.url || t.audio?.url || "");
+  const saved = findDownload(t.id);
+  const streamUrl = saved?.url ?? resolveStreamUrl(t.url || t.audio?.url || "");
   const artwork = resolveArtworkUrl(
     t.artwork ||
       cover?.sizes?.[600] ||
@@ -159,8 +162,8 @@ function toPlayerTrack(
   return {
     ...t,
     url: streamUrl,
-    headers: t.headers || { "mirlo-api-key": API_KEY },
-    type: t.type || audioTrackType(streamUrl),
+    headers: saved ? {} : t.headers || { "mirlo-api-key": API_KEY },
+    type: saved ? "default" : t.type || audioTrackType(streamUrl),
     // Android's player rejects an empty artwork URL; tracks without art leave it out
     artwork: artwork || undefined,
     artist,
@@ -265,6 +268,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   useEffect(() => {
+    getDownloadedTracks();
     syncFromPlayer();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") syncFromPlayer();

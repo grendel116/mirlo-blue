@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useMemo } from "react";
@@ -29,13 +30,20 @@ import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import {
   getDownloadedTracks,
   subscribeDownloads,
-  removeDownloadedTrack,
+  downloadToTrack,
   DownloadedTrack,
 } from "@/scripts/downloadManager";
+import { OFFLINE_SUPPORTED, importFiles, removeDownload } from "@/scripts/offlineFiles";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1e3)} KB`;
+}
 
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
@@ -145,6 +153,16 @@ export default function LibraryScreen() {
     getDownloadedTracks().then(setDownloadedTracks);
     return subscribeDownloads(setDownloadedTracks);
   }, []);
+
+  const [importing, setImporting] = useState(false);
+  const addFiles = () => {
+    setImporting(true);
+    importFiles()
+      .catch((err) =>
+        Alert.alert("Couldn't add files", err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setImporting(false));
+  };
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
   const combinedTracks = useMemo(() => {
@@ -356,35 +374,10 @@ export default function LibraryScreen() {
       });
     }
 
-    // 4. Add tracks from downloaded files
+    // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
     downloadedTracks.forEach((dl) => {
-      if (dl && dl.id && !trackMap.has(dl.id)) {
-        markAdded(dl.id, dl.downloadedAt || 0);
-        trackMap.set(dl.id, {
-          id: dl.id,
-          title: dl.title,
-          artist: dl.artist,
-          artwork: resolveArtworkUrl(dl.artwork) || "",
-          url: dl.url,
-          queueIndex: 0,
-          trackGroupId: 0,
-          trackGroup: {
-            id: 0,
-            releaseDate: "",
-            trackGroupId: 0,
-            title: dl.albumTitle || "Downloaded Audio",
-            artist: { name: dl.artist } as any,
-            artistId: 0,
-            urlSlug: "",
-            cover: { sizes: {} as any },
-          },
-          audio: { url: dl.url, duration: dl.duration },
-          isPreview: true,
-          order: 1,
-          headers: {},
-          allowIndividualSale: false,
-        });
-      }
+      markAdded(dl.id, dl.downloadedAt);
+      if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
     });
 
     // Newest additions first; tracks added together keep their album order
@@ -593,7 +586,7 @@ export default function LibraryScreen() {
                     </View>
                     <View style={styles.actionRow}>
                       <AddToQueueButton track={item} size={17} />
-                      <FavoriteTrackButton track={item} size={17} />
+                      {item.id > 0 && <FavoriteTrackButton track={item} size={17} />}
                     </View>
                   </Pressable>
                 );
@@ -602,90 +595,97 @@ export default function LibraryScreen() {
           </View>
         )
       ) : activeTab === "downloads" ? (
-        downloadedTracks.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTitle}>No on-device downloads</Text>
-            <Text style={styles.emptySubtitle}>
-              Audio files downloaded for offline playback will be stored on your device and
-              displayed here.
+        <View style={styles.libraryPane}>
+          <View style={styles.downloadsBar}>
+            <Text style={styles.downloadsTotal}>
+              {downloadedTracks.length > 0
+                ? `${formatBytes(downloadedTracks.reduce((sum, d) => sum + (d.bytes || 0), 0))} on this phone`
+                : ""}
             </Text>
+            {OFFLINE_SUPPORTED && (
+              <TouchableOpacity
+                onPress={addFiles}
+                disabled={importing}
+                style={[styles.togglePill, styles.togglePillActive]}
+                accessibilityLabel="Add audio files from this phone"
+              >
+                {importing ? (
+                  <ActivityIndicator size="small" color={theme.colors.playButtonIcon} />
+                ) : (
+                  <Ionicons name="add" size={15} color={theme.colors.playButtonIcon} />
+                )}
+                <Text style={[styles.toggleText, styles.toggleTextActive]}>Add files</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        ) : (
-          <FlatList
-            data={downloadedTracks}
-            keyExtractor={(item) => `dl-${item.id}`}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => {
-              const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
-              return (
-                <Pressable
-                  onPress={() => {
-                    const rnTrack: RNTrack = {
-                      id: item.id,
-                      title: item.title,
-                      artist: item.artist,
-                      artwork: item.artwork || "",
-                      url: item.url,
-                      queueIndex: 0,
-                      trackGroupId: 0,
-                      trackGroup: {
-                        id: 0,
-                        releaseDate: "",
-                        trackGroupId: 0,
-                        title: item.albumTitle || "Downloaded Audio",
-                        artist: { name: item.artist } as any,
-                        artistId: 0,
-                        urlSlug: "",
-                        cover: { sizes: {} as any },
-                      },
-                      audio: { url: item.url, duration: item.duration },
-                      isPreview: true,
-                      order: 1,
-                      headers: {},
-                      allowIndividualSale: false,
-                    };
-                    playTrack(rnTrack);
-                  }}
-                  style={[styles.card, isSelected && styles.selectedCard]}
-                >
-                  {item.artwork ? (
-                    <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                  ) : (
-                    <View style={[styles.thumb, styles.placeholder]}>
-                      <Ionicons
-                        name="phone-portrait-outline"
-                        size={20}
-                        color={theme.colors.primary}
-                      />
-                    </View>
-                  )}
-                  <View style={styles.cardInfo}>
-                    <Text
-                      style={[
-                        styles.cardTitle,
-                        isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardArtist} numberOfLines={1}>
-                      {item.artist} {item.fileSize ? `• ${item.fileSize}` : ""}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => removeDownloadedTrack(item.id)}
-                    style={{ padding: 6 }}
-                    accessibilityLabel="Delete download"
+          {downloadedTracks.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
+              <Text style={styles.emptyTitle}>No downloads yet</Text>
+              <Text style={styles.emptySubtitle}>
+                {OFFLINE_SUPPORTED
+                  ? "Tap the download arrow on an album you own, or add audio files from your phone."
+                  : "Downloads work in the Android app."}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={downloadedTracks}
+              keyExtractor={(item) => `dl-${item.id}`}
+              contentContainerStyle={styles.listContent}
+              renderItem={({ item }) => {
+                const isSelected = activeTrack?.id === item.id;
+                return (
+                  <Pressable
+                    onPress={() =>
+                      playTrack(
+                        downloadToTrack(item),
+                        downloadedTracks.map(downloadToTrack),
+                        "Downloads",
+                      )
+                    }
+                    style={[styles.card, isSelected && styles.selectedCard]}
                   >
-                    <Ionicons name="trash-outline" size={18} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
-                </Pressable>
-              );
-            }}
-          />
-        )
+                    {item.artwork ? (
+                      <Image source={{ uri: item.artwork }} style={styles.thumb} />
+                    ) : (
+                      <View style={[styles.thumb, styles.placeholder]}>
+                        <Ionicons
+                          name="phone-portrait-outline"
+                          size={20}
+                          color={theme.colors.primary}
+                        />
+                      </View>
+                    )}
+                    <View style={styles.cardInfo}>
+                      <Text
+                        style={[
+                          styles.cardTitle,
+                          isSelected && { color: theme.colors.primary, fontWeight: "700" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text style={styles.cardArtist} numberOfLines={1}>
+                        {[item.artist, item.albumTitle, item.bytes ? formatBytes(item.bytes) : ""]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => removeDownload(item)}
+                      style={{ padding: 6 }}
+                      accessibilityLabel="Delete download"
+                    >
+                      <Ionicons name="trash-outline" size={18} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+        </View>
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
@@ -851,6 +851,17 @@ const styles = StyleSheet.create({
   },
   libraryPane: {
     flex: 1,
+  },
+  downloadsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  downloadsTotal: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
   },
   searchBox: {
     flexDirection: "row",
