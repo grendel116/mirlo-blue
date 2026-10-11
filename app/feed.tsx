@@ -377,7 +377,7 @@ export default function QueueScreen() {
                 <View style={styles.autoplayDivider}>
                   <Ionicons name="radio-outline" size={14} color={theme.colors.primary} />
                   <Text style={styles.autoplayDividerText}>
-                    Then: {AUTOPLAY_SOURCE} (previews)
+                    Then: {AUTOPLAY_SOURCE}
                   </Text>
                 </View>
               )}
