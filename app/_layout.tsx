@@ -137,6 +137,12 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
+                  name="station/[id]"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
                   name="mostPlayed"
                   options={{
                     headerShown: false,

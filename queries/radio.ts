@@ -17,6 +17,8 @@ export type RadioStation = {
   name: string;
   liveName: string;
   location: string;
+  // A line or two for the station screen's About section
+  about: string;
   streamUrl: string;
   playlistPage: string;
   donatePage: string;
@@ -45,6 +47,8 @@ const KEXP: RadioStation = {
   name: "KEXP",
   liveName: "KEXP 90.3 FM",
   location: "Seattle",
+  about:
+    "Listener-powered, non-profit radio from Seattle, championing new and independent music since 1972.",
   streamUrl: "https://kexp.streamguys1.com/kexp160.aac",
   playlistPage: "https://www.kexp.org/playlist/",
   donatePage: "https://www.kexp.org/donate/",
@@ -79,6 +83,8 @@ const CARBON_SOUND: RadioStation = {
   name: "Carbon Sound",
   liveName: "Carbon Sound",
   location: "Minneapolis",
+  about:
+    "Minnesota Public Radio's stream for Black music past and present: hip-hop, soul, R&B and more.",
   streamUrl: "https://carbonsound.stream.publicradio.org/carbonsound.aac",
   playlistPage: "https://www.carbonsound.fm/playlist",
   donatePage: "https://support.mpr.org/carbon-sound-web",

@@ -22,12 +22,9 @@ import {
   RADIO_STATIONS,
   RadioStation,
   queryRadioPlays,
-  liveTrack,
 } from "@/queries/radio";
 import OfflineNotice from "@/components/OfflineNotice";
-import AddToQueueButton from "@/components/AddToQueueButton";
 import { openInBrowser } from "@/scripts/openInBrowser";
-import { usePlayer } from "@/state/PlayerContext";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
 
 export default function Index() {
@@ -317,10 +314,20 @@ export default function Index() {
               )}
             </View>
 
-            {/* RADIO: one carousel per station, recently played songs */}
-            {RADIO_STATIONS.map((station) => (
-              <RadioSection key={station.id} station={station} cardWidth={cardWidth} />
-            ))}
+            {/* RADIO: one card per station, showing what's on air */}
+            <View style={styles.section}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionHeader}>Radio</Text>
+              </View>
+              <FlatList
+                horizontal
+                data={RADIO_STATIONS}
+                keyExtractor={(station) => station.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.carouselContent}
+                renderItem={({ item }) => <StationCard station={item} cardWidth={cardWidth} />}
+              />
+            </View>
           </>
         )}
       </ScrollView>
@@ -328,78 +335,37 @@ export default function Index() {
   );
 }
 
-// A station's recently played songs. The header opens the station's playlist page;
-// any card starts the live broadcast in the app
-function RadioSection({ station, cardWidth }: { station: RadioStation; cardWidth: number }) {
-  const { playTrack } = usePlayer();
-  const { data: plays = [], isPending } = useQuery(queryRadioPlays(station));
-  if (!isPending && plays.length === 0) return null;
-  const playLive = () => {
-    const track = liveTrack(station);
-    playTrack(track, [track], station.liveName);
-  };
+// A station in the Radio row, shaped like an album card: the cover and song are what's on
+// air now, and tapping opens the station's screen
+function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth: number }) {
+  const router = useRouter();
+  const { data: plays } = useQuery(queryRadioPlays(station));
+  const onAir = plays?.[0];
 
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionTitleRow}>
-        <Pressable
-          onPress={() => openInBrowser(station.playlistPage)}
-          style={styles.stationLink}
-          accessibilityRole="link"
-          accessibilityLabel={`Open the ${station.name} playlist`}
-        >
-          <Text style={styles.sectionHeader}>{station.name}</Text>
-          <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-        </Pressable>
-        <AddToQueueButton track={liveTrack(station)} size={22} color={theme.colors.primary} />
+    <Pressable
+      onPress={() => router.push({ pathname: "/station/[id]", params: { id: station.id } })}
+      accessibilityLabel={`Open ${station.name}`}
+      style={[styles.albumCard, { width: cardWidth }]}
+    >
+      <View style={styles.cardImageContainer}>
+        {onAir?.artwork ? (
+          <Image source={{ uri: onAir.artwork }} style={styles.cardCoverImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
+            <Ionicons name="radio" size={36} color={theme.colors.primary} />
+          </View>
+        )}
+        <View style={styles.glassSheen} />
+        <Text style={styles.airtimeBadge}>LIVE</Text>
       </View>
-
-      {isPending ? (
-        <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
-      ) : (
-        <FlatList
-          horizontal
-          data={plays}
-          keyExtractor={(item) => item.key}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.carouselContent}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={playLive}
-              accessibilityLabel={`Play ${station.name} live`}
-              style={[styles.albumCard, { width: cardWidth }]}
-            >
-              <View style={styles.cardImageContainer}>
-                {item.artwork ? (
-                  <Image
-                    source={{ uri: item.artwork }}
-                    style={styles.cardCoverImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-                    <Ionicons name="radio" size={36} color={theme.colors.primary} />
-                  </View>
-                )}
-                <View style={styles.glassSheen} />
-                <Text style={styles.airtimeBadge}>
-                  {new Date(item.airdate).toLocaleTimeString([], {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </Text>
-              </View>
-              <Text style={styles.cardTitle} numberOfLines={1}>
-                {item.song}
-              </Text>
-              <Text style={styles.cardArtist} numberOfLines={1}>
-                {item.artist}
-              </Text>
-            </Pressable>
-          )}
-        />
-      )}
-    </View>
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {station.name}
+      </Text>
+      <Text style={styles.cardArtist} numberOfLines={1}>
+        {onAir ? `${onAir.song} Â· ${onAir.artist}` : station.location}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -482,13 +448,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     marginBottom: 12,
-  },
-  stationLink: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginRight: 12,
   },
   sectionHeader: {
     ...theme.typography.sectionHeader,

@@ -68,13 +68,45 @@ export default function NowPlaying() {
         {/* Track & Artist Info */}
         {isLive ? (
           <View style={styles.trackInfoSection}>
-            <Text style={styles.trackTitle} numberOfLines={2}>
-              {onAir?.song || activeTrack?.title}
-            </Text>
-            <Text style={styles.cyanLink} numberOfLines={1}>
-              {onAir?.artist || activeTrack?.artist}
-            </Text>
-            <Text style={[styles.infoLabel, styles.liveStation]}>On {activeTrack?.title}</Text>
+            <View style={styles.titleRow}>
+              <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
+                {onAir?.song || activeTrack?.title}
+              </Text>
+              {activeTrack ? (
+                <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+              ) : null}
+              <View style={[styles.liveBadge, styles.titleBadge]}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            </View>
+
+            <View style={styles.artistGroupRow}>
+              <Text style={styles.infoLabel}>
+                {t("trackGroupDetails.byArtist")
+                  .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                  .trim() + " "}
+              </Text>
+              <Text style={styles.cyanLink} numberOfLines={1}>
+                {onAir?.artist || activeTrack?.artist}
+              </Text>
+            </View>
+
+            <View style={styles.artistGroupRow}>
+              <Text style={styles.infoLabel}>On </Text>
+              <Pressable
+                onPress={() => {
+                  if (!station) return;
+                  router.dismiss();
+                  router.navigate({ pathname: "/station/[id]", params: { id: station.id } });
+                }}
+                style={styles.linkPressable}
+              >
+                <Text style={styles.cyanLink} numberOfLines={1}>
+                  {activeTrack?.title}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : (
         <View style={styles.trackInfoSection}>
@@ -142,10 +174,6 @@ export default function NowPlaying() {
         {/* Progress Slider (a station shows its 10-minute set, which can't be scrubbed) */}
         {isLive ? (
           <View style={styles.progressContainer}>
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
             {hasSetTimer ? (
               <>
                 <Slider
@@ -362,8 +390,9 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12,
   },
-  liveStation: {
-    marginTop: 6,
+  titleBadge: {
+    alignSelf: "auto",
+    marginTop: 5,
   },
   liveBadge: {
     flexDirection: "row",

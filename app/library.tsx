@@ -32,6 +32,8 @@ import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+import { useStationLikes } from "@/scripts/stationLikes";
+import { findStation, liveTrack } from "@/queries/radio";
 
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
@@ -111,6 +113,7 @@ export default function LibraryScreen() {
     "library",
   );
   const downloadedTracks = useDownloads();
+  const stationLikes = useStationLikes();
   const [librarySearch, setLibrarySearch] = useState("");
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
@@ -352,11 +355,30 @@ export default function LibraryScreen() {
       if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
     });
 
+    // 5. Add liked radio stations, kept on the phone
+    stationLikes.forEach(({ stationId, likedAt }) => {
+      const station = findStation(stationId);
+      if (!station) return;
+      const key = `station:${stationId}`;
+      markAdded(key, likedAt);
+      trackMap.set(key, liveTrack(station));
+    });
+
     // Newest additions first; tracks added together keep their album order
+    const keyOf = (t: RNTrack) => (t.liveStation ? `station:${t.liveStation}` : t.id);
     return Array.from(trackMap.values()).sort(
-      (a, b) => (addedAt.get(b.id) || 0) - (addedAt.get(a.id) || 0),
+      (a, b) => (addedAt.get(keyOf(b)) || 0) - (addedAt.get(keyOf(a)) || 0),
     );
-  }, [user, purchases, wishlist, catalogData, topSoldData, historyItems, downloadedTracks]);
+  }, [
+    user,
+    purchases,
+    wishlist,
+    catalogData,
+    topSoldData,
+    historyItems,
+    downloadedTracks,
+    stationLikes,
+  ]);
 
   // All Tracks as shown: matching the search, in the chosen order
   const visibleTracks = useMemo(() => {
@@ -466,7 +488,7 @@ export default function LibraryScreen() {
       {/* Content */}
       {!user &&
       activeTab !== "downloads" &&
-      !(activeTab === "library" && downloadedTracks.length > 0) ? (
+      !(activeTab === "library" && combinedTracks.length > 0) ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
@@ -524,7 +546,7 @@ export default function LibraryScreen() {
             </View>
             <FlatList
               data={visibleTracks}
-              keyExtractor={(item, index) => `track-${item.id}-${index}`}
+              keyExtractor={(item, index) => `track-${item.liveStation ?? item.id}-${index}`}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
@@ -560,7 +582,7 @@ export default function LibraryScreen() {
                     </View>
                     <View style={styles.actionRow}>
                       <AddToQueueButton track={item} size={17} />
-                      {item.id > 0 && <FavoriteTrackButton track={item} size={17} />}
+                      <FavoriteTrackButton track={item} size={17} />
                     </View>
                   </Pressable>
                 );
