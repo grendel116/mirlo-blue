@@ -697,11 +697,16 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [shuffled, playingQueue]);
 
   // Repeat cycles off → repeat all → repeat one, using the player's own repeat mode so it
-  // also works from the lock screen and when a song ends on its own. Repeat loops only the
+  // also works from the lock screen and when a song ends on its own. On a station it toggles
+  // off ↔ repeat one, which keeps the station on past its 10-minute set. Repeat loops only the
   // listener's songs: previews leave the queue (except one already playing), and come back
   // when repeat is off
   const cycleRepeat = useCallback(async () => {
-    const next = REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
+    const next: RepeatSetting = activeTrack?.liveStation
+      ? looping === "track"
+        ? "none"
+        : "track"
+      : REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
     try {
       await ensureTrackPlayerInitialized();
       await TrackPlayer.setRepeatMode(REPEAT_MODES[next]);
@@ -722,7 +727,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Repeat mode error:", err);
     }
-  }, [looping, playingQueue, refreshQueue]);
+  }, [activeTrack, looping, playingQueue, refreshQueue]);
 
   const skipNext = useCallback(async () => {
     try {
