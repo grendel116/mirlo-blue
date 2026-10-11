@@ -2,18 +2,15 @@ import * as api from "@/queries/fetch/fetchWrapper";
 import { API_KEY } from "@/constants/api-key";
 import { trackStreamPath } from "@/scripts/utils";
 
-export const AUTOPLAY_SOURCE = "Recent Releases";
+export const AUTOPLAY_SOURCE = "Discovery";
 
-// Fetches one preview from each recent release, newest first, to continue playback after
-// the current playlist runs out. The artist's featured song leads when it's a preview,
-// otherwise the album's first preview
-export async function fetchRecentReleaseTracks(
-  skip: number,
-  take: number,
-): Promise<RNTrack[]> {
+// Fetches one preview from each of a random set of releases across the catalog, to continue
+// playback after the current playlist runs out. The artist's featured song leads when it's a
+// preview, otherwise the album's first preview
+export async function fetchDiscoveryTracks(take: number): Promise<RNTrack[]> {
   const params = new URLSearchParams({
-    skip: String(skip),
     take: String(take),
+    orderBy: "random",
     distinctArtists: "true",
     isReleased: "released",
   });

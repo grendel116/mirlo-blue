@@ -29,7 +29,7 @@ import { API_KEY } from "@/constants/api-key";
 import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
-import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
+import { fetchDiscoveryTracks } from "@/scripts/autoplay";
 import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
 
 // Autoplay tops up when fewer than this many previews wait after the playlist
@@ -240,7 +240,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const activeTrackOwnedRef = useRef<boolean>(false);
   const activeTrackIdRef = useRef<number | null>(null);
   const queueGenerationRef = useRef(0);
-  const autoplaySkipRef = useRef(0);
   const autoplayFillingRef = useRef(false);
   const [autoplayRecheck, setAutoplayRecheck] = useState(0);
   // The playlist in its own order, so turning shuffle off can put it back
@@ -546,7 +545,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
         queueGenerationRef.current += 1;
-        autoplaySkipRef.current = 0;
         setQueueSource(nextSource);
         await TrackPlayer.setQueue(tracksToLoad);
         await TrackPlayer.skip(startIndex);
@@ -623,7 +621,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     [refreshQueue],
   );
 
-  // Keeps playback going: previews from recent releases always wait after the playlist,
+  // Keeps playback going: discovery previews always wait after the playlist,
   // topped up as they play
   useEffect(() => {
     if (looping !== "none" || !activeTrack || activeTrack.liveStation || playingQueue.length === 0) return;
@@ -639,14 +637,10 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
     (async () => {
       try {
-        // Skip past albums whose previews are all already queued
+        // Draw again when a random batch only holds songs already queued
         let added: RNTrack[] = [];
         for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
-          const batch = await fetchRecentReleaseTracks(
-            autoplaySkipRef.current,
-            AUTOPLAY_ALBUMS_PER_BATCH,
-          );
-          autoplaySkipRef.current += AUTOPLAY_ALBUMS_PER_BATCH;
+          const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
           if (batch.length === 0) break;
           added = batch.filter((t) => !known.has(t.id)).map((t) => toPlayerTrack(t));
         }

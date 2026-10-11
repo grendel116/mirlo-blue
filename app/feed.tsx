@@ -142,7 +142,7 @@ export default function QueueScreen() {
   }>({ visible: false });
 
 
-  // Once playback has moved into autoplay, every upcoming track is from recent releases
+  // Once playback has moved into autoplay, every upcoming track is a discovery pick
   const nextUpSource = activeTrack?.autoplay ? AUTOPLAY_SOURCE : queueSource;
   const firstAutoplayIndex = activeTrack?.autoplay
     ? -1
