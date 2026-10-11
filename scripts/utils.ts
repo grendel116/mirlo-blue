@@ -1,5 +1,6 @@
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { API_ROOT } from "@/constants/api-root";
+import type { TrackType } from "react-native-track-player";
 
 // Mirlo serves every track's audio as an HLS playlist at this path.
 // List endpoints (wishlist, collection, favorites) omit audio.url, so derive it from the id.
@@ -25,10 +26,12 @@ export function resolveArtworkUrl(rawUrl?: string): string {
   return `${API_ROOT}/${trimmed}`;
 }
 
-export function audioTrackType(url: string): "default" | "hls" | "dash" {
-  if (url.endsWith(".m3u8")) return "hls";
-  if (url.endsWith(".mpd")) return "dash";
-  return "default";
+// The player's TrackType values are these same strings; a type-only import keeps the native
+// player module out of this file
+export function audioTrackType(url: string): TrackType {
+  if (url.endsWith(".m3u8")) return "hls" as TrackType;
+  if (url.endsWith(".mpd")) return "dash" as TrackType;
+  return "default" as TrackType;
 }
 
 export const isTrackOwnedOrPreview = (

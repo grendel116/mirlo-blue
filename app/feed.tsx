@@ -124,9 +124,9 @@ export default function QueueScreen() {
   const router = useRouter();
   const {
     activeTrack,
-    playingQueue,
     queueSource,
     userQueue,
+    upcoming: upcomingTracks,
     clearUserQueue,
     removeFromUserQueue,
     moveQueueItem,
@@ -141,13 +141,6 @@ export default function QueueScreen() {
     queueIndex?: number;
   }>({ visible: false });
 
-  // Upcoming tracks come from the playlist actually loaded in the player
-  const activeIndex = playingQueue.findIndex(
-    (t) =>
-      (activeTrack?.id !== undefined && t.id === activeTrack.id) ||
-      (activeTrack?.url && t.url === activeTrack.url),
-  );
-  const upcomingTracks = activeIndex >= 0 ? playingQueue.slice(activeIndex + 1) : [];
 
   // Once playback has moved into autoplay, every upcoming track is from recent releases
   const nextUpSource = activeTrack?.autoplay ? AUTOPLAY_SOURCE : queueSource;

@@ -144,9 +144,11 @@ interface RNTrack {
   isPreview: boolean;
   order: number;
   headers: {};
-  type?: "default" | "hls" | "dash" | "smoothstreaming";
+  type?: import("react-native-track-player").TrackType;
   // Added by autoplay after the chosen playlist ran out
   autoplay?: boolean;
+  // Picked by the listener with Add to queue: plays right after the current song
+  queued?: boolean;
   // Station id of a live radio stream: no duration, no seeking, nothing queued after it
   liveStation?: string;
 }

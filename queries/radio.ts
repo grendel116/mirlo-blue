@@ -1,4 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
+import { TrackType } from "react-native-track-player";
 
 // Independent radio stations shown on Home. Each station has a live stream and a
 // public feed of recently played songs; both are CORS-open, so web plays them directly.
@@ -121,7 +122,7 @@ export function liveTrack(station: RadioStation): RNTrack {
     artist: `Live from ${station.location}`,
     url: station.streamUrl,
     headers: {},
-    type: "default",
+    type: TrackType.Default,
     liveStation: station.id,
   } as RNTrack;
 }
