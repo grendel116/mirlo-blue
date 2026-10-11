@@ -18,6 +18,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer, QueueSlot } from "@/state/PlayerContext";
 import { theme } from "@/constants/theme";
 import { AUTOPLAY_SOURCE } from "@/scripts/autoplay";
+import ShuffleButton from "@/components/ShuffleButton";
+import LoopButton from "@/components/LoopButton";
 
 type Layout = { y: number; height: number };
 type DragState = { from: QueueSlot; dy: number; target: QueueSlot; indicatorY: number };
@@ -364,9 +366,13 @@ export default function QueueScreen() {
               nextUpHeaderLayout.current = { y, height };
             }}
           >
-            <Text style={styles.sectionTitle} numberOfLines={1}>
+            <Text style={[styles.sectionTitle, styles.nextUpTitle]} numberOfLines={1}>
               {nextUpSource ? `Next Up from: ${nextUpSource}` : "Next Up"}
             </Text>
+            <View style={styles.modeButtons}>
+              <ShuffleButton />
+              <LoopButton />
+            </View>
           </View>
         )}
 
@@ -662,6 +668,13 @@ const styles = StyleSheet.create({
   },
   nextUpHeader: {
     marginTop: 18,
+  },
+  nextUpTitle: {
+    flex: 1,
+  },
+  modeButtons: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   autoplayDivider: {
     flexDirection: "row",
