@@ -189,6 +189,8 @@ interface Artist {
     colors: ArtistColors;
   };
   user?: Partial<User>;
+  // The default tier is the free "follow" tier; any other tier is a paid subscription
+  subscriptionTiers?: { id: number; name: string; isDefaultTier: boolean }[];
   banner?: {
     url: string;
     sizes?: { [key: number]: string };
