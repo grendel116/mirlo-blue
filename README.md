@@ -8,9 +8,9 @@ A darker, bluer take on the [Mirlo](https://mirlo.space) app. Find music, play i
 
 Music belongs to the people who make it and the people who love it. Not to the platforms in the middle.
 
-Mirlo is a cooperative home for independent music. Artists get paid. Fans own what they buy. No algorithm deciding who's worth hearing. This app is a front door to that.
+[Mirlo](https://mirlo.space/team) is an audio platform built on the solidarity economy: worker owned, community rooted, open source. Artists get paid. Fans own what they buy. This app is a front door to that.
 
-- **Pay artists.** Buy the album. Subscribe to Mirlo. The money goes to people, not shareholders.
+- **Pay artists.** Buy the album. Subscribe to Mirlo. The money goes to a worker owned business, not shareholders.
 - **Own your music.** Downloads are real files on your phone. No rental. No "this album is no longer available."
 - **No lock-in.** Bring your own files too. They sit next to your Mirlo albums like equals.
 - **Share the wealth.** Previews of new releases keep playing when your music runs out. Free ads for artists, not for corporations.
@@ -72,3 +72,7 @@ npm test
 ## Thanks
 
 Built on the official [Mirlo mobile app](https://github.com/funmusicplace/mirlo-mobile). Go buy some music on [mirlo.space](https://mirlo.space).
+
+## License
+
+AGPL-3.0, same as Mirlo. See [LICENSE](LICENSE) and [License.md](License.md). Mirlo Blue is a fork of Mirlo's app, so the copyright notice stays with Mirlo US LLC. Change it, share it, keep it open.
