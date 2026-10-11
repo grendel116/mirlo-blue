@@ -14,6 +14,7 @@ export async function fetchRecentReleaseTracks(
     skip: String(skip),
     take: String(take),
     distinctArtists: "true",
+    isReleased: "released",
   });
   const { results } = await api.get<{ results: any[] }>(`/v1/trackGroups?${params}`, {});
 
