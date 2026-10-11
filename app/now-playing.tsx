@@ -70,9 +70,17 @@ export default function NowPlaying() {
         {isLive ? (
           <View style={styles.trackInfoSection}>
             <View style={styles.titleRow}>
-              <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
-                {onAir?.song || activeTrack?.title}
-              </Text>
+              <ScrollView
+                key={onAir?.song || activeTrack?.title}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.titleScroll}
+                contentContainerStyle={styles.titleScrollContent}
+              >
+                <Text style={styles.trackTitle} numberOfLines={1}>
+                  {onAir?.song || activeTrack?.title}
+                </Text>
+              </ScrollView>
               <View style={styles.titleActions}>
                 {activeTrack ? (
                   <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
@@ -114,13 +122,23 @@ export default function NowPlaying() {
         ) : (
         <View style={styles.trackInfoSection}>
           <View style={styles.titleRow}>
-            <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
-              {activeTrack?.title || "No track playing"}
-            </Text>
-            {activeTrack && activeTrack.id > 0 ? (
-              <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-            ) : null}
-            {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+            <ScrollView
+              key={activeTrack?.id ?? activeTrack?.title}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.titleScroll}
+              contentContainerStyle={styles.titleScrollContent}
+            >
+              <Text style={styles.trackTitle} numberOfLines={1}>
+                {activeTrack?.title || "No track playing"}
+              </Text>
+            </ScrollView>
+            <View style={styles.titleActions}>
+              {activeTrack && activeTrack.id > 0 ? (
+                <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+              ) : null}
+              {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+            </View>
           </View>
 
           <View style={styles.artistGroupRow}>
@@ -362,15 +380,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.colors.textPrimary,
     letterSpacing: -0.3,
-    marginBottom: 4,
   },
   titleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
+    marginBottom: 4,
   },
-  titleText: {
+  titleScroll: {
     flex: 1,
+  },
+  titleScrollContent: {
+    alignItems: "center",
   },
   artistGroupRow: {
     flexDirection: "row",
