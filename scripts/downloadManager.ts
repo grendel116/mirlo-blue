@@ -78,6 +78,22 @@ export async function forgetDownloadedTrack(trackId: number): Promise<void> {
   await persist(current.filter((t) => t.id !== trackId));
 }
 
+export async function updateDownloadedTrack(
+  trackId: number,
+  updates: Partial<DownloadedTrack>,
+): Promise<void> {
+  const current = await getDownloadedTracks();
+  await persist(current.map((t) => (t.id === trackId ? { ...t, ...updates } : t)));
+}
+
+export async function updateDownloadedTracks(
+  filter: (t: DownloadedTrack) => boolean,
+  updates: Partial<DownloadedTrack>,
+): Promise<void> {
+  const current = await getDownloadedTracks();
+  await persist(current.map((t) => (filter(t) ? { ...t, ...updates } : t)));
+}
+
 export function subscribeDownloads(listener: DownloadListener): () => void {
   listeners.add(listener);
   return () => {

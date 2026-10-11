@@ -18,3 +18,7 @@ export async function importFiles(): Promise<number> {
 export async function removeDownload(dl: DownloadedTrack): Promise<void> {
   await forgetDownloadedTrack(dl.id);
 }
+
+export async function pickCoverImage(): Promise<string | null> {
+  return null;
+}

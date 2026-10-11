@@ -31,9 +31,11 @@ import {
   getDownloadedTracks,
   subscribeDownloads,
   downloadToTrack,
+  updateDownloadedTrack,
+  updateDownloadedTracks,
   DownloadedTrack,
 } from "@/scripts/downloadManager";
-import { OFFLINE_SUPPORTED, importFiles, removeDownload } from "@/scripts/offlineFiles";
+import { OFFLINE_SUPPORTED, importFiles, removeDownload, pickCoverImage } from "@/scripts/offlineFiles";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
@@ -162,6 +164,39 @@ export default function LibraryScreen() {
         Alert.alert("Couldn't add files", err instanceof Error ? err.message : String(err)),
       )
       .finally(() => setImporting(false));
+  };
+
+  const changeCover = async (track: DownloadedTrack) => {
+    try {
+      const imageUri = await pickCoverImage();
+      if (!imageUri) return;
+
+      const sameAlbumTracks = downloadedTracks.filter(
+        (t) => t.albumTitle && t.albumTitle === track.albumTitle && t.id !== track.id,
+      );
+
+      if (sameAlbumTracks.length > 0) {
+        Alert.alert("Set cover art", "Apply this artwork to:", [
+          {
+            text: "This track only",
+            onPress: () => updateDownloadedTrack(track.id, { artwork: imageUri }),
+          },
+          {
+            text: `All tracks in "${track.albumTitle}"`,
+            onPress: () =>
+              updateDownloadedTracks(
+                (t) => t.albumTitle === track.albumTitle,
+                { artwork: imageUri },
+              ),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      } else {
+        await updateDownloadedTrack(track.id, { artwork: imageUri });
+      }
+    } catch (err) {
+      Alert.alert("Couldn't set cover", err instanceof Error ? err.message : String(err));
+    }
   };
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
@@ -646,17 +681,23 @@ export default function LibraryScreen() {
                     }
                     style={[styles.card, isSelected && styles.selectedCard]}
                   >
-                    {item.artwork ? (
-                      <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                    ) : (
-                      <View style={[styles.thumb, styles.placeholder]}>
-                        <Ionicons
-                          name="phone-portrait-outline"
-                          size={20}
-                          color={theme.colors.primary}
-                        />
-                      </View>
-                    )}
+                    <Pressable
+                      onPress={() => changeCover(item)}
+                      accessibilityLabel="Set cover art"
+                      hitSlop={4}
+                    >
+                      {item.artwork ? (
+                        <Image source={{ uri: item.artwork }} style={styles.thumb} />
+                      ) : (
+                        <View style={[styles.thumb, styles.placeholder]}>
+                          <Ionicons
+                            name="image-outline"
+                            size={20}
+                            color={theme.colors.primary}
+                          />
+                        </View>
+                      )}
+                    </Pressable>
                     <View style={styles.cardInfo}>
                       <Text
                         style={[

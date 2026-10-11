@@ -171,3 +171,19 @@ export async function removeDownload(dl: DownloadedTrack): Promise<void> {
   const folder = new Directory(dl.folder);
   if (folder.exists) folder.delete();
 }
+
+// Selects an image from the phone and saves it to app storage for offline artwork
+export async function pickCoverImage(): Promise<string | null> {
+  const picked = await DocumentPicker.getDocumentAsync({
+    type: "image/*",
+    copyToCacheDirectory: true,
+  });
+  if (picked.canceled || !picked.assets?.[0]) return null;
+
+  const asset = picked.assets[0];
+  const covers = downloadsFolder("covers");
+  const ext = asset.name.split(".").pop() || "jpg";
+  const dest = new File(covers, `${Date.now()}.${ext}`);
+  new File(asset.uri).move(dest);
+  return dest.uri;
+}
