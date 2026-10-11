@@ -37,9 +37,9 @@ Open http://localhost:8081. That's it.
 
 ## On your phone
 
-**Android:** [download the app](https://expo.dev/artifacts/eas/9Oq6hwL1Asf9ldHg2z_EZL-eqJeE93gTMZepscqIHFs.apk) on your phone and install it. Android will ask you to allow installs from your browser. Say yes.
+**Android:** [download the app](https://expo.dev/artifacts/eas/KlegDJYLVUQ4RzrFPpINH5damdiEk0SGxSK83O6XbJs.apk) on your phone and install it. Android will ask you to allow installs from your browser. Say yes.
 
-Or open the [build page](https://expo.dev/accounts/drhodesw/projects/mirlo-blue/builds/dc26712b-adfb-48c2-a613-eae5a122c2c6) and scan the QR code.
+Or open the [build page](https://expo.dev/accounts/drhodesw/projects/mirlo-blue/builds/0db15ef6-c5cb-4ad4-9c33-0717a3ac1b40) and scan the QR code.
 
 Want to build it yourself? Expo Go won't play music, so use Expo's free cloud builder:
 
