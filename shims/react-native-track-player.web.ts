@@ -63,6 +63,7 @@ export type PlaybackState = { state: State };
 let queue: any[] = [];
 let activeIndex = 0;
 let currentState: State = State.None;
+let repeatMode: RepeatMode = RepeatMode.Off;
 const listeners = new Set<(event: any) => void>();
 let audioElement: HTMLAudioElement | null = null;
 let hlsInstance: Hls | null = null;
@@ -88,8 +89,13 @@ function getAudio(): HTMLAudioElement | null {
       emit(Event.PlaybackState, { state: State.Paused });
     });
     audioElement.addEventListener("ended", () => {
-      if (activeIndex < queue.length - 1) {
+      if (repeatMode === RepeatMode.Track && audioElement) {
+        audioElement.currentTime = 0;
+        audioElement.play().catch(() => {});
+      } else if (activeIndex < queue.length - 1) {
         TrackPlayer.skipToNext();
+      } else if (repeatMode === RepeatMode.Queue && queue.length > 0) {
+        TrackPlayer.skip(0);
       } else {
         currentState = State.Ended;
         emit(Event.PlaybackQueueEnded);
@@ -279,7 +285,10 @@ const TrackPlayer = {
       buffered: 0,
     };
   },
-  setRepeatMode: async () => undefined,
+  setRepeatMode: async (mode: RepeatMode) => {
+    repeatMode = mode;
+  },
+  getRepeatMode: async () => repeatMode,
 };
 
 export default TrackPlayer;

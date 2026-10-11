@@ -17,6 +17,7 @@ import TrackPlayer, {
   usePlaybackState,
   useTrackPlayerEvents,
   PlaybackState,
+  RepeatMode,
   State,
 } from "react-native-track-player";
 import { useAuthContext } from "./AuthContext";
@@ -31,6 +32,31 @@ import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
 // Autoplay tops up Next Up when fewer than this many tracks remain
 const AUTOPLAY_THRESHOLD = 2;
 const AUTOPLAY_ALBUMS_PER_BATCH = 5;
+
+// The repeat button cycles off → repeat all → repeat one
+export type RepeatSetting = "none" | "queue" | "track";
+const REPEAT_CYCLE: RepeatSetting[] = ["none", "queue", "track"];
+const REPEAT_MODES: Record<RepeatSetting, RepeatMode> = {
+  none: RepeatMode.Off,
+  queue: RepeatMode.Queue,
+  track: RepeatMode.Track,
+};
+
+// Fisher-Yates: every order equally likely
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Same track: by Mirlo id when both have one, otherwise by stream URL
+function isSameTrack(a: RNTrack, b: RNTrack): boolean {
+  if (a.id !== undefined && b.id !== undefined) return a.id === b.id;
+  return Boolean(a.url) && a.url === b.url;
+}
 
 const setupPlayerOptions = {
   autoHandleInterruptions: true,
@@ -160,10 +186,10 @@ export interface PlayerContextType {
   activeTrack: RNTrack | undefined;
   setActiveTrack: (track: RNTrack) => void;
   shuffled: boolean;
-  setShuffled: (shuffled: boolean) => void;
+  toggleShuffle: () => Promise<void>;
   isPlaying: boolean;
-  looping: "none" | "track" | "queue";
-  setLooping: (looping: "none" | "track" | "queue") => void;
+  looping: RepeatSetting;
+  cycleRepeat: () => Promise<void>;
   // Centralized transport actions
   playTrack: (track: RNTrack, albumTracks?: RNTrack[], source?: string) => Promise<void>;
   togglePlayPause: () => Promise<void>;
@@ -178,7 +204,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [shuffled, setShuffled] = useState<boolean>(false);
-  const [looping, setLooping] = useState<"none" | "track" | "queue">("none");
+  const [looping, setLooping] = useState<RepeatSetting>("none");
   const [playableTracks, setPlayableTracks] = useState<RNTrack[]>([]);
   const [playingQueue, setPlayingQueue] = useState<RNTrack[]>([]);
   const [queueSource, setQueueSource] = useState<string>("");
@@ -196,6 +222,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const autoplaySkipRef = useRef(0);
   const autoplayFillingRef = useRef(false);
   const [autoplayRecheck, setAutoplayRecheck] = useState(0);
+  // The playlist in its own order, so turning shuffle off can put it back
+  const playlistOrderRef = useRef<RNTrack[]>([]);
 
   const addToQueue = useCallback((track: RNTrack) => {
     setUserQueue((prev) => [...prev, track]);
@@ -243,9 +271,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (event.type === Event.PlaybackQueueEnded) {
-        if (looping === "queue") {
-          await TrackPlayer.skip(0);
-        }
         return;
       }
 
@@ -348,20 +373,12 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // New album or new playlist: load fresh queue
         const rawTracks = albumTracks && albumTracks.length > 0 ? albumTracks : [track];
-        const tracksToLoad = rawTracks.map((t) =>
+        const playlist = rawTracks.map((t) =>
           toPlayerTrack(t, { artwork: resolvedArtwork, artist: enrichedArtist }),
         );
 
-        setShuffled(false);
-        setPlayableTracks(tracksToLoad);
-        setPlayingQueue(tracksToLoad);
-        queueGenerationRef.current += 1;
-        autoplaySkipRef.current = 0;
-        setQueueSource(source || track.trackGroup?.title || "");
-        await TrackPlayer.setQueue(tracksToLoad);
-
-        // Always find the exact index of the clicked track in tracksToLoad by id, url, or title
-        let targetIndex = tracksToLoad.findIndex(
+        // Find the clicked track by id, url, or title
+        let targetIndex = rawTracks.findIndex(
           (t) =>
             (track.id !== undefined && t.id === track.id) ||
             (track.url && t.url === track.url) ||
@@ -370,7 +387,22 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         if (targetIndex === -1) {
           targetIndex = typeof track.queueIndex === "number" ? track.queueIndex : 0;
         }
-        await TrackPlayer.skip(Math.max(0, targetIndex));
+        targetIndex = Math.min(Math.max(0, targetIndex), playlist.length - 1);
+
+        // Shuffle on: the clicked track plays first, the rest follow in random order
+        playlistOrderRef.current = playlist;
+        const tracksToLoad = shuffled
+          ? [playlist[targetIndex], ...shuffle(playlist.filter((_, i) => i !== targetIndex))]
+          : playlist;
+        const startIndex = shuffled ? 0 : targetIndex;
+
+        setPlayableTracks(playlist);
+        setPlayingQueue(tracksToLoad);
+        queueGenerationRef.current += 1;
+        autoplaySkipRef.current = 0;
+        setQueueSource(source || track.trackGroup?.title || "");
+        await TrackPlayer.setQueue(tracksToLoad);
+        await TrackPlayer.skip(startIndex);
         await TrackPlayer.play();
 
         // Record to Viewing History if trackGroup information is available
@@ -388,7 +420,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [togglePlayPause],
+    [togglePlayPause, shuffled],
   );
 
   // Plays a track from "Your Queue" next, keeping the rest of the current playlist intact
@@ -512,6 +544,53 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     })();
   }, [activeTrack, playingQueue, looping, autoplayRecheck]);
 
+  // Shuffle reorders what's still coming up. Turning it off puts those tracks back in
+  // playlist order; tracks added later (queued or autoplay) keep their place at the end
+  const toggleShuffle = useCallback(async () => {
+    try {
+      await ensureTrackPlayerInitialized();
+      const nextShuffled = !shuffled;
+      setShuffled(nextShuffled);
+
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      if (activeIndex === undefined) return;
+      const played = playingQueue.slice(0, activeIndex + 1);
+      const upcoming = playingQueue.slice(activeIndex + 1);
+      if (upcoming.length < 2) return;
+
+      let reordered: RNTrack[];
+      if (nextShuffled) {
+        reordered = shuffle(upcoming);
+      } else {
+        const order = playlistOrderRef.current;
+        const position = (t: RNTrack) => {
+          const i = order.findIndex((o) => isSameTrack(o, t));
+          return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+        };
+        reordered = [...upcoming].sort((a, b) => position(a) - position(b));
+      }
+
+      await TrackPlayer.removeUpcomingTracks();
+      await TrackPlayer.add(reordered as any);
+      setPlayingQueue([...played, ...reordered]);
+    } catch (err) {
+      console.error("Shuffle error:", err);
+    }
+  }, [shuffled, playingQueue]);
+
+  // Repeat cycles off → repeat all → repeat one, using the player's own repeat mode so it
+  // also works from the lock screen and when a song ends on its own
+  const cycleRepeat = useCallback(async () => {
+    const next = REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
+    try {
+      await ensureTrackPlayerInitialized();
+      await TrackPlayer.setRepeatMode(REPEAT_MODES[next]);
+      setLooping(next);
+    } catch (err) {
+      console.error("Repeat mode error:", err);
+    }
+  }, [looping]);
+
   const skipNext = useCallback(async () => {
     try {
       await ensureTrackPlayerInitialized();
@@ -586,10 +665,10 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       activeTrack,
       setActiveTrack,
       shuffled,
-      setShuffled,
+      toggleShuffle,
       isPlaying,
       looping,
-      setLooping,
+      cycleRepeat,
       playTrack,
       togglePlayPause,
       skipNext,
@@ -611,8 +690,10 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       skipToUpcoming,
       activeTrack,
       shuffled,
+      toggleShuffle,
       isPlaying,
       looping,
+      cycleRepeat,
       playTrack,
       togglePlayPause,
       skipNext,

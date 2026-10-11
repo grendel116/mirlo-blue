@@ -1,57 +1,32 @@
 import { Text, View, TouchableOpacity, StyleSheet } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import TrackPlayer, { RepeatMode } from "react-native-track-player";
 import { theme } from "@/constants/theme";
 
-export default function LoopButton() {
-  const { looping, setLooping } = usePlayer();
-  const isLoopActive = looping === "queue" || looping === "track";
-  const loopColor = isLoopActive ? theme.colors.primary : theme.colors.textSecondary;
+const LABELS = { none: "Repeat off", queue: "Repeat all", track: "Repeat one" };
 
-  const onPress = async () => {
-    try {
-      if (looping === "none") {
-        setLooping("queue");
-        await TrackPlayer.setRepeatMode(RepeatMode.Queue);
-      } else if (looping === "queue") {
-        setLooping("track");
-        await TrackPlayer.setRepeatMode(RepeatMode.Track);
-      } else {
-        setLooping("none");
-        await TrackPlayer.setRepeatMode(RepeatMode.Off);
-      }
-    } catch (err) {
-      console.error("Issue setting loop mode");
-    }
-  };
+export default function LoopButton() {
+  const { looping, cycleRepeat } = usePlayer();
+  const color = looping === "none" ? theme.colors.textSecondary : theme.colors.primary;
 
   return (
     <View>
       <TouchableOpacity
         style={styles.button}
-        onPress={onPress}
+        onPress={cycleRepeat}
         accessibilityRole="button"
-        accessibilityLabel={`Loop mode: ${looping}`}
+        accessibilityLabel={LABELS[looping]}
       >
-        <Ionicons
-          name="repeat"
-          size={24}
-          color={loopColor}
-        />
-        {looping === "track" && <LoopIndicator />}
+        <Ionicons name="repeat" size={24} color={color} />
+        {looping === "track" && (
+          <View style={styles.indicatorContainer}>
+            <Text style={styles.loopIndicator}>1</Text>
+          </View>
+        )}
       </TouchableOpacity>
     </View>
   );
 }
-
-const LoopIndicator = () => {
-  return (
-    <View style={styles.indicatorContainer}>
-      <Text style={styles.loopIndicator}>1</Text>
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   button: {
