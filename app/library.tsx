@@ -464,7 +464,9 @@ export default function LibraryScreen() {
       </View>
 
       {/* Content */}
-      {!user && activeTab !== "downloads" ? (
+      {!user &&
+      activeTab !== "downloads" &&
+      !(activeTab === "library" && downloadedTracks.length > 0) ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
