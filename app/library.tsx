@@ -39,7 +39,13 @@ import {
   groupTracksIntoAlbums,
   updateAlbumArtwork,
 } from "@/scripts/downloadManager";
-import { OFFLINE_SUPPORTED, importFiles, removeDownload, pickCoverImage } from "@/scripts/offlineFiles";
+import {
+  OFFLINE_SUPPORTED,
+  importFiles,
+  removeDownload,
+  removeAlbumDownloads,
+  pickCoverImage,
+} from "@/scripts/offlineFiles";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
@@ -214,13 +220,26 @@ export default function LibraryScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            for (const track of album.tracks) {
-              await removeDownload(track);
+            try {
+              if (expandedAlbumKey === album.key) {
+                setExpandedAlbumKey(null);
+              }
+              await removeAlbumDownloads(album.tracks);
+            } catch (err) {
+              Alert.alert("Couldn't delete album", err instanceof Error ? err.message : String(err));
             }
           },
         },
       ],
     );
+  };
+
+  const handleDeleteTrack = async (track: DownloadedTrack) => {
+    try {
+      await removeDownload(track);
+    } catch (err) {
+      Alert.alert("Couldn't delete track", err instanceof Error ? err.message : String(err));
+    }
   };
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
@@ -816,7 +835,7 @@ export default function LibraryScreen() {
                                 )}
                               </View>
                               <TouchableOpacity
-                                onPress={() => removeDownload(track)}
+                                onPress={() => handleDeleteTrack(track)}
                                 style={{ padding: 6 }}
                                 accessibilityLabel="Delete track"
                               >

@@ -35,7 +35,7 @@ const listeners = new Set<DownloadListener>();
 
 // In-memory copy so the player can look up a saved file without waiting on storage
 let downloads: DownloadedTrack[] = [];
-let loaded: Promise<DownloadedTrack[]> | null = null;
+let isLoaded = false;
 
 function publish(next: DownloadedTrack[]) {
   downloads = next;
@@ -47,24 +47,24 @@ function publish(next: DownloadedTrack[]) {
 }
 
 async function persist(next: DownloadedTrack[]) {
+  downloads = next;
+  isLoaded = true;
   await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(next));
   publish(next);
 }
 
-export function getDownloadedTracks(): Promise<DownloadedTrack[]> {
-  if (!loaded) {
-    loaded = AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY)
-      .then((raw) => {
-        const parsed = raw ? JSON.parse(raw) : [];
-        downloads = Array.isArray(parsed) ? parsed : [];
-        return downloads;
-      })
-      .catch((err) => {
-        console.error("Failed to load downloads:", err);
-        return [];
-      });
+export async function getDownloadedTracks(): Promise<DownloadedTrack[]> {
+  if (isLoaded) return downloads;
+  try {
+    const raw = await AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    downloads = Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Failed to load downloads:", err);
+    downloads = [];
   }
-  return loaded;
+  isLoaded = true;
+  return downloads;
 }
 
 // Newest first; a song downloaded again replaces its earlier copy
@@ -77,6 +77,12 @@ export async function saveDownloadedTracks(tracks: DownloadedTrack[]): Promise<v
 export async function forgetDownloadedTrack(trackId: number): Promise<void> {
   const current = await getDownloadedTracks();
   await persist(current.filter((t) => t.id !== trackId));
+}
+
+export async function forgetDownloadedTracks(trackIds: number[]): Promise<void> {
+  const idSet = new Set(trackIds);
+  const current = await getDownloadedTracks();
+  await persist(current.filter((t) => !idSet.has(t.id)));
 }
 
 export async function updateDownloadedTrack(

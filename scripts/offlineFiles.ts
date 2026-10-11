@@ -8,6 +8,7 @@ import {
   DownloadFormat,
   DownloadStage,
   forgetDownloadedTrack,
+  forgetDownloadedTracks,
   getDownloadedTracks,
   saveDownloadedTracks,
 } from "./downloadManager";
@@ -167,16 +168,51 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
   return saved.length;
 }
 
-// Deletes a saved song, and its album folder once nothing else from that album is left
+// Deletes a saved song, ensuring record removal even if physical file is missing
 export async function removeDownload(dl: DownloadedTrack): Promise<void> {
-  const file = new File(dl.url);
-  if (file.exists) file.delete();
+  try {
+    const file = new File(dl.url);
+    if (file.exists) file.delete();
+  } catch (err) {
+    console.warn("Could not delete file:", dl.url, err);
+  }
+
   await forgetDownloadedTrack(dl.id);
-  if (!dl.folder) return;
-  const remaining = await getDownloadedTracks();
-  if (remaining.some((t) => t.folder === dl.folder)) return;
-  const folder = new Directory(dl.folder);
-  if (folder.exists) folder.delete();
+
+  if (dl.folder) {
+    try {
+      const remaining = await getDownloadedTracks();
+      if (!remaining.some((t) => t.folder === dl.folder)) {
+        const folder = new Directory(dl.folder);
+        if (folder.exists) folder.delete();
+      }
+    } catch {}
+  }
+}
+
+// Deletes multiple saved songs belonging to an album in a single atomic batch
+export async function removeAlbumDownloads(tracks: DownloadedTrack[]): Promise<void> {
+  const folders = new Set<string>();
+
+  for (const t of tracks) {
+    try {
+      const file = new File(t.url);
+      if (file.exists) file.delete();
+    } catch {}
+    if (t.folder) folders.add(t.folder);
+  }
+
+  await forgetDownloadedTracks(tracks.map((t) => t.id));
+
+  for (const folderUri of folders) {
+    try {
+      const remaining = await getDownloadedTracks();
+      if (!remaining.some((t) => t.folder === folderUri)) {
+        const folder = new Directory(folderUri);
+        if (folder.exists) folder.delete();
+      }
+    } catch {}
+  }
 }
 
 // Selects an image from the phone and saves it to app storage for offline artwork

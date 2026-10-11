@@ -19,6 +19,12 @@ export async function removeDownload(dl: DownloadedTrack): Promise<void> {
   await forgetDownloadedTrack(dl.id);
 }
 
+export async function removeAlbumDownloads(tracks: DownloadedTrack[]): Promise<void> {
+  for (const t of tracks) {
+    await forgetDownloadedTrack(t.id);
+  }
+}
+
 export async function pickCoverImage(): Promise<string | null> {
   return null;
 }
