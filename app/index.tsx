@@ -119,14 +119,25 @@ export default function Index() {
           <Text style={styles.brandText}>mirlo<Text style={styles.brandHighlight}>blue</Text></Text>
         </View>
 
-        <Pressable
-          onPress={() => router.push("/search")}
-          style={styles.searchButton}
-          accessibilityRole="button"
-          accessibilityLabel="Search"
-        >
-          <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => openInBrowser("https://mirlo.space/team/support")}
+            style={styles.subscribeButton}
+            accessibilityRole="button"
+            accessibilityLabel="Subscribe to support Mirlo"
+          >
+            <Ionicons name="heart" size={15} color={theme.colors.playButtonIcon} />
+            <Text style={styles.subscribeText}>Subscribe</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/search")}
+            style={styles.searchButton}
+            accessibilityRole="button"
+            accessibilityLabel="Search"
+          >
+            <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -421,6 +432,25 @@ const styles = StyleSheet.create({
   brandHighlight: {
     color: theme.colors.primary,
     fontWeight: "800",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  subscribeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primary,
+  },
+  subscribeText: {
+    color: theme.colors.playButtonIcon,
+    fontSize: 14,
+    fontWeight: "700",
   },
   searchButton: {
     width: 38,
