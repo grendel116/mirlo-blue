@@ -8,6 +8,7 @@ import {
   useRef,
   useCallback,
 } from "react";
+import { AppState } from "react-native";
 import TrackPlayer, {
   AppKilledPlaybackBehavior,
   Capability,
@@ -238,11 +239,37 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     setUserQueue([]);
   }, []);
 
-  useEffect(() => {
-    ensureTrackPlayerInitialized().catch((err) => {
-      console.error("Track Player initialization error:", err);
-    });
+  // The native player keeps playing while the app is in the background, and Android can
+  // rebuild the app's screens from scratch. Read the queue, track, and repeat mode back
+  // from the player whenever the app starts or returns to the front
+  const syncFromPlayer = useCallback(async () => {
+    try {
+      await ensureTrackPlayerInitialized();
+      const [queue, track, mode] = await Promise.all([
+        TrackPlayer.getQueue() as Promise<RNTrack[]>,
+        TrackPlayer.getActiveTrack() as Promise<RNTrack | undefined>,
+        TrackPlayer.getRepeatMode(),
+      ]);
+      setPlayingQueue(queue);
+      if (playlistOrderRef.current.length === 0) playlistOrderRef.current = queue;
+      if (track) {
+        setActiveTrack(track);
+        activeTrackOwnedRef.current = isTrackOwned(track);
+        activeTrackIdRef.current = track.id ?? null;
+      }
+      setLooping(REPEAT_CYCLE.find((setting) => REPEAT_MODES[setting] === mode) ?? "none");
+    } catch (err) {
+      console.error("Track Player sync error:", err);
+    }
   }, []);
+
+  useEffect(() => {
+    syncFromPlayer();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") syncFromPlayer();
+    });
+    return () => subscription.remove();
+  }, [syncFromPlayer]);
 
   useEffect(() => {
     activeTrackOwnedRef.current = false;
