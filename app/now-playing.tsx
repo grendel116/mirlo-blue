@@ -72,12 +72,14 @@ export default function NowPlaying() {
               <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
                 {onAir?.song || activeTrack?.title}
               </Text>
-              {activeTrack ? (
-                <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-              ) : null}
-              <View style={[styles.liveBadge, styles.titleBadge]}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
+              <View style={styles.titleActions}>
+                {activeTrack ? (
+                  <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+                ) : null}
+                <View style={styles.liveBadge}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
               </View>
             </View>
 
@@ -176,16 +178,18 @@ export default function NowPlaying() {
           <View style={styles.progressContainer}>
             {hasSetTimer ? (
               <>
-                <Slider
-                  style={styles.progressBar}
-                  value={Math.min(progress.position, RADIO_SET_SECONDS)}
-                  minimumValue={0}
-                  maximumValue={RADIO_SET_SECONDS}
-                  disabled
-                  thumbTintColor="transparent"
-                  minimumTrackTintColor={theme.colors.primary}
-                  maximumTrackTintColor={theme.colors.progressTrack}
-                />
+                <View style={styles.setBar}>
+                  <View style={styles.setBarTrack}>
+                    <View
+                      style={[
+                        styles.setBarFill,
+                        {
+                          width: `${(Math.min(progress.position, RADIO_SET_SECONDS) / RADIO_SET_SECONDS) * 100}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
                 <View style={styles.timeRow}>
                   <Text style={styles.timeText}>{formatTime(progress.position)}</Text>
                   <Text style={styles.timeText}>{formatTime(RADIO_SET_SECONDS)}</Text>
@@ -380,6 +384,21 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 40,
   },
+  setBar: {
+    height: 40,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  setBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.progressTrack,
+    overflow: "hidden",
+  },
+  setBarFill: {
+    height: "100%",
+    backgroundColor: theme.colors.primary,
+  },
   timeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -390,9 +409,10 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12,
   },
-  titleBadge: {
-    alignSelf: "auto",
-    marginTop: 5,
+  titleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   liveBadge: {
     flexDirection: "row",
