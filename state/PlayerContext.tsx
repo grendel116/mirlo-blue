@@ -160,7 +160,8 @@ function toPlayerTrack(
     url: streamUrl,
     headers: t.headers || { "mirlo-api-key": API_KEY },
     type: t.type || audioTrackType(streamUrl),
-    artwork,
+    // Android's player rejects an empty artwork URL; tracks without art leave it out
+    artwork: artwork || undefined,
     artist,
   };
 }

@@ -116,7 +116,6 @@ export function liveTrack(station: RadioStation): RNTrack {
   return {
     title: station.liveName,
     artist: `Live from ${station.location}`,
-    artwork: "",
     url: station.streamUrl,
     headers: {},
     type: "default",

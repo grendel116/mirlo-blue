@@ -103,7 +103,7 @@ interface TrackProps {
 interface RNTrack {
   title: string;
   artist: string;
-  artwork: string;
+  artwork?: string;
   trackArtists?: {
     role?: string;
     artistId?: number;
