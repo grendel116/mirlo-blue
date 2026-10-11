@@ -153,6 +153,8 @@ interface RNTrack {
   queued?: boolean;
   // Station id of a live radio stream: a 10-minute set with no seeking, then the queue moves on
   liveStation?: string;
+  // Album key of a song saved on this phone, the album it opens in Library > Downloads
+  downloadAlbum?: string;
 }
 
 interface PlayButtonProps {

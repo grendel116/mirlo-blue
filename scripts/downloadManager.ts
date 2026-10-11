@@ -120,6 +120,7 @@ export function downloadToTrack(dl: DownloadedTrack): RNTrack {
     order: dl.order || 1,
     headers: {},
     allowIndividualSale: false,
+    downloadAlbum: albumKeyOf(dl),
   } as RNTrack;
 }
 

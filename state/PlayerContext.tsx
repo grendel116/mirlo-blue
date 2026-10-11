@@ -554,8 +554,15 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         await TrackPlayer.skip(startIndex);
         await TrackPlayer.play();
 
-        // Record to Viewing History if trackGroup information is available
-        if (track.trackGroup) {
+        // History opens the album again: a saved song's album in Downloads, or the Mirlo album
+        if (track.downloadAlbum) {
+          recordHistoryItem({
+            downloadAlbum: track.downloadAlbum,
+            title: track.trackGroup?.title || track.title,
+            artistName: enrichedArtist,
+            coverUri: resolvedArtwork,
+          });
+        } else if (track.trackGroup?.urlSlug) {
           recordHistoryItem({
             id: track.trackGroup.id,
             artistId: track.trackGroup.artistId,

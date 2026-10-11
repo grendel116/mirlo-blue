@@ -21,7 +21,7 @@ import {
   queryTrackGroups,
   queryTopSold,
 } from "@/queries/queries";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
@@ -109,9 +109,14 @@ export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { playTrack, activeTrack } = usePlayer();
+  // History links a saved album here: ?tab=downloads&album=<album key>
+  const params = useLocalSearchParams<{ tab?: string; album?: string }>();
   const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">(
-    "library",
+    params.tab === "downloads" ? "downloads" : "library",
   );
+  useEffect(() => {
+    if (params.tab === "downloads") setActiveTab("downloads");
+  }, [params.tab, params.album]);
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();
   const [librarySearch, setLibrarySearch] = useState("");
@@ -182,7 +187,7 @@ export default function LibraryScreen() {
     (topSoldData?.results || []).forEach(indexAlbum);
 
     historyItems.forEach((h: HistoryItem) => {
-      if (h) {
+      if (h && h.downloadAlbum === undefined) {
         const art = resolveArtworkUrl(h.coverUri);
         const entry = {
           artwork: art,
@@ -591,7 +596,7 @@ export default function LibraryScreen() {
           </View>
         )
       ) : activeTab === "downloads" ? (
-        <DownloadsTab />
+        <DownloadsTab openAlbum={params.album} />
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />

@@ -158,15 +158,20 @@ export default function Index() {
                   {quickAccessItems.map((item, idx) => {
                     return (
                       <Pressable
-                        key={`${item.id}-${idx}`}
+                        key={`${item.downloadAlbum ?? item.id}-${idx}`}
                         onPress={() =>
-                          router.push({
-                            pathname: "/artist/[id]/album/[slug]/album-tracks",
-                            params: {
-                              id: String(item.artistId),
-                              slug: String(item.urlSlug),
-                            },
-                          })
+                          item.downloadAlbum
+                            ? router.push({
+                                pathname: "/library",
+                                params: { tab: "downloads", album: item.downloadAlbum },
+                              })
+                            : router.push({
+                                pathname: "/artist/[id]/album/[slug]/album-tracks",
+                                params: {
+                                  id: String(item.artistId),
+                                  slug: String(item.urlSlug),
+                                },
+                              })
                         }
                         style={styles.historyCard}
                       >
