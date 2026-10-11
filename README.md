@@ -17,6 +17,7 @@ Music belongs to the people who make it and the people who love it. Not to the p
 
 ## What's in it
 
+- **Free.** A free platform without ads, tracking, or private property.
 - **Nightwing look.** Dark blue, cyan, yellow bird.
 - **Subscribe.** One tap on Home to support Mirlo itself.
 - **Your library.** Everything you own, like, or wishlisted, plus downloads.
