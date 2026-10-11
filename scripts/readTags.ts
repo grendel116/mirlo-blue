@@ -1,5 +1,5 @@
 // Reads song details (title, artist, album, track number, cover) from the tags inside
-// MP3 (ID3v2) and FLAC files. Other formats return no tags.
+// MP3 (ID3v2), FLAC, Ogg (Vorbis and Opus) and MP4/M4A files. Other formats return no tags.
 
 export type Tags = {
   title?: string;
@@ -105,10 +105,42 @@ function readId3(read: ByteReader): Tags {
   return tags;
 }
 
+// "NAME=value" comments in the Vorbis format, starting at the vendor string
+function applyVorbisComments(block: Uint8Array, start: number, tags: Tags): void {
+  let pos = start + 4 + littleEndian32(block, start);
+  const count = littleEndian32(block, pos);
+  pos += 4;
+  for (let i = 0; i < count && pos + 4 <= block.length; i++) {
+    const size = littleEndian32(block, pos);
+    const comment = utf8(block.subarray(pos + 4, pos + 4 + size));
+    pos += 4 + size;
+    const split = comment.indexOf("=");
+    const name = comment.slice(0, split).toUpperCase();
+    const value = comment.slice(split + 1).trim();
+    if (name === "TITLE") tags.title = value;
+    else if (name === "ARTIST") tags.artist = value;
+    else if (name === "ALBUM") tags.album = value;
+    else if (name === "TRACKNUMBER") tags.track = trackNumber(value);
+    else if (name === "METADATA_BLOCK_PICTURE" && !tags.cover) tags.cover = flacPicture(base64Bytes(value));
+  }
+}
+
+function base64Bytes(text: string): Uint8Array {
+  return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+}
+
+// A FLAC picture block: type, mime, description, width, height, depth, colors, then the image
+function flacPicture(block: Uint8Array): Tags["cover"] {
+  const mimeSize = bigEndian32(block, 4);
+  const mime = latin1(block.subarray(8, 8 + mimeSize));
+  let pos = 8 + mimeSize;
+  pos += 4 + bigEndian32(block, pos) + 16;
+  const bytes = block.subarray(pos + 4, pos + 4 + bigEndian32(block, pos));
+  return bytes.length > 0 ? { bytes, mime } : undefined;
+}
+
 function readFlac(read: ByteReader): Tags {
   const tags: Tags = {};
-  if (latin1(read(0, 4)) !== "fLaC") return tags;
-
   let offset = 4;
   let last = false;
   while (!last) {
@@ -122,42 +154,94 @@ function readFlac(read: ByteReader): Tags {
     if ((type !== 4 && type !== 6) || length > MAX_TAG_BYTES) continue;
 
     const block = read(start, length);
-    if (type === 4) {
-      // vendor, then "NAME=value" comments
-      let pos = 4 + littleEndian32(block, 0);
-      const count = littleEndian32(block, pos);
-      pos += 4;
-      for (let i = 0; i < count && pos + 4 <= block.length; i++) {
-        const size = littleEndian32(block, pos);
-        const comment = utf8(block.subarray(pos + 4, pos + 4 + size));
-        pos += 4 + size;
-        const split = comment.indexOf("=");
-        const name = comment.slice(0, split).toUpperCase();
-        const value = comment.slice(split + 1).trim();
-        if (name === "TITLE") tags.title = value;
-        else if (name === "ARTIST") tags.artist = value;
-        else if (name === "ALBUM") tags.album = value;
-        else if (name === "TRACKNUMBER") tags.track = trackNumber(value);
-      }
-    } else if (!tags.cover) {
-      // picture type, mime, description, width, height, depth, colors, then the image
-      const mimeSize = bigEndian32(block, 4);
-      const mime = latin1(block.subarray(8, 8 + mimeSize));
-      let pos = 8 + mimeSize;
-      pos += 4 + bigEndian32(block, pos) + 16;
-      const size = bigEndian32(block, pos);
-      const bytes = block.subarray(pos + 4, pos + 4 + size);
-      if (bytes.length > 0) tags.cover = { bytes, mime };
-    }
+    if (type === 4) applyVorbisComments(block, 0, tags);
+    else if (!tags.cover) tags.cover = flacPicture(block);
   }
   return tags;
 }
 
+// Ogg files (Vorbis or Opus): the second packet holds the comments. A packet can span pages
+function readOgg(read: ByteReader): Tags {
+  const tags: Tags = {};
+  const packets: number[][] = [[]];
+  let offset = 0;
+  while (packets.length < 3 && offset < MAX_TAG_BYTES) {
+    const page = read(offset, 27);
+    if (page.length < 27 || latin1(page.subarray(0, 4)) !== "OggS") break;
+    const lacing = read(offset + 27, page[26]);
+    let at = offset + 27 + lacing.length;
+    for (const size of lacing) {
+      packets[packets.length - 1].push(...read(at, size));
+      at += size;
+      if (size < 255) packets.push([]);
+    }
+    offset = at;
+  }
+
+  const comments = Uint8Array.from(packets[1] ?? []);
+  if (latin1(comments.subarray(0, 8)) === "OpusTags") applyVorbisComments(comments, 8, tags);
+  else if (comments[0] === 3 && latin1(comments.subarray(1, 7)) === "vorbis") {
+    applyVorbisComments(comments, 7, tags);
+  }
+  return tags;
+}
+
+// MP4/M4A files: tags sit in moov > udta > meta > ilst, each item holding a "data" atom
+function atomsIn(b: Uint8Array, start: number, end: number) {
+  const atoms: { type: string; body: Uint8Array }[] = [];
+  for (let pos = start; pos + 8 <= end; ) {
+    const size = bigEndian32(b, pos);
+    if (size < 8) break;
+    atoms.push({ type: latin1(b.subarray(pos + 4, pos + 8)), body: b.subarray(pos + 8, pos + size) });
+    pos += size;
+  }
+  return atoms;
+}
+
+function readMp4(read: ByteReader): Tags {
+  const tags: Tags = {};
+  let moov: Uint8Array | undefined;
+  for (let offset = 0; !moov; ) {
+    const header = read(offset, 8);
+    if (header.length < 8) break;
+    const size = bigEndian32(header, 0);
+    if (size < 8) break;
+    if (latin1(header.subarray(4, 8)) === "moov" && size <= MAX_TAG_BYTES) moov = read(offset + 8, size - 8);
+    offset += size;
+  }
+  if (!moov) return tags;
+
+  const child = (body: Uint8Array, type: string, skip = 0) => {
+    const atom = atomsIn(body, skip, body.length).find((a) => a.type === type);
+    return atom?.body;
+  };
+  const udta = child(moov, "udta");
+  const meta = udta && child(udta, "meta");
+  const ilst = meta && child(meta, "ilst", 4);
+  if (!ilst) return tags;
+
+  for (const item of atomsIn(ilst, 0, ilst.length)) {
+    const data = child(item.body, "data");
+    if (!data || data.length < 8) continue;
+    const flags = bigEndian32(data, 0) & 0xffffff;
+    const payload = data.subarray(8);
+    if (item.type === "\u00a9nam") tags.title = utf8(payload);
+    else if (item.type === "\u00a9ART") tags.artist = utf8(payload);
+    else if (item.type === "\u00a9alb") tags.album = utf8(payload);
+    else if (item.type === "trkn") tags.track = trackNumber(String((payload[2] << 8) | payload[3]));
+    else if (item.type === "covr" && payload.length > 0) {
+      tags.cover = { bytes: payload, mime: flags === 14 ? "image/png" : "image/jpeg" };
+    }
+  }
+  return tags;
+}
 // Tags for a file's bytes; a file we can't read, or one without tags, gives an empty result
 export function readTags(read: ByteReader): Tags {
   try {
     const magic = latin1(read(0, 4));
     if (magic === "fLaC") return readFlac(read);
+    if (magic === "OggS") return readOgg(read);
+    if (latin1(read(4, 4)) === "ftyp") return readMp4(read);
     if (magic.startsWith("ID3")) return readId3(read);
   } catch {}
   return {};

@@ -80,6 +80,50 @@ describe("readTags", () => {
     expect(Array.from(tags.cover!.bytes)).toEqual([9, 8]);
   });
 
+  it("reads Opus comments spanning pages", () => {
+    const comment = (s: string) => [...le32(s.length), ...bytes(s)];
+    const packet = [
+      ...bytes("OpusTags"),
+      ...le32(2),
+      ...bytes("ab"),
+      ...le32(2),
+      ...comment("TITLE=Song"),
+      ...comment("ALBUM=Record"),
+    ];
+    const head = bytes("OpusHead", [1, 2, 3]);
+    const page = (lacing: number[], data: number[]) => [
+      ...bytes("OggS"),
+      ...new Array(22).fill(0),
+      lacing.length,
+      ...lacing,
+      ...data,
+    ];
+    // the comment packet is split over two pages (first page ends on a 255 byte segment)
+    const padded = [...packet, ...new Array(300).fill(0)];
+    const file = bytes(
+      page([head.length], Array.from(head)),
+      page([255], padded.slice(0, 255)),
+      page([padded.length - 255], padded.slice(255)),
+    );
+    expect(readTags(readerOf(file))).toMatchObject({ title: "Song", album: "Record" });
+  });
+
+  it("reads M4A items", () => {
+    const atom = (type: string, body: ArrayLike<number>) => [...be32(body.length + 8), ...bytes(type), ...Array.from(body)];
+    const item = (type: string, flags: number, payload: ArrayLike<number>) =>
+      atom(type, atom("data", [...be32(flags), 0, 0, 0, 0, ...Array.from(payload)]));
+    const ilst = atom("ilst", [
+      ...item("\u00a9nam", 1, bytes("Song")),
+      ...item("\u00a9alb", 1, bytes("Record")),
+      ...item("trkn", 0, [0, 0, 0, 5, 0, 9, 0, 0]),
+      ...item("covr", 14, [7, 7]),
+    ]);
+    const moov = atom("moov", atom("udta", atom("meta", [0, 0, 0, 0, ...ilst])));
+    const file = bytes(atom("ftyp", bytes("M4A ", [0, 0, 0, 0])), moov);
+    const tags = readTags(readerOf(file));
+    expect(tags).toMatchObject({ title: "Song", album: "Record", track: 5 });
+    expect(tags.cover?.mime).toBe("image/png");
+  });
   it("returns nothing for other files", () => {
     expect(readTags(readerOf(bytes("RIFF....WAVE")))).toEqual({});
   });
