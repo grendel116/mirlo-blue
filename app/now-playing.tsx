@@ -18,6 +18,7 @@ import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation } from "@/queries/radio";
+import ShareTrackButton from "@/components/ShareTrackButton";
 
 export default function NowPlaying() {
   const { activeTrack } = usePlayer() as {
@@ -73,9 +74,12 @@ export default function NowPlaying() {
           </View>
         ) : (
         <View style={styles.trackInfoSection}>
-          <Text style={styles.trackTitle} numberOfLines={2}>
-            {activeTrack?.title || "No track playing"}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
+              {activeTrack?.title || "No track playing"}
+            </Text>
+            {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+          </View>
 
           <View style={styles.artistGroupRow}>
             <Text style={styles.infoLabel}>
@@ -228,6 +232,14 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     letterSpacing: -0.3,
     marginBottom: 4,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  titleText: {
+    flex: 1,
   },
   artistGroupRow: {
     flexDirection: "row",

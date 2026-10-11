@@ -96,3 +96,11 @@ export const handleExternalPurchase = (trackGroup: AlbumProps) => {
   const purchaseUrl = `https://mirlo.space/${trackGroup.artist.urlSlug}/release/${trackGroup.urlSlug}`;
   openInBrowser(purchaseUrl);
 };
+
+// The song's page on mirlo.space. Social apps and messages show it with the cover art
+export function songPageUrl(track: RNTrack): string | undefined {
+  const artistSlug = track.trackGroup?.artist?.urlSlug;
+  const albumSlug = track.trackGroup?.urlSlug;
+  if (!artistSlug || !albumSlug || !track.id) return undefined;
+  return `https://mirlo.space/${artistSlug}/release/${albumSlug}/tracks/${track.id}`;
+}
