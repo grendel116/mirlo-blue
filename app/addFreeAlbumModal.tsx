@@ -8,24 +8,28 @@ import { useAuthContext } from "@/state/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { theme } from "@/constants/theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { queryUserCollection } from "@/queries/queries";
 
 export default function AddFreeAlbumModal() {
   const { user, refreshLoggedInUser } = useAuthContext();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { trackGroupTitle, trackGroupId } = useLocalSearchParams();
+  const { trackGroupTitle, trackGroupId, artistId } = useLocalSearchParams();
   const [isAdded, setIsAdded] = useState<boolean>(false);
   const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const getFreeAlbum = useCallback(async () => {
+    if (!user) return;
     try {
-      if (!user) return;
       setAdding(true);
-      await api.post(`/v1/trackGroups/${trackGroupId}/purchase`, {
-        price: 0,
+      setError(null);
+      await api.post(`/v1/purchase`, {
+        artistId: Number(artistId),
+        items: [{ type: "trackGroup", id: Number(trackGroupId), price: "0" }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["fetchUserPurchases", { userId: user.id }],
+        queryKey: queryUserCollection(user.id).queryKey,
       });
       refreshLoggedInUser();
       setAdding(false);
@@ -34,10 +38,11 @@ export default function AddFreeAlbumModal() {
         router.dismiss();
       }, 1200);
     } catch (err) {
-      console.error("Issue purchasing free album", err);
+      console.error("Issue adding free album", err);
+      setError(err instanceof Error ? err.message : "Couldn't add this album. Try again.");
       setAdding(false);
     }
-  }, [trackGroupId, user, queryClient, refreshLoggedInUser, router]);
+  }, [artistId, trackGroupId, user, queryClient, refreshLoggedInUser, router]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -85,6 +90,8 @@ export default function AddFreeAlbumModal() {
               </Text>
             )}
           </Pressable>
+
+          {error && <Text style={styles.errorText}>{error}</Text>}
         </View>
       </View>
     </SafeAreaView>
@@ -164,5 +171,11 @@ const styles = StyleSheet.create({
   },
   buttonTextSuccess: {
     color: theme.colors.primary,
+  },
+  errorText: {
+    marginTop: 14,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+    textAlign: "center",
   },
 });
