@@ -1,6 +1,6 @@
 import { Pressable, Text, View, ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { useTranslation } from "react-i18next";
 import * as api from "../queries/fetch/fetchWrapper";
@@ -23,9 +23,11 @@ export default function WishlistButton({
 }: WishlistButton) {
   const { user, refreshLoggedInUser } = useAuthContext();
   const queryClient = useQueryClient();
-  const [isInWishlist, setIsInWishlist] = useState(
-    !!user?.wishlist?.find((w) => w.trackGroupId === trackGroup.id)
-  );
+  // Follows the account's wishlist; a tap shows right away until the account data refreshes
+  const [tapped, setTapped] = useState<boolean | null>(null);
+  useEffect(() => setTapped(null), [user]);
+  const isInWishlist =
+    tapped ?? !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
   const router = useRouter();
 
   const onPress = useCallback(async () => {
@@ -37,7 +39,7 @@ export default function WishlistButton({
     }
 
     const nextState = !isInWishlist;
-    setIsInWishlist(nextState);
+    setTapped(nextState);
 
     try {
       await api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
