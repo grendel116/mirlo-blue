@@ -30,7 +30,7 @@ import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
 
-// Autoplay tops up Next Up when fewer than this many tracks remain
+// Autoplay tops up when fewer than this many previews wait after the playlist
 const AUTOPLAY_THRESHOLD = 2;
 const AUTOPLAY_ALBUMS_PER_BATCH = 5;
 
@@ -530,16 +530,14 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     [userQueue, playingQueue],
   );
 
-  // Keeps playback going: when Next Up runs low, append previews from recent releases
+  // Keeps playback going: previews from recent releases always wait after the playlist,
+  // topped up as they play
   useEffect(() => {
     if (looping !== "none" || !activeTrack || activeTrack.liveStation || playingQueue.length === 0) return;
-    const activeIndex = playingQueue.findIndex(
-      (t) =>
-        (activeTrack.id !== undefined && t.id === activeTrack.id) ||
-        (activeTrack.url && t.url === activeTrack.url),
-    );
+    const activeIndex = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
     if (activeIndex < 0) return;
-    if (playingQueue.length - activeIndex - 1 >= AUTOPLAY_THRESHOLD) return;
+    const upcomingPreviews = playingQueue.slice(activeIndex + 1).filter((t) => t.autoplay).length;
+    if (upcomingPreviews >= AUTOPLAY_THRESHOLD) return;
     if (autoplayFillingRef.current) return;
 
     autoplayFillingRef.current = true;
@@ -572,8 +570,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     })();
   }, [activeTrack, playingQueue, looping, autoplayRecheck]);
 
-  // Shuffle reorders what's still coming up. Turning it off puts those tracks back in
-  // playlist order; tracks added later (queued or autoplay) keep their place at the end
+  // Shuffle reorders the playlist songs still coming up. Turning it off puts them back in
+  // playlist order; queued songs keep their place at the end, and previews always follow
   const toggleShuffle = useCallback(async () => {
     try {
       await ensureTrackPlayerInitialized();
@@ -584,19 +582,22 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       if (activeIndex === undefined) return;
       const played = playingQueue.slice(0, activeIndex + 1);
       const upcoming = playingQueue.slice(activeIndex + 1);
-      if (upcoming.length < 2) return;
+      const songs = upcoming.filter((t) => !t.autoplay);
+      const previews = upcoming.filter((t) => t.autoplay);
+      if (songs.length < 2) return;
 
       let reordered: RNTrack[];
       if (nextShuffled) {
-        reordered = shuffle(upcoming);
+        reordered = shuffle(songs);
       } else {
         const order = playlistOrderRef.current;
         const position = (t: RNTrack) => {
           const i = order.findIndex((o) => isSameTrack(o, t));
           return i === -1 ? Number.MAX_SAFE_INTEGER : i;
         };
-        reordered = [...upcoming].sort((a, b) => position(a) - position(b));
+        reordered = [...songs].sort((a, b) => position(a) - position(b));
       }
+      reordered.push(...previews);
 
       await TrackPlayer.removeUpcomingTracks();
       await TrackPlayer.add(reordered as any);
