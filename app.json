@@ -53,7 +53,8 @@
       ],
       "expo-localization",
       "expo-asset",
-      "react-native-zip-archive"
+      "react-native-zip-archive",
+      "./plugins/withMirloAppLinks"
     ],
     "experiments": {
       "typedRoutes": true
