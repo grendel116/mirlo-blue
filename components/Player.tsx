@@ -58,6 +58,7 @@ function PlayerPlayButton({ buttonColor }: PlayButtonProps) {
         name={isPlaying ? "pause" : "play"}
         size={32}
         color={theme.colors.playButtonIcon}
+        style={!isPlaying && { marginLeft: 3 }}
       />
     </TouchableOpacity>
   );

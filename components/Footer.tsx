@@ -86,6 +86,7 @@ export default function Footer({ style }: ViewProps) {
                 name={isPlaying ? "pause" : "play"}
                 size={22}
                 color={theme.colors.playButtonIcon}
+                style={!isPlaying && { marginLeft: 2 }}
               />
             </TouchableOpacity>
             <TouchableOpacity
