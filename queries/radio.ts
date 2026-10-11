@@ -113,6 +113,9 @@ export function queryRadioPlays(station: RadioStation | undefined) {
   });
 }
 
+// A station plays as a 10-minute set in the queue, then playback moves on to what's next
+export const RADIO_SET_SECONDS = 10 * 60;
+
 // The station's live broadcast as a player track. It has no Mirlo track id; the player
 // tells stations apart by stream URL. Empty headers keep the Mirlo API key off the
 // station's servers
@@ -123,6 +126,7 @@ export function liveTrack(station: RadioStation): RNTrack {
     url: station.streamUrl,
     headers: {},
     type: TrackType.Default,
+    duration: RADIO_SET_SECONDS,
     liveStation: station.id,
   } as RNTrack;
 }

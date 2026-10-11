@@ -624,7 +624,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   // Keeps playback going: discovery previews always wait after the playlist,
   // topped up as they play
   useEffect(() => {
-    if (looping !== "none" || !activeTrack || activeTrack.liveStation || playingQueue.length === 0) return;
+    if (looping !== "none" || !activeTrack || playingQueue.length === 0) return;
     const activeIndex = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
     if (activeIndex < 0) return;
     const upcomingPreviews = playingQueue.slice(activeIndex + 1).filter((t) => t.autoplay).length;

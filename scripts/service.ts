@@ -1,4 +1,18 @@
-import TrackPlayer, { Event } from "react-native-track-player";
+import TrackPlayer, { Event, RepeatMode } from "react-native-track-player";
+import { RADIO_SET_SECONDS } from "@/queries/radio";
+
+// Next track, wrapping to the start at the end of the queue
+async function skipToNextTrack() {
+  const queue = await TrackPlayer.getQueue();
+  const trackIndex = await TrackPlayer.getActiveTrackIndex();
+  if (queue.length === 0 || trackIndex === undefined) return;
+
+  if (trackIndex >= queue.length - 1) {
+    await TrackPlayer.skip(0);
+  } else {
+    await TrackPlayer.skipToNext();
+  }
+}
 
 module.exports = async function () {
   TrackPlayer.addEventListener(Event.RemotePlay, async () => {
@@ -19,17 +33,22 @@ module.exports = async function () {
 
   TrackPlayer.addEventListener(Event.RemoteNext, async () => {
     try {
-      const queue = await TrackPlayer.getQueue();
-      const trackIndex = await TrackPlayer.getActiveTrackIndex();
-      if (queue.length === 0 || trackIndex === undefined) return;
-
-      if (trackIndex >= queue.length - 1) {
-        await TrackPlayer.skip(0);
-      } else {
-        await TrackPlayer.skipToNext();
-      }
+      await skipToNextTrack();
     } catch (err) {
       console.error("RemoteNext error:", err);
+    }
+  });
+
+  // A station's set ends after 10 minutes of listening (repeat one keeps it on)
+  TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, async ({ position }) => {
+    try {
+      if (position < RADIO_SET_SECONDS) return;
+      const active = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+      if (!active?.liveStation) return;
+      if ((await TrackPlayer.getRepeatMode()) === RepeatMode.Track) return;
+      await skipToNextTrack();
+    } catch (err) {
+      console.error("Radio set error:", err);
     }
   });
 

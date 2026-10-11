@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
-import { queryRadioPlays, findStation } from "@/queries/radio";
+import { queryRadioPlays, findStation, RADIO_SET_SECONDS } from "@/queries/radio";
 import { queryArtist } from "@/queries/queries";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
@@ -25,9 +25,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
 
 export default function NowPlaying() {
-  const { activeTrack } = usePlayer() as {
-    activeTrack: RNTrack | undefined;
-  };
+  const { activeTrack, looping } = usePlayer();
   const progress = useProgress();
   const router = useRouter();
   const { t } = useTranslation();
@@ -38,6 +36,8 @@ export default function NowPlaying() {
   // Live radio: show the song on air from the station's playlist feed (refreshes every minute)
   const station = findStation(activeTrack?.liveStation);
   const isLive = Boolean(station);
+  // Repeat one keeps a station on past its 10-minute set
+  const hasSetTimer = isLive && looping !== "track";
   const { data: plays } = useQuery(queryRadioPlays(station));
   const onAir = plays?.[0];
   const artworkUri = isLive ? onAir?.artwork : activeTrack?.trackGroup?.cover?.sizes?.[600];
@@ -139,13 +139,31 @@ export default function NowPlaying() {
         </View>
         )}
 
-        {/* Progress Slider (live streams have no timeline) */}
+        {/* Progress Slider (a station shows its 10-minute set, which can't be scrubbed) */}
         {isLive ? (
           <View style={styles.progressContainer}>
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>LIVE</Text>
             </View>
+            {hasSetTimer ? (
+              <>
+                <Slider
+                  style={styles.progressBar}
+                  value={Math.min(progress.position, RADIO_SET_SECONDS)}
+                  minimumValue={0}
+                  maximumValue={RADIO_SET_SECONDS}
+                  disabled
+                  thumbTintColor="transparent"
+                  minimumTrackTintColor={theme.colors.primary}
+                  maximumTrackTintColor={theme.colors.progressTrack}
+                />
+                <View style={styles.timeRow}>
+                  <Text style={styles.timeText}>{formatTime(progress.position)}</Text>
+                  <Text style={styles.timeText}>{formatTime(RADIO_SET_SECONDS)}</Text>
+                </View>
+              </>
+            ) : null}
           </View>
         ) : (
         <View style={styles.progressContainer}>

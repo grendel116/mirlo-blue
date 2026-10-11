@@ -25,6 +25,7 @@ import {
   liveTrack,
 } from "@/queries/radio";
 import OfflineNotice from "@/components/OfflineNotice";
+import AddToQueueButton from "@/components/AddToQueueButton";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { usePlayer } from "@/state/PlayerContext";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
@@ -340,15 +341,18 @@ function RadioSection({ station, cardWidth }: { station: RadioStation; cardWidth
 
   return (
     <View style={styles.section}>
-      <Pressable
-        onPress={() => openInBrowser(station.playlistPage)}
-        style={styles.sectionTitleRow}
-        accessibilityRole="link"
-        accessibilityLabel={`Open the ${station.name} playlist`}
-      >
-        <Text style={styles.sectionHeader}>{station.name}</Text>
-        <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-      </Pressable>
+      <View style={styles.sectionTitleRow}>
+        <Pressable
+          onPress={() => openInBrowser(station.playlistPage)}
+          style={styles.stationLink}
+          accessibilityRole="link"
+          accessibilityLabel={`Open the ${station.name} playlist`}
+        >
+          <Text style={styles.sectionHeader}>{station.name}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+        </Pressable>
+        <AddToQueueButton track={liveTrack(station)} size={22} color={theme.colors.primary} />
+      </View>
 
       {isPending ? (
         <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
@@ -478,6 +482,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     marginBottom: 12,
+  },
+  stationLink: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginRight: 12,
   },
   sectionHeader: {
     ...theme.typography.sectionHeader,

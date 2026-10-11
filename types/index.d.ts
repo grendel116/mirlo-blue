@@ -145,11 +145,13 @@ interface RNTrack {
   order: number;
   headers: {};
   type?: import("react-native-track-player").TrackType;
+  // Length in seconds the lock screen shows; streams report their own
+  duration?: number;
   // Added by autoplay after the chosen playlist ran out
   autoplay?: boolean;
   // Picked by the listener with Add to queue: plays right after the current song
   queued?: boolean;
-  // Station id of a live radio stream: no duration, no seeking, nothing queued after it
+  // Station id of a live radio stream: a 10-minute set with no seeking, then the queue moves on
   liveStation?: string;
 }
 

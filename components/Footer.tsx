@@ -15,11 +15,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
 import { Link, router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
+import { RADIO_SET_SECONDS } from "@/queries/radio";
 
 export default function Footer({ style }: ViewProps) {
   const progress = useProgress();
   const { bottom } = useSafeAreaInsets();
-  const { activeTrack, isPlaying, togglePlayPause, skipNext } = usePlayer();
+  const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
   const pathname = usePathname();
   const { width } = useWindowDimensions();
 
@@ -28,9 +29,11 @@ export default function Footer({ style }: ViewProps) {
     pathname.includes("/tracks/") ||
     pathname.endsWith("/tracks");
 
+  const duration =
+    activeTrack?.liveStation && looping !== "track" ? RADIO_SET_SECONDS : progress.duration;
   const progressPercent =
-    progress.duration > 0
-      ? Math.min(100, Math.max(0, (progress.position / progress.duration) * 100))
+    duration > 0
+      ? Math.min(100, Math.max(0, (progress.position / duration) * 100))
       : 0;
 
   return (
