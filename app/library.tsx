@@ -14,9 +14,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useMemo } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { usePlayer } from "@/state/PlayerContext";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  queryAlbumById,
   queryUserCollection,
   queryWishlist,
   queryTrackGroups,
@@ -32,7 +31,7 @@ import { downloadToTrack, useDownloads } from "@/scripts/downloadManager";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
-import { audioTrackType, likesAlbum, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
 
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
@@ -136,28 +135,6 @@ export default function LibraryScreen() {
 
   const purchases = collectionData?.results || [];
   const wishlist = wishlistData?.results || [];
-
-  // Albums you've hearted some tracks on but not the album itself; fetched to see if every track is hearted
-  const partlyHeartedIds = useMemo(() => {
-    const wishlisted = new Set(wishlist.map((w) => w.trackGroupId));
-    const ids = (user?.trackFavorites ?? []).map((f) => f.track?.trackGroupId);
-    return [...new Set(ids)].filter((id): id is number => !!id && !wishlisted.has(id));
-  }, [user, wishlist]);
-  const partlyHeartedAlbums = useQueries({
-    queries: partlyHeartedIds.map((id) => queryAlbumById(id)),
-  });
-
-  // Likes: hearted albums, plus albums with every track hearted (the same rule as the album heart)
-  const likedAlbums = useMemo(() => {
-    const fullyHearted = partlyHeartedAlbums
-      .map((q) => q.data)
-      .filter((album): album is AlbumProps => !!album && likesAlbum(user, album))
-      .map((album) => ({ id: `album-${album.id}`, trackGroup: album }));
-    return [
-      ...wishlist.map((w) => ({ id: `wish-${w.trackGroupId}`, trackGroup: w.trackGroup })),
-      ...fullyHearted,
-    ];
-  }, [user, wishlist, partlyHeartedAlbums]);
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
   const combinedTracks = useMemo(() => {
@@ -463,7 +440,7 @@ export default function LibraryScreen() {
               }
             />
             <Text style={[styles.toggleText, activeTab === "wishlist" && styles.toggleTextActive]}>
-              Likes & Wishlist ({likedAlbums.length})
+              Likes & Wishlist ({wishlist.length})
             </Text>
           </TouchableOpacity>
 
@@ -647,7 +624,7 @@ export default function LibraryScreen() {
         )
       ) : isWishlistPending ? (
         <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
-      ) : likedAlbums.length === 0 ? (
+      ) : wishlist.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="heart-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>No saved items</Text>
@@ -657,11 +634,11 @@ export default function LibraryScreen() {
         </View>
       ) : (
         <FlatList
-          data={likedAlbums}
-          keyExtractor={(item) => item.id}
+          data={wishlist}
+          keyExtractor={(item, index) => String(item.id ?? index)}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
-            const tg = item.trackGroup;
+            const tg = (item as any).trackGroup;
             const coverUri = tg?.cover?.sizes?.[300] || tg?.cover?.sizes?.[120];
             return (
               <Pressable
