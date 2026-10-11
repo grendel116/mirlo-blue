@@ -133,23 +133,30 @@ function namesFromFile(fileName: string): { title: string; artist: string } {
   return { artist: base.slice(0, split), title: base.slice(split + 3) };
 }
 
-// Adds audio files from the phone, copied into the app's storage so they stay available
-export async function importFiles(): Promise<number> {
+// Adds audio files from the phone into a designated album, copied into app storage
+export async function importFiles(albumTitle?: string, artistName?: string): Promise<number> {
   const picked = await DocumentPicker.getDocumentAsync({
     type: "audio/*",
     multiple: true,
     copyToCacheDirectory: true,
   });
-  if (picked.canceled) return 0;
+  if (picked.canceled || !picked.assets?.length) return 0;
 
   const folder = downloadsFolder("files");
   const now = Date.now();
+  const title = albumTitle?.trim() || "Imported Audio";
+  const artist = artistName?.trim() || "";
+
   const saved: DownloadedTrack[] = picked.assets.map((asset, i) => {
     const file = new File(folder, `${now}-${i}-${asset.name}`);
-    new File(asset.uri).move(file);
+    new File(asset.uri).copy(file);
+    const parsed = namesFromFile(asset.name);
     return {
       id: -(now + i),
-      ...namesFromFile(asset.name),
+      title: parsed.title,
+      artist: artist || parsed.artist || "Unknown Artist",
+      albumTitle: title,
+      order: i + 1,
       url: file.uri,
       bytes: file.size,
       downloadedAt: now,
@@ -184,6 +191,6 @@ export async function pickCoverImage(): Promise<string | null> {
   const covers = downloadsFolder("covers");
   const ext = asset.name.split(".").pop() || "jpg";
   const dest = new File(covers, `${Date.now()}.${ext}`);
-  new File(asset.uri).move(dest);
+  new File(asset.uri).copy(dest);
   return dest.uri;
 }

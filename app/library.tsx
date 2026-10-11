@@ -10,6 +10,7 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useMemo } from "react";
@@ -34,6 +35,9 @@ import {
   updateDownloadedTrack,
   updateDownloadedTracks,
   DownloadedTrack,
+  DownloadedAlbum,
+  groupTracksIntoAlbums,
+  updateAlbumArtwork,
 } from "@/scripts/downloadManager";
 import { OFFLINE_SUPPORTED, importFiles, removeDownload, pickCoverImage } from "@/scripts/offlineFiles";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
@@ -156,47 +160,67 @@ export default function LibraryScreen() {
     return subscribeDownloads(setDownloadedTracks);
   }, []);
 
-  const [importing, setImporting] = useState(false);
-  const addFiles = () => {
-    setImporting(true);
-    importFiles()
-      .catch((err) =>
-        Alert.alert("Couldn't add files", err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setImporting(false));
-  };
+  const downloadedAlbums = useMemo(
+    () => groupTracksIntoAlbums(downloadedTracks),
+    [downloadedTracks],
+  );
+  const [expandedAlbumKey, setExpandedAlbumKey] = useState<string | null>(null);
 
-  const changeCover = async (track: DownloadedTrack) => {
+  // New Album Modal State
+  const [showNewAlbumModal, setShowNewAlbumModal] = useState(false);
+  const [newAlbumTitle, setNewAlbumTitle] = useState("");
+  const [newAlbumArtist, setNewAlbumArtist] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const handlePickAlbumCover = async (album: DownloadedAlbum) => {
     try {
       const imageUri = await pickCoverImage();
       if (!imageUri) return;
-
-      const sameAlbumTracks = downloadedTracks.filter(
-        (t) => t.albumTitle && t.albumTitle === track.albumTitle && t.id !== track.id,
-      );
-
-      if (sameAlbumTracks.length > 0) {
-        Alert.alert("Set cover art", "Apply this artwork to:", [
-          {
-            text: "This track only",
-            onPress: () => updateDownloadedTrack(track.id, { artwork: imageUri }),
-          },
-          {
-            text: `All tracks in "${track.albumTitle}"`,
-            onPress: () =>
-              updateDownloadedTracks(
-                (t) => t.albumTitle === track.albumTitle,
-                { artwork: imageUri },
-              ),
-          },
-          { text: "Cancel", style: "cancel" },
-        ]);
-      } else {
-        await updateDownloadedTrack(track.id, { artwork: imageUri });
-      }
+      await updateAlbumArtwork(album.key, imageUri);
     } catch (err) {
       Alert.alert("Couldn't set cover", err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleCreateAlbumAndImport = async () => {
+    const title = newAlbumTitle.trim() || "Imported Album";
+    const artist = newAlbumArtist.trim();
+    setShowNewAlbumModal(false);
+    setNewAlbumTitle("");
+    setNewAlbumArtist("");
+    setImporting(true);
+    try {
+      const count = await importFiles(title, artist);
+      if (count > 0) {
+        const key = `album:${title.toLowerCase()}`;
+        setExpandedAlbumKey(key);
+      }
+    } catch (err) {
+      Alert.alert("Couldn't add files", err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDeleteAlbum = (album: DownloadedAlbum) => {
+    Alert.alert(
+      "Delete album?",
+      `Remove "${album.title}" and its ${album.tracks.length} ${
+        album.tracks.length === 1 ? "song" : "songs"
+      } from this phone?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            for (const track of album.tracks) {
+              await removeDownload(track);
+            }
+          },
+        },
+      ],
+    );
   };
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
@@ -633,99 +657,271 @@ export default function LibraryScreen() {
         <View style={styles.libraryPane}>
           <View style={styles.downloadsBar}>
             <Text style={styles.downloadsTotal}>
-              {downloadedTracks.length > 0
-                ? `${formatBytes(downloadedTracks.reduce((sum, d) => sum + (d.bytes || 0), 0))} on this phone`
+              {downloadedAlbums.length > 0
+                ? `${downloadedAlbums.length} ${
+                    downloadedAlbums.length === 1 ? "album" : "albums"
+                  } • ${formatBytes(downloadedTracks.reduce((sum, d) => sum + (d.bytes || 0), 0))}`
                 : ""}
             </Text>
             {OFFLINE_SUPPORTED && (
               <TouchableOpacity
-                onPress={addFiles}
+                onPress={() => setShowNewAlbumModal(true)}
                 disabled={importing}
                 style={[styles.togglePill, styles.togglePillActive]}
-                accessibilityLabel="Add audio files from this phone"
+                accessibilityLabel="Add album from this phone"
               >
                 {importing ? (
                   <ActivityIndicator size="small" color={theme.colors.playButtonIcon} />
                 ) : (
                   <Ionicons name="add" size={15} color={theme.colors.playButtonIcon} />
                 )}
-                <Text style={[styles.toggleText, styles.toggleTextActive]}>Add files</Text>
+                <Text style={[styles.toggleText, styles.toggleTextActive]}>Add album</Text>
               </TouchableOpacity>
             )}
           </View>
-          {downloadedTracks.length === 0 ? (
+
+          {downloadedAlbums.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
               <Text style={styles.emptyTitle}>No downloads yet</Text>
               <Text style={styles.emptySubtitle}>
                 {OFFLINE_SUPPORTED
-                  ? "Tap the download arrow on an album you own, or add audio files from your phone."
+                  ? "Tap the download arrow on an album you own, or tap 'Add album' to import music from your phone."
                   : "Downloads work in the Android app."}
               </Text>
+              {OFFLINE_SUPPORTED && (
+                <TouchableOpacity
+                  onPress={() => setShowNewAlbumModal(true)}
+                  style={[styles.loginBtn, { marginTop: 12 }]}
+                >
+                  <Text style={styles.loginBtnText}>Add Album</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <FlatList
-              data={downloadedTracks}
-              keyExtractor={(item) => `dl-${item.id}`}
+              data={downloadedAlbums}
+              keyExtractor={(item) => `album-${item.key}`}
               contentContainerStyle={styles.listContent}
-              renderItem={({ item }) => {
-                const isSelected = activeTrack?.id === item.id;
+              renderItem={({ item: album }) => {
+                const isExpanded = expandedAlbumKey === album.key;
                 return (
-                  <Pressable
-                    onPress={() =>
-                      playTrack(
-                        downloadToTrack(item),
-                        downloadedTracks.map(downloadToTrack),
-                        "Downloads",
-                      )
-                    }
-                    style={[styles.card, isSelected && styles.selectedCard]}
-                  >
-                    <Pressable
-                      onPress={() => changeCover(item)}
-                      accessibilityLabel="Set cover art"
-                      hitSlop={4}
-                    >
-                      {item.artwork ? (
-                        <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                      ) : (
-                        <View style={[styles.thumb, styles.placeholder]}>
-                          <Ionicons
-                            name="image-outline"
-                            size={20}
-                            color={theme.colors.primary}
-                          />
-                        </View>
-                      )}
-                    </Pressable>
-                    <View style={styles.cardInfo}>
-                      <Text
-                        style={[
-                          styles.cardTitle,
-                          isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                        ]}
-                        numberOfLines={1}
+                  <View style={[styles.albumCard, isExpanded && styles.albumCardExpanded]}>
+                    {/* Header Row */}
+                    <View style={styles.albumHeaderRow}>
+                      <TouchableOpacity
+                        onPress={() => handlePickAlbumCover(album)}
+                        style={styles.albumCoverWrapper}
+                        accessibilityLabel="Change album cover"
                       >
-                        {item.title}
-                      </Text>
-                      <Text style={styles.cardArtist} numberOfLines={1}>
-                        {[item.artist, item.albumTitle, item.bytes ? formatBytes(item.bytes) : ""]
-                          .filter(Boolean)
-                          .join(" • ")}
-                      </Text>
+                        {album.artwork ? (
+                          <Image source={{ uri: album.artwork }} style={styles.albumCover} />
+                        ) : (
+                          <View style={[styles.albumCover, styles.placeholder]}>
+                            <Ionicons
+                              name="image-outline"
+                              size={22}
+                              color={theme.colors.primary}
+                            />
+                            <Text style={styles.coverHint}>+ Cover</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+
+                      <Pressable
+                        style={styles.albumMetaPressable}
+                        onPress={() => setExpandedAlbumKey(isExpanded ? null : album.key)}
+                      >
+                        <Text style={styles.albumTitleText} numberOfLines={1}>
+                          {album.title}
+                        </Text>
+                        <Text style={styles.albumArtistText} numberOfLines={1}>
+                          {album.artist}
+                        </Text>
+                        <Text style={styles.albumSubtext}>
+                          {album.tracks.length}{" "}
+                          {album.tracks.length === 1 ? "song" : "songs"} •{" "}
+                          {formatBytes(album.totalBytes)}
+                        </Text>
+                      </Pressable>
+
+                      <View style={styles.albumHeaderActions}>
+                        <TouchableOpacity
+                          onPress={() =>
+                            playTrack(
+                              downloadToTrack(album.tracks[0]),
+                              album.tracks.map(downloadToTrack),
+                              album.title,
+                            )
+                          }
+                          style={styles.albumPlayBtn}
+                          accessibilityLabel={`Play ${album.title}`}
+                        >
+                          <Ionicons
+                            name="play"
+                            size={18}
+                            color={theme.colors.playButtonIcon}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setExpandedAlbumKey(isExpanded ? null : album.key)}
+                          style={{ padding: 6 }}
+                          accessibilityLabel={isExpanded ? "Collapse" : "Expand"}
+                        >
+                          <Ionicons
+                            name={isExpanded ? "chevron-up" : "chevron-down"}
+                            size={20}
+                            color={theme.colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <TouchableOpacity
-                      onPress={() => removeDownload(item)}
-                      style={{ padding: 6 }}
-                      accessibilityLabel="Delete download"
-                    >
-                      <Ionicons name="trash-outline" size={18} color={theme.colors.textMuted} />
-                    </TouchableOpacity>
-                  </Pressable>
+
+                    {/* Expanded Tracklist */}
+                    {isExpanded && (
+                      <View style={styles.albumTracksSection}>
+                        <View style={styles.albumDivider} />
+                        {album.tracks.map((track, idx) => {
+                          const isTrackActive = activeTrack?.id === track.id;
+                          return (
+                            <Pressable
+                              key={`t-${track.id}`}
+                              onPress={() =>
+                                playTrack(
+                                  downloadToTrack(track),
+                                  album.tracks.map(downloadToTrack),
+                                  album.title,
+                                )
+                              }
+                              style={[styles.trackRow, isTrackActive && styles.trackRowActive]}
+                            >
+                              <Text style={styles.trackIndex}>{track.order || idx + 1}</Text>
+                              <View style={styles.trackDetails}>
+                                <Text
+                                  style={[
+                                    styles.trackTitle,
+                                    isTrackActive && {
+                                      color: theme.colors.primary,
+                                      fontWeight: "700",
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {track.title}
+                                </Text>
+                                {track.artist !== album.artist && (
+                                  <Text style={styles.trackArtist} numberOfLines={1}>
+                                    {track.artist}
+                                  </Text>
+                                )}
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => removeDownload(track)}
+                                style={{ padding: 6 }}
+                                accessibilityLabel="Delete track"
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={16}
+                                  color={theme.colors.textMuted}
+                                />
+                              </TouchableOpacity>
+                            </Pressable>
+                          );
+                        })}
+
+                        {/* Album Bottom Controls */}
+                        <View style={styles.albumBottomActions}>
+                          <TouchableOpacity
+                            onPress={() => handlePickAlbumCover(album)}
+                            style={styles.albumSmallAction}
+                          >
+                            <Ionicons
+                              name="image-outline"
+                              size={14}
+                              color={theme.colors.textCyan}
+                            />
+                            <Text style={styles.albumSmallActionText}>Change cover</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => handleDeleteAlbum(album)}
+                            style={styles.albumSmallAction}
+                          >
+                            <Ionicons name="trash-outline" size={14} color="#ff4d4d" />
+                            <Text style={[styles.albumSmallActionText, { color: "#ff4d4d" }]}>
+                              Delete album
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
                 );
               }}
             />
           )}
+
+          {/* New Album Import Modal */}
+          <Modal
+            visible={showNewAlbumModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowNewAlbumModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Import Album</Text>
+                <Text style={styles.modalSubtitle}>
+                  Enter the album and artist name, then pick the audio files from your phone.
+                </Text>
+
+                <Text style={styles.inputLabel}>Album Title</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g. My Album or Mixtape"
+                  placeholderTextColor={theme.colors.textMuted}
+                  value={newAlbumTitle}
+                  onChangeText={setNewAlbumTitle}
+                  autoFocus
+                />
+
+                <Text style={styles.inputLabel}>Artist (Optional)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g. Various Artists"
+                  placeholderTextColor={theme.colors.textMuted}
+                  value={newAlbumArtist}
+                  onChangeText={setNewAlbumArtist}
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowNewAlbumModal(false);
+                      setNewAlbumTitle("");
+                      setNewAlbumArtist("");
+                    }}
+                    style={styles.modalCancelBtn}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleCreateAlbumAndImport}
+                    style={styles.modalConfirmBtn}
+                  >
+                    <Ionicons
+                      name="folder-open-outline"
+                      size={16}
+                      color={theme.colors.playButtonIcon}
+                    />
+                    <Text style={styles.modalConfirmText}>Choose Files</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </View>
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
@@ -1018,5 +1214,208 @@ const styles = StyleSheet.create({
     color: theme.colors.playButtonIcon,
     fontWeight: "700",
     fontSize: 14,
+  },
+  albumCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+  },
+  albumCardExpanded: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surfaceElevated,
+  },
+  albumHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  albumCoverWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: theme.radius.sm,
+    overflow: "hidden",
+    backgroundColor: theme.colors.surfaceElevated,
+  },
+  albumCover: {
+    width: "100%",
+    height: "100%",
+  },
+  coverHint: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: theme.colors.primary,
+    marginTop: 2,
+  },
+  albumMetaPressable: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: "center",
+  },
+  albumTitleText: {
+    color: theme.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  albumArtistText: {
+    color: theme.colors.textCyan,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  albumSubtext: {
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    marginTop: 3,
+  },
+  albumHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginLeft: 8,
+  },
+  albumPlayBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  albumTracksSection: {
+    marginTop: 10,
+  },
+  albumDivider: {
+    height: 1,
+    backgroundColor: theme.colors.surfaceCardBorder,
+    marginBottom: 8,
+  },
+  trackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: theme.radius.sm,
+  },
+  trackRowActive: {
+    backgroundColor: "rgba(0, 210, 255, 0.08)",
+  },
+  trackIndex: {
+    width: 24,
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.textSecondary,
+    textAlign: "center",
+  },
+  trackDetails: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  trackTitle: {
+    color: theme.colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  trackArtist: {
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  albumBottomActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 10,
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surfaceCardBorder,
+  },
+  albumSmallAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  albumSmallActionText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.textCyan,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginBottom: 16,
+    lineHeight: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.textSecondary,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  modalInput: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+    color: theme.colors.textPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 8,
+  },
+  modalCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: theme.radius.full,
+  },
+  modalCancelText: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  modalConfirmBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: theme.radius.full,
+  },
+  modalConfirmText: {
+    color: theme.colors.playButtonIcon,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

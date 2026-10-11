@@ -15,6 +15,7 @@ export type DownloadedTrack = {
   bytes?: number;
   downloadedAt: number;
   source: "mirlo" | "file";
+  order?: number;
 };
 
 const DOWNLOADS_STORAGE_KEY = "mirlo_blue_downloads_v2";
@@ -125,12 +126,95 @@ export function downloadToTrack(dl: DownloadedTrack): RNTrack {
       artist: { name: dl.artist } as any,
       artistId: 0,
       urlSlug: "",
-      cover: { sizes: {} as any },
+      cover: { sizes: { 300: dl.artwork, 600: dl.artwork } as any },
     },
     audio: { url: dl.url, duration: dl.duration },
     isPreview: false,
-    order: 1,
+    order: dl.order || 1,
     headers: {},
     allowIndividualSale: false,
   } as RNTrack;
+}
+
+// Group of downloaded songs belonging to the same album
+export type DownloadedAlbum = {
+  key: string;
+  title: string;
+  artist: string;
+  artwork?: string;
+  tracks: DownloadedTrack[];
+  totalBytes: number;
+  downloadedAt: number;
+  source: "mirlo" | "file";
+};
+
+export function albumKeyOf(track: DownloadedTrack): string {
+  if (track.folder) return track.folder;
+  const normalized = (track.albumTitle || "Imported Audio").trim().toLowerCase();
+  return `album:${normalized}`;
+}
+
+// Groups downloaded tracks by album, sorting newest albums first
+export function groupTracksIntoAlbums(tracks: DownloadedTrack[]): DownloadedAlbum[] {
+  const map = new Map<string, DownloadedAlbum>();
+
+  for (const track of tracks) {
+    const key = albumKeyOf(track);
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        key,
+        title: track.albumTitle || "Imported Audio",
+        artist: track.artist || "Unknown Artist",
+        artwork: track.artwork,
+        tracks: [track],
+        totalBytes: track.bytes || 0,
+        downloadedAt: track.downloadedAt,
+        source: track.source,
+      });
+    } else {
+      existing.tracks.push(track);
+      existing.totalBytes += track.bytes || 0;
+      if (!existing.artwork && track.artwork) {
+        existing.artwork = track.artwork;
+      }
+      if (track.downloadedAt > existing.downloadedAt) {
+        existing.downloadedAt = track.downloadedAt;
+      }
+      if ((existing.artist === "Unknown Artist" || !existing.artist) && track.artist) {
+        existing.artist = track.artist;
+      }
+    }
+  }
+
+  return Array.from(map.values())
+    .map((album) => ({
+      ...album,
+      tracks: [...album.tracks].sort((a, b) => (a.order || 0) - (b.order || 0) || a.id - b.id),
+    }))
+    .sort((a, b) => b.downloadedAt - a.downloadedAt);
+}
+
+// Updates cover art for every track in an album
+export async function updateAlbumArtwork(albumKey: string, artworkUri: string): Promise<void> {
+  const current = await getDownloadedTracks();
+  const next = current.map((t) => (albumKeyOf(t) === albumKey ? { ...t, artwork: artworkUri } : t));
+  await persist(next);
+}
+
+// Updates album title and artist for every track in an album
+export async function updateAlbumMetadata(
+  albumKey: string,
+  updates: { title?: string; artist?: string },
+): Promise<void> {
+  const current = await getDownloadedTracks();
+  const next = current.map((t) => {
+    if (albumKeyOf(t) !== albumKey) return t;
+    return {
+      ...t,
+      albumTitle: updates.title !== undefined ? updates.title : t.albumTitle,
+      artist: updates.artist !== undefined ? updates.artist : t.artist,
+    };
+  });
+  await persist(next);
 }
