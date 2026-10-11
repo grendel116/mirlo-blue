@@ -74,8 +74,10 @@ async function readPlayer() {
   return { queue, active, queued: queuedCount(queue.slice(active + 1)) };
 }
 
+// Interruptions from other sound arrive as remote-duck, and the playback service pauses and
+// resumes for them (scripts/service.ts), so the player shows what is really happening
 const setupPlayerOptions = {
-  autoHandleInterruptions: true,
+  autoHandleInterruptions: false,
   iosCategory: IOSCategory.Playback,
   iosCategoryOptions: [
     IOSCategoryOptions.AllowAirPlay,
@@ -86,6 +88,8 @@ const setupPlayerOptions = {
 const updatePlayerOptions = {
   android: {
     appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+    // Short sounds like directions or a voice note pause the music rather than turn it down
+    alwaysPauseOnInterruption: true,
   },
   capabilities: [
     Capability.Play,

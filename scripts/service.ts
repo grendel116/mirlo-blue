@@ -82,12 +82,19 @@ module.exports = async function () {
     }
   });
 
+  // Other sound took over (paused), or handed the speaker back (not paused). A permanent
+  // takeover, like another music app, leaves the music paused. A passing one, like a call or a
+  // video, resumes the music afterwards, but only when it was playing when the sound began
+  let interruptedWhilePlaying = false;
   TrackPlayer.addEventListener(Event.RemoteDuck, async ({ paused, permanent }) => {
     try {
-      if (permanent || paused) {
-        await TrackPlayer.pause();
+      if (paused) {
+        const wasPlaying = await TrackPlayer.getPlayWhenReady();
+        if (wasPlaying) await TrackPlayer.pause();
+        interruptedWhilePlaying = !permanent && (wasPlaying || interruptedWhilePlaying);
       } else {
-        await TrackPlayer.play();
+        if (interruptedWhilePlaying) await TrackPlayer.play();
+        interruptedWhilePlaying = false;
       }
     } catch (err) {
       console.error("RemoteDuck error:", err);
