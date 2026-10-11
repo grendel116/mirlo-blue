@@ -70,7 +70,7 @@ const setupPlayerOptions = {
 
 const updatePlayerOptions = {
   android: {
-    appKilledPlaybackBehavior: AppKilledPlaybackBehavior.ContinuePlayback,
+    appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
   },
   capabilities: [
     Capability.Play,

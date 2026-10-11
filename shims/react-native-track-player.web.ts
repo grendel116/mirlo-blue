@@ -50,6 +50,8 @@ export enum IOSCategoryOptions {
 
 export enum AppKilledPlaybackBehavior {
   ContinuePlayback = "continue-playback",
+  PausePlayback = "pause-playback",
+  StopPlaybackAndRemoveNotification = "stop-playback-and-remove-notification",
 }
 
 export enum RepeatMode {
