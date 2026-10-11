@@ -20,11 +20,12 @@ const fetchTrackGroups: QueryFunction<
       orderBy?: "random";
       tag?: string;
       distinctArtists?: boolean;
+      isReleased?: "released";
     },
     ...any,
   ]
 > = ({
-  queryKey: [_, { skip, take, orderBy, tag, distinctArtists }],
+  queryKey: [_, { skip, take, orderBy, tag, distinctArtists, isReleased }],
   signal,
   pageParam = 0,
 }) => {
@@ -33,6 +34,7 @@ const fetchTrackGroups: QueryFunction<
   if (take) params.append("take", String(take));
   if (orderBy) params.append("orderBy", orderBy);
   if (tag) params.append("tag", tag);
+  if (isReleased) params.append("isReleased", isReleased);
   params.append("distinctArtists", String(distinctArtists ?? false));
   return api.get(`/v1/trackGroups?${params}`, { signal });
 };
@@ -43,6 +45,7 @@ export function queryTrackGroups(opts: {
   orderBy?: "random";
   tag?: string;
   distinctArtists: boolean;
+  isReleased?: "released";
 }) {
   return queryOptions({
     queryKey: ["fetchTrackGroups", opts],

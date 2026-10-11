@@ -45,6 +45,7 @@ export default function Index() {
     queryTrackGroups({
       take: 12,
       distinctArtists: true,
+      isReleased: "released",
     }),
   );
 
@@ -55,7 +56,8 @@ export default function Index() {
     refetch: refetchTopSold,
   } = useQuery(
     queryTopSold({
-      take: 10,
+      take: 12,
+      datePurchased: "pastMonth",
     }),
   );
 
@@ -266,7 +268,7 @@ export default function Index() {
               ) : (
                 <FlatList
                   horizontal
-                  data={popularPurchases.length > 0 ? popularPurchases : recentReleases.slice().reverse()}
+                  data={popularPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
