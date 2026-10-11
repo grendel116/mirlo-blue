@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import * as api from "../queries/fetch/fetchWrapper";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
+import { likesAlbum } from "@/scripts/utils";
 
 type WishlistButton = {
   trackGroup: {
@@ -26,11 +27,7 @@ export default function WishlistButton({
   // Follows the account's wishlist and track hearts; a tap shows right away until the account data refreshes
   const [tapped, setTapped] = useState<boolean | null>(null);
   useEffect(() => setTapped(null), [user]);
-  const isWishlisted = !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
-  const allTracksHearted =
-    !!trackGroup.tracks?.length &&
-    trackGroup.tracks.every((t) => user?.trackFavorites?.some((f) => f.trackId === t.id));
-  const isInWishlist = tapped ?? (isWishlisted || allTracksHearted);
+  const isInWishlist = tapped ?? likesAlbum(user, trackGroup);
   const router = useRouter();
 
   const onPress = useCallback(async () => {

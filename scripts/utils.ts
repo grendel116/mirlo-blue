@@ -114,3 +114,14 @@ export const ownsAlbum = (user: LoggedInUser | null | undefined, album: AlbumPro
   (album.artistId === user.id ||
     !!album.userTrackGroupPurchases?.some((p) => p.userId === user.id) ||
     !!user.userTrackGroupPurchases?.some((p) => p.trackGroupId === album.id));
+
+// True when you hearted the album, or hearted every one of its tracks
+export const likesAlbum = (
+  user: LoggedInUser | null | undefined,
+  album: { id: number; tracks?: { id: number }[] },
+): boolean => {
+  if (!user) return false;
+  if (user.wishlist?.some((w) => w.trackGroupId === album.id)) return true;
+  const hearted = new Set(user.trackFavorites?.map((f) => f.trackId));
+  return !!album.tracks?.length && album.tracks.every((t) => hearted.has(t.id));
+};

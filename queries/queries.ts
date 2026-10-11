@@ -154,6 +154,18 @@ export function queryAlbum(opts: {
   });
 }
 
+const fetchAlbumById: QueryFunction<AlbumProps, ["fetchAlbumById", { id: number }]> = ({
+  queryKey: [_, { id }],
+  signal,
+}) => api.get<{ result: AlbumProps }>(`/v1/trackGroups/${id}`, { signal }).then((r) => r.result);
+
+export function queryAlbumById(id: number) {
+  return queryOptions({
+    queryKey: ["fetchAlbumById", { id }],
+    queryFn: fetchAlbumById,
+  });
+}
+
 const fetchArtist: QueryFunction<
   Artist,
   ["fetchArtist", { artistSlug: string }]
