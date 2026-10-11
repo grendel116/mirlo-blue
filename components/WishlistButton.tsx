@@ -23,11 +23,14 @@ export default function WishlistButton({
 }: WishlistButton) {
   const { user, refreshLoggedInUser } = useAuthContext();
   const queryClient = useQueryClient();
-  // Follows the account's wishlist; a tap shows right away until the account data refreshes
+  // Follows the account's wishlist and track hearts; a tap shows right away until the account data refreshes
   const [tapped, setTapped] = useState<boolean | null>(null);
   useEffect(() => setTapped(null), [user]);
-  const isInWishlist =
-    tapped ?? !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
+  const isWishlisted = !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
+  const allTracksHearted =
+    !!trackGroup.tracks?.length &&
+    trackGroup.tracks.every((t) => user?.trackFavorites?.some((f) => f.trackId === t.id));
+  const isInWishlist = tapped ?? (isWishlisted || allTracksHearted);
   const router = useRouter();
 
   const onPress = useCallback(async () => {
