@@ -140,6 +140,11 @@ export function albumKeyOf(track: DownloadedTrack): string {
   return `album:${(track.albumTitle || "Imported Audio").trim().toLowerCase()}`;
 }
 
+// Where a saved album opens: Library > Downloads with the album expanded
+export function savedAlbumHref(albumKey: string) {
+  return { pathname: "/library", params: { tab: "downloads", album: albumKey } } as const;
+}
+
 // Newest albums first, each with its songs in album order
 export function groupTracksIntoAlbums(tracks: DownloadedTrack[]): DownloadedAlbum[] {
   const albums = new Map<string, DownloadedAlbum>();

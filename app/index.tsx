@@ -18,6 +18,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import { getHistory, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
+import { savedAlbumHref } from "@/scripts/downloadManager";
 import {
   RADIO_STATIONS,
   RadioStation,
@@ -161,10 +162,7 @@ export default function Index() {
                         key={`${item.downloadAlbum ?? item.id}-${idx}`}
                         onPress={() =>
                           item.downloadAlbum
-                            ? router.push({
-                                pathname: "/library",
-                                params: { tab: "downloads", album: item.downloadAlbum },
-                              })
+                            ? router.push(savedAlbumHref(item.downloadAlbum))
                             : router.push({
                                 pathname: "/artist/[id]/album/[slug]/album-tracks",
                                 params: {

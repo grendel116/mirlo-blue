@@ -23,6 +23,7 @@ import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { savedAlbumHref } from "@/scripts/downloadManager";
 
 export default function NowPlaying() {
   const { activeTrack, looping } = usePlayer();
@@ -132,6 +133,10 @@ export default function NowPlaying() {
               onPress={() => {
                 if (!activeTrack?.trackGroup) return;
                 router.dismiss();
+                if (activeTrack.downloadAlbum) {
+                  router.navigate(savedAlbumHref(activeTrack.downloadAlbum));
+                  return;
+                }
                 router.navigate({
                   pathname: "/artist/[id]/album/[slug]/album-tracks",
                   params: {
@@ -154,21 +159,28 @@ export default function NowPlaying() {
                 .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
                 .trim() + " "}
             </Text>
-            <Pressable
-              onPress={() => {
-                if (!activeTrack?.trackGroup) return;
-                router.dismiss();
-                router.navigate({
-                  pathname: "/artist/[id]/artist-page",
-                  params: { id: String(activeTrack.trackGroup.artistId) },
-                });
-              }}
-              style={styles.linkPressable}
-            >
-              <Text style={styles.cyanLink} numberOfLines={1}>
-                {activeTrack?.artist}
+            {/* A song saved on the phone has no Mirlo artist page to open */}
+            {activeTrack?.downloadAlbum ? (
+              <Text style={styles.infoLabel} numberOfLines={1}>
+                {activeTrack.artist}
               </Text>
-            </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  if (!activeTrack?.trackGroup) return;
+                  router.dismiss();
+                  router.navigate({
+                    pathname: "/artist/[id]/artist-page",
+                    params: { id: String(activeTrack.trackGroup.artistId) },
+                  });
+                }}
+                style={styles.linkPressable}
+              >
+                <Text style={styles.cyanLink} numberOfLines={1}>
+                  {activeTrack?.artist}
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
         )}
