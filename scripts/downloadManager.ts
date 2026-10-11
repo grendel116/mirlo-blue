@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // A song saved on the phone. Mirlo downloads keep their Mirlo track id, so the rest of the
@@ -13,9 +14,9 @@ export type DownloadedTrack = {
   folder?: string; // file:// uri of the album folder it was unpacked into
   duration?: number;
   bytes?: number;
+  order?: number; // position within its album
   downloadedAt: number;
   source: "mirlo" | "file";
-  order?: number;
 };
 
 const DOWNLOADS_STORAGE_KEY = "mirlo_blue_downloads_v2";
@@ -37,20 +38,11 @@ const listeners = new Set<DownloadListener>();
 let downloads: DownloadedTrack[] = [];
 let isLoaded = false;
 
-function publish(next: DownloadedTrack[]) {
-  downloads = next;
-  listeners.forEach((listener) => {
-    try {
-      listener(next);
-    } catch {}
-  });
-}
-
 async function persist(next: DownloadedTrack[]) {
   downloads = next;
   isLoaded = true;
   await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(next));
-  publish(next);
+  listeners.forEach((listener) => listener(next));
 }
 
 export async function getDownloadedTracks(): Promise<DownloadedTrack[]> {
@@ -74,31 +66,10 @@ export async function saveDownloadedTracks(tracks: DownloadedTrack[]): Promise<v
   await persist([...tracks, ...current.filter((t) => !ids.has(t.id))]);
 }
 
-export async function forgetDownloadedTrack(trackId: number): Promise<void> {
-  const current = await getDownloadedTracks();
-  await persist(current.filter((t) => t.id !== trackId));
-}
-
 export async function forgetDownloadedTracks(trackIds: number[]): Promise<void> {
-  const idSet = new Set(trackIds);
+  const ids = new Set(trackIds);
   const current = await getDownloadedTracks();
-  await persist(current.filter((t) => !idSet.has(t.id)));
-}
-
-export async function updateDownloadedTrack(
-  trackId: number,
-  updates: Partial<DownloadedTrack>,
-): Promise<void> {
-  const current = await getDownloadedTracks();
-  await persist(current.map((t) => (t.id === trackId ? { ...t, ...updates } : t)));
-}
-
-export async function updateDownloadedTracks(
-  filter: (t: DownloadedTrack) => boolean,
-  updates: Partial<DownloadedTrack>,
-): Promise<void> {
-  const current = await getDownloadedTracks();
-  await persist(current.map((t) => (filter(t) ? { ...t, ...updates } : t)));
+  await persist(current.filter((t) => !ids.has(t.id)));
 }
 
 export function subscribeDownloads(listener: DownloadListener): () => void {
@@ -106,6 +77,16 @@ export function subscribeDownloads(listener: DownloadListener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+// The saved songs, kept current as downloads come and go
+export function useDownloads(): DownloadedTrack[] {
+  const [tracks, setTracks] = useState<DownloadedTrack[]>([]);
+  useEffect(() => {
+    getDownloadedTracks().then(setTracks);
+    return subscribeDownloads(setTracks);
+  }, []);
+  return tracks;
 }
 
 // The saved copy of a song, if there is one
@@ -142,7 +123,7 @@ export function downloadToTrack(dl: DownloadedTrack): RNTrack {
   } as RNTrack;
 }
 
-// Group of downloaded songs belonging to the same album
+// Saved songs that belong together: an unpacked Mirlo album, or files imported under one name
 export type DownloadedAlbum = {
   key: string;
   title: string;
@@ -151,24 +132,22 @@ export type DownloadedAlbum = {
   tracks: DownloadedTrack[];
   totalBytes: number;
   downloadedAt: number;
-  source: "mirlo" | "file";
 };
 
 export function albumKeyOf(track: DownloadedTrack): string {
   if (track.folder) return track.folder;
-  const normalized = (track.albumTitle || "Imported Audio").trim().toLowerCase();
-  return `album:${normalized}`;
+  return `album:${(track.albumTitle || "Imported Audio").trim().toLowerCase()}`;
 }
 
-// Groups downloaded tracks by album, sorting newest albums first
+// Newest albums first, each with its songs in album order
 export function groupTracksIntoAlbums(tracks: DownloadedTrack[]): DownloadedAlbum[] {
-  const map = new Map<string, DownloadedAlbum>();
+  const albums = new Map<string, DownloadedAlbum>();
 
   for (const track of tracks) {
     const key = albumKeyOf(track);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, {
+    const album = albums.get(key);
+    if (!album) {
+      albums.set(key, {
         key,
         title: track.albumTitle || "Imported Audio",
         artist: track.artist || "Unknown Artist",
@@ -176,51 +155,25 @@ export function groupTracksIntoAlbums(tracks: DownloadedTrack[]): DownloadedAlbu
         tracks: [track],
         totalBytes: track.bytes || 0,
         downloadedAt: track.downloadedAt,
-        source: track.source,
       });
-    } else {
-      existing.tracks.push(track);
-      existing.totalBytes += track.bytes || 0;
-      if (!existing.artwork && track.artwork) {
-        existing.artwork = track.artwork;
-      }
-      if (track.downloadedAt > existing.downloadedAt) {
-        existing.downloadedAt = track.downloadedAt;
-      }
-      if ((existing.artist === "Unknown Artist" || !existing.artist) && track.artist) {
-        existing.artist = track.artist;
-      }
+      continue;
     }
+    album.tracks.push(track);
+    album.totalBytes += track.bytes || 0;
+    album.artwork ||= track.artwork;
+    album.downloadedAt = Math.max(album.downloadedAt, track.downloadedAt);
   }
 
-  return Array.from(map.values())
+  return Array.from(albums.values())
     .map((album) => ({
       ...album,
-      tracks: [...album.tracks].sort((a, b) => (a.order || 0) - (b.order || 0) || a.id - b.id),
+      tracks: album.tracks.sort((a, b) => (a.order || 0) - (b.order || 0) || a.id - b.id),
     }))
     .sort((a, b) => b.downloadedAt - a.downloadedAt);
 }
 
-// Updates cover art for every track in an album
-export async function updateAlbumArtwork(albumKey: string, artworkUri: string): Promise<void> {
+// Sets the cover for every song in an album
+export async function updateAlbumArtwork(albumKey: string, artwork: string): Promise<void> {
   const current = await getDownloadedTracks();
-  const next = current.map((t) => (albumKeyOf(t) === albumKey ? { ...t, artwork: artworkUri } : t));
-  await persist(next);
-}
-
-// Updates album title and artist for every track in an album
-export async function updateAlbumMetadata(
-  albumKey: string,
-  updates: { title?: string; artist?: string },
-): Promise<void> {
-  const current = await getDownloadedTracks();
-  const next = current.map((t) => {
-    if (albumKeyOf(t) !== albumKey) return t;
-    return {
-      ...t,
-      albumTitle: updates.title !== undefined ? updates.title : t.albumTitle,
-      artist: updates.artist !== undefined ? updates.artist : t.artist,
-    };
-  });
-  await persist(next);
+  await persist(current.map((t) => (albumKeyOf(t) === albumKey ? { ...t, artwork } : t)));
 }

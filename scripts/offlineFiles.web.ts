@@ -1,4 +1,4 @@
-import { DownloadedTrack, DownloadFormat, DownloadStage, forgetDownloadedTrack } from "./downloadManager";
+import { DownloadedAlbum, DownloadedTrack, DownloadFormat, DownloadStage, forgetDownloadedTracks } from "./downloadManager";
 
 // Browsers can't save music for offline use, so the web build hides download controls
 export const OFFLINE_SUPPORTED = false;
@@ -11,20 +11,12 @@ export async function downloadAlbum(
   throw new Error("Downloads work in the phone app");
 }
 
-export async function importFiles(_albumTitle?: string, _artistName?: string): Promise<number> {
+export async function importFiles(_albumTitle?: string, _artistName?: string): Promise<string | null> {
   throw new Error("Adding files works in the phone app");
 }
 
-export async function removeDownload(dl: DownloadedTrack): Promise<void> {
-  await forgetDownloadedTrack(dl.id);
+export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
+  await forgetDownloadedTracks(tracks.map((t) => t.id));
 }
 
-export async function removeAlbumDownloads(tracks: DownloadedTrack[]): Promise<void> {
-  for (const t of tracks) {
-    await forgetDownloadedTrack(t.id);
-  }
-}
-
-export async function pickCoverImage(): Promise<string | null> {
-  return null;
-}
+export async function chooseAlbumCover(_album: DownloadedAlbum): Promise<void> {}

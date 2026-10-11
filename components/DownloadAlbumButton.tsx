@@ -1,16 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuthContext } from "@/state/AuthContext";
 import { theme } from "@/constants/theme";
 import {
   DOWNLOAD_FORMATS,
-  DownloadedTrack,
   DownloadStage,
-  getDownloadedTracks,
-  subscribeDownloads,
+  useDownloads,
 } from "@/scripts/downloadManager";
-import { OFFLINE_SUPPORTED, downloadAlbum, removeDownload } from "@/scripts/offlineFiles";
+import { OFFLINE_SUPPORTED, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
 
 const STAGE_LABELS: Record<DownloadStage, string> = {
   preparing: "Preparing",
@@ -21,13 +19,8 @@ const STAGE_LABELS: Record<DownloadStage, string> = {
 // Saves an album you own to the phone for offline listening, or removes it again
 export default function DownloadAlbumButton({ album, size = 32 }: { album: AlbumProps; size?: number }) {
   const { user } = useAuthContext();
-  const [downloads, setDownloads] = useState<DownloadedTrack[]>([]);
+  const downloads = useDownloads();
   const [stage, setStage] = useState<DownloadStage | null>(null);
-
-  useEffect(() => {
-    getDownloadedTracks().then(setDownloads);
-    return subscribeDownloads(setDownloads);
-  }, []);
 
   const owned =
     !!user &&
@@ -53,9 +46,7 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
         {
           text: "Remove",
           style: "destructive",
-          onPress: async () => {
-            for (const dl of saved) await removeDownload(dl);
-          },
+          onPress: () => removeDownloads(saved),
         },
       ]);
       return;

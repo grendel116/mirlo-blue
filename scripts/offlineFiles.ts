@@ -4,13 +4,15 @@ import { unzip } from "react-native-zip-archive";
 import { API_ROOT } from "@/constants/api-root";
 import * as api from "@/queries/fetch/fetchWrapper";
 import {
+  albumKeyOf,
+  DownloadedAlbum,
   DownloadedTrack,
   DownloadFormat,
   DownloadStage,
-  forgetDownloadedTrack,
   forgetDownloadedTracks,
   getDownloadedTracks,
   saveDownloadedTracks,
+  updateAlbumArtwork,
 } from "./downloadManager";
 
 // Saving files to the phone. The web build uses offlineFiles.web.ts instead
@@ -134,14 +136,24 @@ function namesFromFile(fileName: string): { title: string; artist: string } {
   return { artist: base.slice(0, split), title: base.slice(split + 3) };
 }
 
-// Adds audio files from the phone into a designated album, copied into app storage
-export async function importFiles(albumTitle?: string, artistName?: string): Promise<number> {
+
+// Moves a file the picker handed us into app storage, so no copy is left in the cache
+function adopt(pickedUri: string, destination: File): void {
+  const source = new File(pickedUri);
+  source.copy(destination);
+  try {
+    source.delete();
+  } catch {}
+}
+
+// Adds audio files from the phone as one album
+export async function importFiles(albumTitle?: string, artistName?: string): Promise<string | null> {
   const picked = await DocumentPicker.getDocumentAsync({
     type: "audio/*",
     multiple: true,
     copyToCacheDirectory: true,
   });
-  if (picked.canceled || !picked.assets?.length) return 0;
+  if (picked.canceled || !picked.assets?.length) return null;
 
   const folder = downloadsFolder("files");
   const now = Date.now();
@@ -150,7 +162,7 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
 
   const saved: DownloadedTrack[] = picked.assets.map((asset, i) => {
     const file = new File(folder, `${now}-${i}-${asset.name}`);
-    new File(asset.uri).copy(file);
+    adopt(asset.uri, file);
     const parsed = namesFromFile(asset.name);
     return {
       id: -(now + i),
@@ -165,68 +177,56 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
     };
   });
   await saveDownloadedTracks(saved);
-  return saved.length;
+  return albumKeyOf(saved[0]);
 }
 
-// Deletes a saved song, ensuring record removal even if physical file is missing
-export async function removeDownload(dl: DownloadedTrack): Promise<void> {
+function deleteQuietly(uri: string): void {
   try {
-    const file = new File(dl.url);
-    if (file.exists) file.delete();
-  } catch (err) {
-    console.warn("Could not delete file:", dl.url, err);
-  }
+    const entry = new File(uri);
+    if (entry.exists) entry.delete();
+  } catch {}
+}
 
-  await forgetDownloadedTrack(dl.id);
-
-  if (dl.folder) {
-    try {
-      const remaining = await getDownloadedTracks();
-      if (!remaining.some((t) => t.folder === dl.folder)) {
-        const folder = new Directory(dl.folder);
-        if (folder.exists) folder.delete();
-      }
-    } catch {}
+// Covers you picked live in one folder; remove the ones no saved song uses any more
+async function pruneCovers(): Promise<void> {
+  const covers = new Directory(Paths.document, "downloads", "covers");
+  if (!covers.exists) return;
+  const nameOf = (uri: string) => uri.split("/").pop();
+  const inUse = new Set((await getDownloadedTracks()).map((t) => t.artwork && nameOf(t.artwork)));
+  for (const entry of covers.list()) {
+    if (entry instanceof File && !inUse.has(nameOf(entry.uri))) deleteQuietly(entry.uri);
   }
 }
 
-// Deletes multiple saved songs belonging to an album in a single atomic batch
-export async function removeAlbumDownloads(tracks: DownloadedTrack[]): Promise<void> {
-  const folders = new Set<string>();
-
-  for (const t of tracks) {
-    try {
-      const file = new File(t.url);
-      if (file.exists) file.delete();
-    } catch {}
-    if (t.folder) folders.add(t.folder);
-  }
-
+// Deletes saved songs, then the album folders and covers nothing uses any more
+export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
+  tracks.forEach((t) => deleteQuietly(t.url));
   await forgetDownloadedTracks(tracks.map((t) => t.id));
 
-  for (const folderUri of folders) {
+  const remaining = await getDownloadedTracks();
+  const folders = new Set(tracks.map((t) => t.folder).filter((f): f is string => !!f));
+  for (const folder of folders) {
+    if (remaining.some((t) => t.folder === folder)) continue;
     try {
-      const remaining = await getDownloadedTracks();
-      if (!remaining.some((t) => t.folder === folderUri)) {
-        const folder = new Directory(folderUri);
-        if (folder.exists) folder.delete();
-      }
+      const dir = new Directory(folder);
+      if (dir.exists) dir.delete();
     } catch {}
   }
+  await pruneCovers();
 }
 
-// Selects an image from the phone and saves it to app storage for offline artwork
-export async function pickCoverImage(): Promise<string | null> {
+// Lets you pick an image from the phone as an album's cover
+export async function chooseAlbumCover(album: DownloadedAlbum): Promise<void> {
   const picked = await DocumentPicker.getDocumentAsync({
     type: "image/*",
     copyToCacheDirectory: true,
   });
-  if (picked.canceled || !picked.assets?.[0]) return null;
+  if (picked.canceled || !picked.assets?.[0]) return;
 
   const asset = picked.assets[0];
-  const covers = downloadsFolder("covers");
-  const ext = asset.name.split(".").pop() || "jpg";
-  const dest = new File(covers, `${Date.now()}.${ext}`);
-  new File(asset.uri).copy(dest);
-  return dest.uri;
+  const extension = asset.name.split(".").pop() || "jpg";
+  const cover = new File(downloadsFolder("covers"), `${Date.now()}.${extension}`);
+  adopt(asset.uri, cover);
+  await updateAlbumArtwork(album.key, cover.uri);
+  await pruneCovers();
 }

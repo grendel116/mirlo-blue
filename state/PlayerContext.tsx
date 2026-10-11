@@ -29,7 +29,7 @@ import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchRecentReleaseTracks } from "@/scripts/autoplay";
-import { findDownload, getDownloadedTracks } from "@/scripts/downloadManager";
+import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
 
 // Autoplay tops up when fewer than this many previews wait after the playlist
 const AUTOPLAY_THRESHOLD = 2;
@@ -143,7 +143,8 @@ function toPlayerTrack(
   const saved = findDownload(t.id);
   const streamUrl = saved?.url ?? resolveStreamUrl(t.url || t.audio?.url || "");
   const artwork = resolveArtworkUrl(
-    t.artwork ||
+    saved?.artwork ||
+      t.artwork ||
       cover?.sizes?.[600] ||
       cover?.sizes?.[300] ||
       cover?.sizes?.[120] ||
@@ -275,6 +276,27 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     });
     return () => subscription.remove();
   }, [syncFromPlayer]);
+
+  // A deleted download leaves the queue, so the player never reaches a missing file
+  useEffect(
+    () =>
+      subscribeDownloads(async (saved) => {
+        const urls = new Set(saved.map((d) => d.url));
+        const deleted = (t: RNTrack) => !!t.url?.startsWith("file://") && !urls.has(t.url);
+        setUserQueue((prev) => prev.filter((t) => !deleted(t)));
+        playlistOrderRef.current = playlistOrderRef.current.filter((t) => !deleted(t));
+        try {
+          const queue = (await TrackPlayer.getQueue()) as RNTrack[];
+          const gone = queue.flatMap((t, index) => (deleted(t) ? [index] : []));
+          if (gone.length === 0) return;
+          await TrackPlayer.remove(gone);
+          setPlayingQueue((await TrackPlayer.getQueue()) as RNTrack[]);
+        } catch (err) {
+          console.error("Queue cleanup error:", err);
+        }
+      }),
+    [],
+  );
 
   useEffect(() => {
     activeTrackOwnedRef.current = false;
