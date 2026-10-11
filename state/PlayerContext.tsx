@@ -227,8 +227,9 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   // The playlist in its own order, so turning shuffle off can put it back
   const playlistOrderRef = useRef<RNTrack[]>([]);
 
+  // Queued songs are the listener's picks, even when they started out as previews
   const addToQueue = useCallback((track: RNTrack) => {
-    setUserQueue((prev) => [...prev, track]);
+    setUserQueue((prev) => [...prev, { ...track, autoplay: undefined }]);
   }, []);
 
   const removeFromUserQueue = useCallback((index: number) => {
@@ -507,6 +508,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           await TrackPlayer.remove(base + from.index);
         }
         if (!item) return;
+        // A dragged song is the listener's pick, so it no longer counts as a preview
+        item = { ...item, autoplay: undefined };
 
         if (to.section === "queue") {
           nextUserQueue.splice(to.index, 0, item);
@@ -608,17 +611,32 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [shuffled, playingQueue]);
 
   // Repeat cycles off → repeat all → repeat one, using the player's own repeat mode so it
-  // also works from the lock screen and when a song ends on its own
+  // also works from the lock screen and when a song ends on its own. Repeat loops only the
+  // listener's songs: previews leave the queue (except one already playing), and come back
+  // when repeat is off
   const cycleRepeat = useCallback(async () => {
     const next = REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
     try {
       await ensureTrackPlayerInitialized();
       await TrackPlayer.setRepeatMode(REPEAT_MODES[next]);
       setLooping(next);
+
+      if (next !== "none") {
+        // Drop any preview batch still loading so it doesn't land in the loop
+        queueGenerationRef.current += 1;
+        const activeIndex = (await TrackPlayer.getActiveTrackIndex()) ?? -1;
+        const previewIndexes = playingQueue
+          .map((t, i) => (i !== activeIndex && t.autoplay ? i : -1))
+          .filter((i) => i >= 0);
+        if (previewIndexes.length > 0) {
+          await TrackPlayer.remove(previewIndexes);
+          setPlayingQueue((prev) => prev.filter((_, i) => !previewIndexes.includes(i)));
+        }
+      }
     } catch (err) {
       console.error("Repeat mode error:", err);
     }
-  }, [looping]);
+  }, [looping, playingQueue]);
 
   const skipNext = useCallback(async () => {
     try {
