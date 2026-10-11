@@ -80,7 +80,6 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
 
 const styles = StyleSheet.create({
   button: {
-    marginHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
   },

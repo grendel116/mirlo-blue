@@ -292,12 +292,12 @@ export default function AlbumTracks() {
                     size={36}
                     setModalVisible={setModalVisible}
                   />
+                  <DownloadAlbumButton album={selectedAlbum} size={36} />
                   <WishlistButton
                     trackGroup={selectedAlbum}
                     size={36}
                     style={{ marginHorizontal: 8 }}
                   />
-                  <DownloadAlbumButton album={selectedAlbum} size={36} />
                   <MemoizedAlbumPlayButton />
                 </View>
               </View>
