@@ -1,6 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import { unzip } from "react-native-zip-archive";
+import { readTags } from "./readTags";
 import { API_ROOT } from "@/constants/api-root";
 import * as api from "@/queries/fetch/fetchWrapper";
 import {
@@ -146,7 +147,20 @@ function adopt(pickedUri: string, destination: File): void {
   } catch {}
 }
 
-// Adds audio files from the phone as one album
+function tagsOf(file: File) {
+  const handle = file.open();
+  try {
+    return readTags((offset, length) => {
+      handle.offset = offset;
+      return handle.readBytes(length);
+    });
+  } finally {
+    handle.close();
+  }
+}
+
+// Adds audio files from the phone. Song details come from each file's tags, then its name;
+// a title typed in the import dialog names the whole album. Files group into albums by title
 export async function importFiles(albumTitle?: string, artistName?: string): Promise<string | null> {
   const picked = await DocumentPicker.getDocumentAsync({
     type: "audio/*",
@@ -157,19 +171,29 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
 
   const folder = downloadsFolder("files");
   const now = Date.now();
-  const title = albumTitle?.trim() || "Imported Audio";
-  const artist = artistName?.trim() || "";
+  const typedTitle = albumTitle?.trim();
+  const typedArtist = artistName?.trim();
+  const covers = new Map<string, string>();
 
   const saved: DownloadedTrack[] = picked.assets.map((asset, i) => {
     const file = new File(folder, `${now}-${i}-${asset.name}`);
     adopt(asset.uri, file);
-    const parsed = namesFromFile(asset.name);
+    const tags = tagsOf(file);
+    const named = namesFromFile(asset.name);
+    const album = typedTitle || tags.album || "Imported Audio";
+    if (tags.cover && !covers.has(album.toLowerCase())) {
+      const extension = tags.cover.mime.includes("png") ? "png" : "jpg";
+      const cover = new File(downloadsFolder("covers"), `${now}-${i}.${extension}`);
+      cover.write(tags.cover.bytes);
+      covers.set(album.toLowerCase(), cover.uri);
+    }
     return {
       id: -(now + i),
-      title: parsed.title,
-      artist: artist || parsed.artist || "Unknown Artist",
-      albumTitle: title,
-      order: i + 1,
+      title: tags.title || named.title,
+      artist: typedArtist || tags.artist || named.artist || "Unknown Artist",
+      albumTitle: album,
+      artwork: covers.get(album.toLowerCase()),
+      order: tags.track ?? i + 1,
       url: file.uri,
       bytes: file.size,
       downloadedAt: now,
@@ -179,7 +203,6 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
   await saveDownloadedTracks(saved);
   return albumKeyOf(saved[0]);
 }
-
 function deleteQuietly(uri: string): void {
   try {
     const entry = new File(uri);

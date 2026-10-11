@@ -56,7 +56,7 @@ export default function DownloadsTab() {
   };
 
   const importAlbum = async () => {
-    const title = albumTitle.trim() || "Imported Album";
+    const title = albumTitle.trim();
     const artist = artistName.trim();
     closeNaming();
     setImporting(true);
@@ -186,17 +186,16 @@ export default function DownloadsTab() {
           <View style={styles.dialog}>
             <Text style={styles.dialogTitle}>Import album</Text>
             <Text style={styles.dialogText}>
-              Name the album, then pick its audio files from your phone.
+              Pick audio files from your phone. Names and covers come from each file's tags; fill these in to override them.
             </Text>
 
-            <Text style={styles.label}>Album title</Text>
+            <Text style={styles.label}>Album title (optional)</Text>
             <TextInput
               style={styles.input}
-              placeholder="My album"
+              placeholder="Read from the files"
               placeholderTextColor={theme.colors.textMuted}
               value={albumTitle}
               onChangeText={setAlbumTitle}
-              autoFocus
             />
 
             <Text style={styles.label}>Artist (optional)</Text>
