@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, Image } from "react-native";
 import { isTrackOwnedOrPreview } from "@/scripts/utils";
 import FavoriteTrackButton from "./FavoriteTrackButton";
 import AddToQueueButton from "./AddToQueueButton";
+import DownloadTrackButton from "./DownloadTrackButton";
 import { theme } from "@/constants/theme";
 
 function formatTime(seconds: number) {
@@ -109,6 +110,7 @@ export const TrackItem = ({
       <View style={styles.actionRow}>
         {!onTrackScreen && <AddToQueueButton track={track} album={album} size={17} />}
         {!onTrackScreen && <FavoriteTrackButton track={track} size={17} />}
+        {!onTrackScreen && album && <DownloadTrackButton track={track} album={album} />}
         <Text
           style={[
             styles.durationText,

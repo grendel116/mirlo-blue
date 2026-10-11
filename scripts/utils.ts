@@ -104,3 +104,10 @@ export function songPageUrl(track: RNTrack): string | undefined {
   if (!artistSlug || !albumSlug || !track.id) return undefined;
   return `https://mirlo.space/${artistSlug}/release/${albumSlug}/tracks/${track.id}`;
 }
+
+// True when you bought this album (including adding it free), or it's your own
+export const ownsAlbum = (user: LoggedInUser | null | undefined, album: AlbumProps): boolean =>
+  !!user &&
+  (album.artistId === user.id ||
+    !!album.userTrackGroupPurchases?.some((p) => p.userId === user.id) ||
+    !!user.userTrackGroupPurchases?.some((p) => p.trackGroupId === album.id));

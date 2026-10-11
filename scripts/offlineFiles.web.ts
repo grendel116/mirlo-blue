@@ -11,6 +11,15 @@ export async function downloadAlbum(
   throw new Error("Downloads work in the phone app");
 }
 
+export async function downloadTrack(
+  _album: AlbumProps,
+  _track: { id: number; title: string },
+  _format: DownloadFormat,
+  _onStage: (stage: DownloadStage) => void,
+): Promise<void> {
+  throw new Error("Downloads work in the phone app");
+}
+
 export async function importFiles(_albumTitle?: string, _artistName?: string): Promise<string | null> {
   throw new Error("Adding files works in the phone app");
 }

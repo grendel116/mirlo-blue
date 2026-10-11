@@ -4,10 +4,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuthContext } from "@/state/AuthContext";
 import { theme } from "@/constants/theme";
 import {
-  DOWNLOAD_FORMATS,
+  DownloadFormat,
   DownloadStage,
   useDownloads,
 } from "@/scripts/downloadManager";
+import { chooseFormat } from "@/scripts/chooseFormat";
+import { showError } from "@/scripts/showError";
+import { ownsAlbum } from "@/scripts/utils";
 import { OFFLINE_SUPPORTED, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
 
 const STAGE_LABELS: Record<DownloadStage, string> = {
@@ -22,19 +25,15 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
   const downloads = useDownloads();
   const [stage, setStage] = useState<DownloadStage | null>(null);
 
-  const owned =
-    !!user &&
-    (album.userTrackGroupPurchases?.some((p) => p.userId === user.id) ||
-      (album.artist as any)?.userId === user.id);
-  if (!OFFLINE_SUPPORTED || !owned) return null;
+  if (!OFFLINE_SUPPORTED || !ownsAlbum(user, album)) return null;
 
   const saved = downloads.filter((d) => album.tracks?.some((t) => t.id === d.id));
-  const isDownloaded = saved.length > 0;
+  const isDownloaded = saved.length > 0 && saved.length >= (album.tracks?.length ?? 0);
 
-  const start = (format: (typeof DOWNLOAD_FORMATS)[number]["id"]) => {
+  const start = (format: DownloadFormat) => {
     setStage("preparing");
     downloadAlbum(album, format, setStage)
-      .catch((err) => Alert.alert("Download failed", err instanceof Error ? err.message : String(err)))
+      .catch(showError("Download failed"))
       .finally(() => setStage(null));
   };
 
@@ -51,10 +50,7 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
       ]);
       return;
     }
-    Alert.alert("Download album", "Choose a format", [
-      ...DOWNLOAD_FORMATS.map((f) => ({ text: f.label, onPress: () => start(f.id) })),
-      { text: "Cancel", style: "cancel" as const },
-    ]);
+    chooseFormat("Download album", start);
   };
 
   return (
