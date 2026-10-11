@@ -476,13 +476,10 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         await ensureTrackPlayerInitialized();
         const currentActive = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
 
-        // If clicking the track that is already playing or paused: toggle play/pause
-        const isSameTrack =
-          currentActive &&
-          ((track.id !== undefined && currentActive.id === track.id) ||
-            (track.url && currentActive.url === track.url));
-
-        if (isSameTrack) {
+        // Tapping the song already loaded from this same playlist toggles play/pause. From a
+        // different playlist it starts over, with that playlist loaded behind it
+        const nextSource = source || track.trackGroup?.title || "";
+        if (currentActive && isSameTrack(currentActive, track) && nextSource === queueSource) {
           await togglePlayPause();
           return;
         }
@@ -550,7 +547,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         setPlayingQueue(tracksToLoad);
         queueGenerationRef.current += 1;
         autoplaySkipRef.current = 0;
-        setQueueSource(source || track.trackGroup?.title || "");
+        setQueueSource(nextSource);
         await TrackPlayer.setQueue(tracksToLoad);
         await TrackPlayer.skip(startIndex);
         await TrackPlayer.play();
@@ -570,7 +567,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [togglePlayPause, shuffled, jumpTo],
+    [togglePlayPause, shuffled, jumpTo, queueSource],
   );
 
   const playFromUserQueue = useCallback(
