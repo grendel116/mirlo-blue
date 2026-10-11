@@ -80,7 +80,7 @@ export default function NowPlaying() {
               {activeTrack?.title || "No track playing"}
             </Text>
             {activeTrack && activeTrack.id > 0 ? (
-              <FavoriteTrackButton track={activeTrack} size={26} />
+              <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
             ) : null}
             {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
           </View>
