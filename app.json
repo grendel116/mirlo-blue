@@ -16,8 +16,7 @@
         "UIBackgroundModes": [
           "audio"
         ]
-      },
-      "runtimeVersion": "1.0.2"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -66,7 +65,12 @@
         "projectId": "797fb379-0d0b-4d23-b827-bb78570fb948"
       }
     },
-    "runtimeVersion": "1.0.2",
-    "owner": "drhodesw"
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "owner": "drhodesw",
+    "updates": {
+      "url": "https://u.expo.dev/797fb379-0d0b-4d23-b827-bb78570fb948"
+    }
   }
 }

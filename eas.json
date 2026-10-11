@@ -36,7 +36,8 @@
       "extends": "production",
       "ios": {
         "simulator": true
-      }
+      },
+      "channel": "production-simulator"
     }
   },
   "submit": {
