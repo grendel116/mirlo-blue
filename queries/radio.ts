@@ -18,6 +18,7 @@ export type RadioStation = {
   location: string;
   streamUrl: string;
   playlistPage: string;
+  donatePage: string;
   fetchPlays: (signal: AbortSignal) => Promise<RadioPlay[]>;
 };
 
@@ -45,6 +46,7 @@ const KEXP: RadioStation = {
   location: "Seattle",
   streamUrl: "https://kexp.streamguys1.com/kexp160.aac",
   playlistPage: "https://www.kexp.org/playlist/",
+  donatePage: "https://www.kexp.org/donate/",
   fetchPlays: async (signal) => {
     const data = await getJson<{ results: KexpPlay[] }>(
       "https://api.kexp.org/v2/plays/?format=json&limit=30",
@@ -78,6 +80,7 @@ const CARBON_SOUND: RadioStation = {
   location: "Minneapolis",
   streamUrl: "https://carbonsound.stream.publicradio.org/carbonsound.aac",
   playlistPage: "https://www.carbonsound.fm/playlist",
+  donatePage: "https://support.mpr.org/carbon-sound-web",
   fetchPlays: async (signal) => {
     const data = await getJson<{ data: { songs: PublicRadioSong[] } }>(
       "https://nowplaying.publicradio.org/carbon-sound/playlist",

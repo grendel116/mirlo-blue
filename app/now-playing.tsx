@@ -20,6 +20,8 @@ import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation } from "@/queries/radio";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { openInBrowser } from "@/scripts/openInBrowser";
 
 export default function NowPlaying() {
   const { activeTrack } = usePlayer() as {
@@ -167,6 +169,19 @@ export default function NowPlaying() {
         <View style={styles.playerWrapper}>
           <Player />
         </View>
+
+        {/* Listener-supported stations: send listeners to the station's own donation page */}
+        {station ? (
+          <Pressable
+            onPress={() => openInBrowser(station.donatePage)}
+            style={styles.donateButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Donate to ${station.name}`}
+          >
+            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+            <Text style={styles.donateText}>Donate to {station.name}</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -185,6 +200,21 @@ function formatTime(seconds: number) {
 }
 
 const styles = StyleSheet.create({
+  donateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 28,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primary,
+  },
+  donateText: {
+    color: theme.colors.playButtonIcon,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
