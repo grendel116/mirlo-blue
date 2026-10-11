@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
   Image,
   Modal,
   Pressable,
@@ -70,7 +71,7 @@ export default function DownloadsTab() {
   };
 
   return (
-    <View style={styles.pane}>
+    <KeyboardAvoidingView style={styles.pane} behavior="padding">
       <View style={styles.bar}>
         <Text style={styles.total}>
           {albums.length > 0
@@ -219,7 +220,7 @@ export default function DownloadsTab() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
