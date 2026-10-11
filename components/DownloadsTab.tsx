@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Modal,
@@ -13,6 +12,8 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AlbumSongs from "@/components/AlbumSongs";
+import { showError } from "@/scripts/showError";
 import { theme } from "@/constants/theme";
 import { usePlayer } from "@/state/PlayerContext";
 import {
@@ -25,7 +26,6 @@ import {
   OFFLINE_SUPPORTED,
   chooseAlbumCover,
   importFiles,
-  removeDownloads,
 } from "@/scripts/offlineFiles";
 
 export function formatBytes(bytes: number): string {
@@ -33,9 +33,6 @@ export function formatBytes(bytes: number): string {
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
   return `${Math.round(bytes / 1e3)} KB`;
 }
-
-const showError = (title: string) => (err: unknown) =>
-  Alert.alert(title, err instanceof Error ? err.message : String(err));
 
 // Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more
 export default function DownloadsTab() {
@@ -70,22 +67,6 @@ export default function DownloadsTab() {
     } finally {
       setImporting(false);
     }
-  };
-
-  const confirmDeleteAlbum = (album: DownloadedAlbum) => {
-    const count = album.tracks.length;
-    Alert.alert(
-      "Delete album?",
-      `Remove "${album.title}" and its ${count} ${count === 1 ? "song" : "songs"} from this phone?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => removeDownloads(album.tracks).catch(showError("Couldn't delete album")),
-        },
-      ],
-    );
   };
 
   return (
@@ -129,6 +110,7 @@ export default function DownloadsTab() {
         <FlatList
           data={albums}
           keyExtractor={(album) => album.key}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.list}
           renderItem={({ item: album }) => {
             const expanded = expandedKey === album.key;
@@ -185,61 +167,12 @@ export default function DownloadsTab() {
                 </View>
 
                 {expanded && (
-                  <View style={styles.songs}>
-                    {album.tracks.map((track, index) => {
-                      const active = activeTrack?.id === track.id;
-                      return (
-                        <Pressable
-                          key={track.id}
-                          onPress={() => playAlbum(album, track)}
-                          style={[styles.song, active && styles.songActive]}
-                        >
-                          <Text style={styles.songNumber}>{track.order || index + 1}</Text>
-                          <View style={styles.songInfo}>
-                            <Text
-                              style={[styles.songTitle, active && styles.songTitleActive]}
-                              numberOfLines={1}
-                            >
-                              {track.title}
-                            </Text>
-                            {track.artist !== album.artist && (
-                              <Text style={styles.songArtist} numberOfLines={1}>
-                                {track.artist}
-                              </Text>
-                            )}
-                          </View>
-                          <TouchableOpacity
-                            onPress={() =>
-                              removeDownloads([track]).catch(showError("Couldn't delete song"))
-                            }
-                            style={styles.chevron}
-                            accessibilityLabel="Delete song"
-                          >
-                            <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
-                          </TouchableOpacity>
-                        </Pressable>
-                      );
-                    })}
-
-                    <View style={styles.albumActions}>
-                      <TouchableOpacity
-                        onPress={() => chooseAlbumCover(album).catch(showError("Couldn't set cover"))}
-                        style={styles.albumAction}
-                      >
-                        <Ionicons name="image-outline" size={14} color={theme.colors.textCyan} />
-                        <Text style={styles.albumActionText}>Change cover</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => confirmDeleteAlbum(album)}
-                        style={styles.albumAction}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-                        <Text style={[styles.albumActionText, { color: theme.colors.danger }]}>
-                          Delete album
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                  <AlbumSongs
+                    album={album}
+                    activeId={activeTrack?.id}
+                    onPlay={(track) => playAlbum(album, track)}
+                    onKeyChange={setExpandedKey}
+                  />
                 )}
               </View>
             );
@@ -351,47 +284,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   chevron: { padding: 6 },
-  songs: {
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.surfaceCardBorder,
-  },
-  song: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRadius: theme.radius.sm,
-  },
-  songActive: { backgroundColor: "rgba(0, 210, 255, 0.08)" },
-  songNumber: {
-    width: 24,
-    fontSize: 12,
-    fontWeight: "600",
-    color: theme.colors.textSecondary,
-    textAlign: "center",
-  },
-  songInfo: { flex: 1, marginLeft: 8 },
-  songTitle: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "600" },
-  songTitleActive: { color: theme.colors.primary, fontWeight: "700" },
-  songArtist: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 },
-  albumActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 10,
-    marginTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.surfaceCardBorder,
-  },
-  albumAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  albumActionText: { fontSize: 12, fontWeight: "600", color: theme.colors.textCyan },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.75)",

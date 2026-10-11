@@ -172,8 +172,41 @@ export function groupTracksIntoAlbums(tracks: DownloadedTrack[]): DownloadedAlbu
     .sort((a, b) => b.downloadedAt - a.downloadedAt);
 }
 
-// Sets the cover for every song in an album
-export async function updateAlbumArtwork(albumKey: string, artwork: string): Promise<void> {
+// Changes what every song in an album shows. Imported albums are grouped by title, so a new
+// title can merge into another album; the album's key afterwards is returned
+export async function updateAlbum(
+  albumKey: string,
+  changes: Partial<Pick<DownloadedTrack, "albumTitle" | "artist" | "artwork">>,
+): Promise<string> {
   const current = await getDownloadedTracks();
-  await persist(current.map((t) => (albumKeyOf(t) === albumKey ? { ...t, artwork } : t)));
+  let newKey = albumKey;
+  await persist(
+    current.map((t) => {
+      if (albumKeyOf(t) !== albumKey) return t;
+      const updated = { ...t, ...changes };
+      newKey = albumKeyOf(updated);
+      return updated;
+    }),
+  );
+  return newKey;
+}
+
+export async function updateTrackTitle(trackId: number, title: string): Promise<void> {
+  const current = await getDownloadedTracks();
+  await persist(current.map((t) => (t.id === trackId ? { ...t, title } : t)));
+}
+
+// Moves a song one place up (-1) or down (1) within its album
+export async function moveTrack(albumKey: string, trackId: number, step: -1 | 1): Promise<void> {
+  const current = await getDownloadedTracks();
+  const album = groupTracksIntoAlbums(current).find((a) => a.key === albumKey);
+  if (!album) return;
+  const from = album.tracks.findIndex((t) => t.id === trackId);
+  const to = from + step;
+  if (from < 0 || to < 0 || to >= album.tracks.length) return;
+
+  const ordered = [...album.tracks];
+  [ordered[from], ordered[to]] = [ordered[to], ordered[from]];
+  const position = new Map(ordered.map((t, i) => [t.id, i + 1]));
+  await persist(current.map((t) => (position.has(t.id) ? { ...t, order: position.get(t.id) } : t)));
 }

@@ -12,7 +12,7 @@ import {
   forgetDownloadedTracks,
   getDownloadedTracks,
   saveDownloadedTracks,
-  updateAlbumArtwork,
+  updateAlbum,
 } from "./downloadManager";
 
 // Saving files to the phone. The web build uses offlineFiles.web.ts instead
@@ -227,6 +227,6 @@ export async function chooseAlbumCover(album: DownloadedAlbum): Promise<void> {
   const extension = asset.name.split(".").pop() || "jpg";
   const cover = new File(downloadsFolder("covers"), `${Date.now()}.${extension}`);
   adopt(asset.uri, cover);
-  await updateAlbumArtwork(album.key, cover.uri);
+  await updateAlbum(album.key, { artwork: cover.uri });
   await pruneCovers();
 }
