@@ -2,9 +2,21 @@ import {
   QueryCache,
   QueryClient,
   QueryClientProvider,
+  focusManager,
 } from "@tanstack/react-query";
+import { AppState, Platform } from "react-native";
 import { MirloFetchError } from "./fetch/MirloFetchError";
 import { authRefresh } from "./authQueries";
+
+// Coming back to the app (e.g. after buying an album in the browser) reloads stale data
+if (Platform.OS !== "web") {
+  focusManager.setEventListener((setFocused) => {
+    const subscription = AppState.addEventListener("change", (state) =>
+      setFocused(state === "active"),
+    );
+    return () => subscription.remove();
+  });
+}
 
 export const queryClient = new QueryClient({
   defaultOptions: {
