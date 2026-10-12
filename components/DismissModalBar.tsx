@@ -1,4 +1,4 @@
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
@@ -16,9 +16,20 @@ export default function DismissModalBar() {
       >
         <Ionicons
           name="chevron-down"
-          size={28}
+          size={26}
           color={theme.colors.textSecondary}
+          style={styles.chevron}
         />
+        <View style={styles.brandRow}>
+          <Image
+            source={require("@/assets/images/Logo-Mirlo_LogoOnly.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <Text style={styles.brandText}>
+            mirlo<Text style={styles.brandHighlight}>blue</Text>
+          </Text>
+        </View>
       </Pressable>
     </View>
   );
@@ -37,7 +48,33 @@ const styles = StyleSheet.create({
   pressable: {
     width: "100%",
     height: "100%",
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
   },
+  chevron: {
+    position: "absolute",
+    left: 16,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  logoImage: {
+    width: 22,
+    height: 22,
+    tintColor: theme.colors.logo,
+  },
+  brandText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  brandHighlight: {
+    color: theme.colors.primary,
+    fontWeight: "800",
+  },
 });
+

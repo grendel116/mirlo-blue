@@ -90,6 +90,13 @@ export default function NowPlaying() {
                 {activeTrack ? (
                   <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
                 ) : null}
+                {activeTrack ? (
+                  <ShareTrackButton
+                    track={activeTrack}
+                    overrideTitle={onAir?.song}
+                    overrideArtist={onAir?.artist}
+                  />
+                ) : null}
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
                   <Text style={styles.liveText}>LIVE</Text>
