@@ -31,6 +31,14 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   return res.json();
 }
 
+function toArtworkUrl(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && typeof (raw as { url?: unknown }).url === "string") {
+    return (raw as { url: string }).url;
+  }
+  return "";
+}
+
 // KEXP: "trackplay" entries are songs, other play types are air breaks
 type KexpPlay = {
   id: number;
@@ -64,7 +72,7 @@ const KEXP: RadioStation = {
         song: p.song,
         artist: p.artist,
         airdate: p.airdate,
-        artwork: p.image_uri || p.thumbnail_uri,
+        artwork: toArtworkUrl(p.image_uri) || toArtworkUrl(p.thumbnail_uri),
       }));
   },
 };
@@ -98,7 +106,7 @@ const CARBON_SOUND: RadioStation = {
       song: s.title,
       artist: s.artist,
       airdate: s.played_at,
-      artwork: s.art_url || "",
+      artwork: toArtworkUrl(s.art_url),
     }));
   },
 };
@@ -113,7 +121,7 @@ type WfmuNow = {
     title_html: string | null;
     artist_html: string | null;
     set_break_flag: boolean;
-    image: string | null;
+    image: string | { url?: string | null } | null;
   };
 };
 
@@ -156,7 +164,7 @@ const WFMU: RadioStation = {
           song: decodeHtml(segment.title_html),
           artist: decodeHtml(segment.artist_html ?? ""),
           airdate: now,
-          artwork: segment.image ?? "",
+          artwork: toArtworkUrl(segment.image),
         },
       ];
     }
@@ -211,7 +219,7 @@ const NTS_1: RadioStation = {
         song: show.name,
         artist: show.location_long || "NTS",
         airdate: now.start_timestamp,
-        artwork: show.media.picture_medium,
+        artwork: toArtworkUrl(show.media?.picture_medium),
       },
     ];
   },
@@ -240,7 +248,7 @@ const SOMAFM_INDIE_POP: RadioStation = {
       song: s.title,
       artist: s.artist,
       airdate: new Date(Number(s.date) * 1000).toISOString(),
-      artwork: s.albumArt || "https://api.somafm.com/logos/256/indiepop256.png",
+      artwork: toArtworkUrl(s.albumArt) || "https://api.somafm.com/logos/256/indiepop256.png",
     }));
   },
 };
@@ -272,7 +280,7 @@ const REFUGE: RadioStation = {
         song: title,
         artist: hosts.join(" - ") || "Refuge Worldwide",
         airdate: show.start_time,
-        artwork: show.artwork_url,
+        artwork: toArtworkUrl(show.artwork_url),
       },
     ];
   },
