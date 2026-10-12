@@ -607,6 +607,22 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const moveQueueItem = useCallback(
     async (from: QueueSlot, to: QueueSlot) => {
       if (from.section === to.section && from.index === to.index) return;
+      setPlayingQueue((prev) => {
+        if (activeIndex < 0) return prev;
+        const first = activeIndex + 1;
+        const after = prev.slice(first);
+        const queued = queuedCount(after);
+        const fromAt = first + (from.section === "queue" ? 0 : queued) + from.index;
+        const track = prev[fromAt];
+        if (!track) return prev;
+        const next = [...prev];
+        next.splice(fromAt, 1);
+        const moved = toPlayerTrack({ ...track, autoplay: undefined, queued: to.section === "queue" });
+        const queuedLeft = queued - (from.section === "queue" ? 1 : 0);
+        const toAt = first + (to.section === "queue" ? 0 : queuedLeft) + to.index;
+        next.splice(toAt, 0, moved);
+        return next;
+      });
       try {
         await ensureTrackPlayerInitialized();
         const { queue, active, queued } = await readPlayer();
@@ -627,7 +643,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Move queue item error:", err);
       }
     },
-    [refreshQueue],
+    [activeIndex, refreshQueue],
   );
 
   // Keeps playback going: discovery previews always wait after the playlist,

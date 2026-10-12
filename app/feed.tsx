@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,8 @@ import {
   Modal,
   PanResponder,
   Platform,
-  LayoutChangeEvent,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -20,38 +21,73 @@ import { theme } from "@/constants/theme";
 import { AUTOPLAY_SOURCE } from "@/scripts/autoplay";
 import ShuffleButton from "@/components/ShuffleButton";
 import LoopButton from "@/components/LoopButton";
+import {
+  QueueMetrics,
+  QueueDragState,
+  computeQueueDrag,
+  getRowOffset,
+  getVisibleIndices,
+  slotBaseY,
+  nextUpHeaderY,
+  autoplayDividerY,
+  totalDragAreaHeight,
+  ROW_HEIGHT,
+  NEXT_UP_HEIGHT,
+  AUTOPLAY_HEIGHT,
+} from "@/scripts/queueDrag";
 
-type Layout = { y: number; height: number };
-type DragState = { from: QueueSlot; dy: number; target: QueueSlot; indicatorY: number };
-
-const slotKey = (slot: QueueSlot) => `${slot.section}:${slot.index}`;
+const OVERSCAN_PX = ROW_HEIGHT * 12;
+const SCROLL_STEP_PX = ROW_HEIGHT * 3;
+const INITIAL_VIEWPORT_HEIGHT = Dimensions.get("window").height || 900;
 
 type QueueRowProps = {
   track: RNTrack;
-  slot: QueueSlot;
+  section: QueueSlot["section"];
+  index: number;
+  baseY: number;
   dragging: boolean;
-  dy: number;
-  onPress: () => void;
-  onLayout: (slot: QueueSlot, e: LayoutChangeEvent) => void;
+  isAnyDragging: boolean;
+  dragDyAnim: Animated.Value;
+  offsetY: number;
+  onPlay: (section: QueueSlot["section"], index: number) => void;
   onDragStart: (slot: QueueSlot) => void;
   onDragMove: (dy: number) => void;
   onDragEnd: () => void;
 };
 
-function QueueRow({
+const QueueRow = React.memo(function QueueRow({
   track,
-  slot,
+  section,
+  index,
+  baseY,
   dragging,
-  dy,
-  onPress,
-  onLayout,
+  isAnyDragging,
+  dragDyAnim,
+  offsetY,
+  onPlay,
   onDragStart,
   onDragMove,
   onDragEnd,
 }: QueueRowProps) {
-  // Handlers come from stable callbacks in the parent, so the responder is created once per row
-  const slotRef = useRef(slot);
-  slotRef.current = slot;
+  const slotRef = useRef<QueueSlot>({ section, index });
+  slotRef.current = { section, index };
+
+  const shiftAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isAnyDragging || dragging) {
+      shiftAnim.setValue(0);
+      return;
+    }
+    Animated.spring(shiftAnim, {
+      toValue: offsetY,
+      useNativeDriver: true,
+      damping: 22,
+      stiffness: 280,
+      mass: 0.6,
+    }).start();
+  }, [offsetY, isAnyDragging, dragging, shiftAnim]);
+
   const responder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -71,39 +107,54 @@ function QueueRow({
   const isExplicit = (track as any).isExplicit || (track as any).explicit;
 
   return (
-    <Pressable
-      onPress={onPress}
-      onLayout={(e) => onLayout(slot, e)}
+    <Animated.View
       style={[
         styles.trackRow,
-        dragging && [styles.trackRowDragging, { transform: [{ translateY: dy }] }],
+        { top: baseY },
+        dragging
+          ? [
+              styles.trackRowDragging,
+              { transform: [{ translateY: dragDyAnim }, { scale: 1.02 }] },
+            ]
+          : isAnyDragging
+            ? { transform: [{ translateY: shiftAnim }] }
+            : null,
       ]}
     >
-      <View style={styles.trackThumbWrapper}>
-        {artwork ? (
-          <Image source={{ uri: artwork }} style={styles.trackThumb} />
-        ) : (
-          <View style={[styles.trackThumb, styles.thumbPlaceholder]}>
-            <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
-          </View>
-        )}
-      </View>
-
-      <View style={styles.trackInfo}>
-        <Text style={styles.trackTitle} numberOfLines={1}>
-          {track.title}
-        </Text>
-        <View style={styles.artistRow}>
-          {isExplicit && (
-            <View style={styles.explicitBadge}>
-              <Text style={styles.explicitText}>E</Text>
+      <Pressable
+        onPress={() => onPlay(section, index)}
+        disabled={isAnyDragging}
+        style={styles.trackMainPressable}
+      >
+        <View style={styles.trackThumbWrapper}>
+          {artwork ? (
+            <Image source={{ uri: artwork }} style={styles.trackThumb} />
+          ) : (
+            <View style={[styles.trackThumb, styles.thumbPlaceholder]}>
+              <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
             </View>
           )}
-          <Text style={styles.trackArtist} numberOfLines={1}>
-            {track.artist || track.trackGroup?.artist?.name || ""}
-          </Text>
         </View>
-      </View>
+
+        <View style={styles.trackInfo}>
+          <Text
+            style={[styles.trackTitle, dragging && styles.trackTitleDragging]}
+            numberOfLines={1}
+          >
+            {track.title}
+          </Text>
+          <View style={styles.artistRow}>
+            {isExplicit && (
+              <View style={styles.explicitBadge}>
+                <Text style={styles.explicitText}>E</Text>
+              </View>
+            )}
+            <Text style={styles.trackArtist} numberOfLines={1}>
+              {track.artist || track.trackGroup?.artist?.name || ""}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
 
       <View
         {...responder.panHandlers}
@@ -116,9 +167,9 @@ function QueueRow({
           color={dragging ? theme.colors.primary : theme.colors.textSecondary}
         />
       </View>
-    </Pressable>
+    </Animated.View>
   );
-}
+});
 
 export default function QueueScreen() {
   const router = useRouter();
@@ -141,7 +192,6 @@ export default function QueueScreen() {
     queueIndex?: number;
   }>({ visible: false });
 
-
   // Once playback has moved into autoplay, every upcoming track is a discovery pick
   const nextUpSource = activeTrack?.autoplay ? AUTOPLAY_SOURCE : queueSource;
   const firstAutoplayIndex = activeTrack?.autoplay
@@ -153,78 +203,133 @@ export default function QueueScreen() {
     activeTrack?.trackGroup?.cover?.sizes?.[300] ||
     activeTrack?.trackGroup?.cover?.sizes?.[600];
 
+  const metrics: QueueMetrics = useMemo(
+    () => ({
+      queueCount: userQueue.length,
+      upcomingCount: upcomingTracks.length,
+      firstAutoplayIndex,
+    }),
+    [userQueue.length, upcomingTracks.length, firstAutoplayIndex],
+  );
+  const metricsRef = useRef(metrics);
+  metricsRef.current = metrics;
+
+  // ---- Viewport Virtualization ----
+  const [windowScrollY, setWindowScrollY] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(INITIAL_VIEWPORT_HEIGHT);
+  const lastWindowScrollY = useRef(0);
+  const dragAreaTopRef = useRef(150);
+
   // ---- Drag and drop ----
-  const rowLayouts = useRef<Record<string, Layout>>({});
-  const queueEmptyLayout = useRef<Layout | null>(null);
-  const nextUpHeaderLayout = useRef<Layout | null>(null);
-  const counts = useRef({ queue: 0, upcoming: 0 });
-  counts.current = { queue: userQueue.length, upcoming: upcomingTracks.length };
   const moveRef = useRef(moveQueueItem);
   moveRef.current = moveQueueItem;
-  const dragRef = useRef<DragState | null>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<QueueDragState | null>(null);
+  const [drag, setDrag] = useState<QueueDragState | null>(null);
 
-  const onRowLayout = useCallback((slot: QueueSlot, e: LayoutChangeEvent) => {
-    const { y, height } = e.nativeEvent.layout;
-    rowLayouts.current[slotKey(slot)] = { y, height };
-  }, []);
+  const dragDyAnim = useRef(new Animated.Value(0)).current;
+  const nextUpHeaderAnim = useRef(new Animated.Value(0)).current;
+  const autoplayDividerAnim = useRef(new Animated.Value(0)).current;
 
-  // Finds where the dragged row would land, and where to draw the drop line
-  const computeTarget = (from: QueueSlot, dy: number) => {
-    const fromLayout = rowLayouts.current[slotKey(from)];
-    const fingerY = (fromLayout?.y ?? 0) + (fromLayout?.height ?? 0) / 2 + dy;
-    const header = nextUpHeaderLayout.current;
-    const section: QueueSlot["section"] =
-      header && counts.current.upcoming > 0 && fingerY >= header.y ? "upcoming" : "queue";
+  const isAnyDragging = Boolean(drag);
+  const nextUpOffset = drag?.nextUpHeaderOffset ?? 0;
+  const autoplayOffset = drag?.autoplayDividerOffset ?? 0;
 
-    const rows: Layout[] = [];
-    for (let i = 0; i < counts.current[section]; i++) {
-      if (section === from.section && i === from.index) continue;
-      const layout = rowLayouts.current[slotKey({ section, index: i })];
-      if (layout) rows.push(layout);
+  useEffect(() => {
+    if (!isAnyDragging) {
+      nextUpHeaderAnim.setValue(0);
+      return;
     }
+    Animated.spring(nextUpHeaderAnim, {
+      toValue: nextUpOffset,
+      useNativeDriver: true,
+      damping: 22,
+      stiffness: 280,
+      mass: 0.6,
+    }).start();
+  }, [isAnyDragging, nextUpOffset, nextUpHeaderAnim]);
 
-    const index = rows.filter((r) => r.y + r.height / 2 < fingerY).length;
-    let indicatorY: number;
-    if (index < rows.length) {
-      indicatorY = rows[index].y;
-    } else if (rows.length > 0) {
-      const last = rows[rows.length - 1];
-      indicatorY = last.y + last.height;
-    } else if (section === "queue") {
-      const empty = queueEmptyLayout.current;
-      indicatorY = empty ? empty.y + empty.height / 2 : 0;
-    } else {
-      indicatorY = header ? header.y + header.height : 0;
+  useEffect(() => {
+    if (!isAnyDragging) {
+      autoplayDividerAnim.setValue(0);
+      return;
     }
-    return { target: { section, index }, indicatorY };
-  };
+    Animated.spring(autoplayDividerAnim, {
+      toValue: autoplayOffset,
+      useNativeDriver: true,
+      damping: 22,
+      stiffness: 280,
+      mass: 0.6,
+    }).start();
+  }, [isAnyDragging, autoplayOffset, autoplayDividerAnim]);
 
-  const onDragStart = useCallback((slot: QueueSlot) => {
-    const next = { from: slot, dy: 0, ...computeTarget(slot, 0) };
-    dragRef.current = next;
-    setDrag(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const onPlayRow = useCallback(
+    (section: QueueSlot["section"], index: number) => {
+      if (section === "queue") playFromUserQueue(index);
+      else skipToUpcoming(index);
+    },
+    [playFromUserQueue, skipToUpcoming],
+  );
 
-  const onDragMove = useCallback((dy: number) => {
-    const current = dragRef.current;
-    if (!current) return;
-    const next = { from: current.from, dy, ...computeTarget(current.from, dy) };
-    dragRef.current = next;
-    setDrag(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const onDragStart = useCallback(
+    (slot: QueueSlot) => {
+      dragDyAnim.setValue(0);
+      const next = computeQueueDrag(slot, 0, metricsRef.current);
+      dragRef.current = next;
+      setDrag(next);
+    },
+    [dragDyAnim],
+  );
+
+  const onDragMove = useCallback(
+    (dy: number) => {
+      dragDyAnim.setValue(dy);
+      const current = dragRef.current;
+      if (!current) return;
+      const next = computeQueueDrag(current.from, dy, metricsRef.current);
+      if (
+        next.target.section !== current.target.section ||
+        next.target.index !== current.target.index
+      ) {
+        dragRef.current = next;
+        setDrag(next);
+      }
+    },
+    [dragDyAnim],
+  );
 
   const onDragEnd = useCallback(() => {
     const current = dragRef.current;
     dragRef.current = null;
     setDrag(null);
+    dragDyAnim.setValue(0);
     if (current) moveRef.current(current.from, current.target);
-  }, []);
+  }, [dragDyAnim]);
 
-  const isDragging = (slot: QueueSlot) =>
-    drag?.from.section === slot.section && drag.from.index === slot.index;
+  const minY = Math.max(0, windowScrollY - dragAreaTopRef.current - OVERSCAN_PX);
+  const maxY = windowScrollY - dragAreaTopRef.current + viewportHeight + OVERSCAN_PX;
+
+  const visibleQueueIndices = useMemo(
+    () => getVisibleIndices("queue", metrics, minY, maxY, drag?.from),
+    [metrics, minY, maxY, drag?.from],
+  );
+
+  const visibleUpcomingIndices = useMemo(
+    () => getVisibleIndices("upcoming", metrics, minY, maxY, drag?.from),
+    [metrics, minY, maxY, drag?.from],
+  );
+
+  const draggedTrack = drag
+    ? drag.from.section === "queue"
+      ? userQueue[drag.from.index]
+      : upcomingTracks[drag.from.index]
+    : undefined;
+
+  const draggedArtwork =
+    draggedTrack?.artwork ||
+    draggedTrack?.trackGroup?.cover?.sizes?.[300] ||
+    draggedTrack?.trackGroup?.cover?.sizes?.[120];
+
+  const areaHeight = totalDragAreaHeight(metrics);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -246,6 +351,18 @@ export default function QueueScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!drag}
+        scrollEventThrottle={16}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          if (h > 0) setViewportHeight(h);
+        }}
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          if (Math.abs(y - lastWindowScrollY.current) >= SCROLL_STEP_PX) {
+            lastWindowScrollY.current = y;
+            setWindowScrollY(y);
+          }
+        }}
       >
         {/* Currently Playing Card */}
         {activeTrack ? (
@@ -295,7 +412,7 @@ export default function QueueScreen() {
           </View>
         )}
 
-        {/* Section: Your Queue */}
+        {/* Section: Your Queue Header */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Your Queue</Text>
           {userQueue.length > 0 && (
@@ -315,91 +432,151 @@ export default function QueueScreen() {
           )}
         </View>
 
-        {userQueue.length > 0 ? (
-          userQueue.map((track, idx) => {
-            const slot: QueueSlot = { section: "queue", index: idx };
+        {/* Virtualized, O(1) Coordinate-Synchronized Drag Area */}
+        <View
+          style={[styles.dragArea, { height: areaHeight }]}
+          onLayout={(e) => {
+            dragAreaTopRef.current = e.nativeEvent.layout.y;
+          }}
+        >
+          {userQueue.length > 0 ? (
+            visibleQueueIndices.map((idx) => {
+              const track = userQueue[idx];
+              if (!track) return null;
+              const slot: QueueSlot = { section: "queue", index: idx };
+              const dragging =
+                drag?.from.section === "queue" && drag.from.index === idx;
+              return (
+                <QueueRow
+                  key={`user-queue-${idx}`}
+                  track={track}
+                  section="queue"
+                  index={idx}
+                  baseY={slotBaseY(metrics, slot)}
+                  dragging={dragging}
+                  isAnyDragging={isAnyDragging}
+                  dragDyAnim={dragDyAnim}
+                  offsetY={getRowOffset(slot, drag, metrics)}
+                  onPlay={onPlayRow}
+                  onDragStart={onDragStart}
+                  onDragMove={onDragMove}
+                  onDragEnd={onDragEnd}
+                />
+              );
+            })
+          ) : (
+            <View
+              style={[
+                styles.emptyQueuePrompt,
+                drag?.target.section === "queue" && styles.emptyQueueHidden,
+              ]}
+            >
+              <Text style={styles.emptyQueueText}>No manually queued songs</Text>
+            </View>
+          )}
+
+          {/* Placeholder shown in Your Queue when its sole item is dragged down into Next Up */}
+          {drag?.showEmptyQueueUnderneath && (
+            <View pointerEvents="none" style={styles.emptyQueuePrompt}>
+              <Text style={styles.emptyQueueText}>No manually queued songs</Text>
+            </View>
+          )}
+
+          {/* Section: Next Up from the loaded playlist */}
+          {upcomingTracks.length > 0 && (
+            <Animated.View
+              style={[
+                styles.sectionHeaderRow,
+                styles.nextUpHeader,
+                { top: nextUpHeaderY(metrics) },
+                isAnyDragging && { transform: [{ translateY: nextUpHeaderAnim }] },
+              ]}
+            >
+              <Text style={[styles.sectionTitle, styles.nextUpTitle]} numberOfLines={1}>
+                {nextUpSource ? `Next Up from: ${nextUpSource}` : "Next Up"}
+              </Text>
+              <View style={styles.modeButtons}>
+                <ShuffleButton />
+                <LoopButton />
+              </View>
+            </Animated.View>
+          )}
+
+          {/* Autoplay Discovery Divider */}
+          {firstAutoplayIndex >= 0 && upcomingTracks.length > 0 && (
+            <Animated.View
+              style={[
+                styles.autoplayDivider,
+                { top: autoplayDividerY(metrics) },
+                isAnyDragging && { transform: [{ translateY: autoplayDividerAnim }] },
+              ]}
+            >
+              <Ionicons name="radio-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.autoplayDividerText}>
+                Then: {AUTOPLAY_SOURCE}
+              </Text>
+            </Animated.View>
+          )}
+
+          {visibleUpcomingIndices.map((idx) => {
+            const track = upcomingTracks[idx];
+            if (!track) return null;
+            const slot: QueueSlot = { section: "upcoming", index: idx };
+            const dragging =
+              drag?.from.section === "upcoming" && drag.from.index === idx;
             return (
               <QueueRow
-                key={`user-queue-${track.id ?? idx}-${idx}`}
+                key={`upcoming-${idx}`}
                 track={track}
-                slot={slot}
-                dragging={isDragging(slot)}
-                dy={drag?.dy ?? 0}
-                onPress={() => playFromUserQueue(idx)}
-                onLayout={onRowLayout}
+                section="upcoming"
+                index={idx}
+                baseY={slotBaseY(metrics, slot)}
+                dragging={dragging}
+                isAnyDragging={isAnyDragging}
+                dragDyAnim={dragDyAnim}
+                offsetY={getRowOffset(slot, drag, metrics)}
+                onPlay={onPlayRow}
                 onDragStart={onDragStart}
                 onDragMove={onDragMove}
                 onDragEnd={onDragEnd}
               />
             );
-          })
-        ) : (
-          <View
-            style={[
-              styles.emptyQueuePrompt,
-              drag?.target.section === "queue" && styles.emptyQueueDropActive,
-            ]}
-            onLayout={(e) => {
-              const { y, height } = e.nativeEvent.layout;
-              queueEmptyLayout.current = { y, height };
-            }}
-          >
-            <Text style={styles.emptyQueueText}>
-              {drag ? "Drop here to queue" : "No manually queued songs"}
-            </Text>
-          </View>
-        )}
+          })}
 
-        {/* Section: Next Up from the loaded playlist */}
-        {upcomingTracks.length > 0 && (
-          <View
-            style={[styles.sectionHeaderRow, styles.nextUpHeader]}
-            onLayout={(e) => {
-              const { y, height } = e.nativeEvent.layout;
-              nextUpHeaderLayout.current = { y, height };
-            }}
-          >
-            <Text style={[styles.sectionTitle, styles.nextUpTitle]} numberOfLines={1}>
-              {nextUpSource ? `Next Up from: ${nextUpSource}` : "Next Up"}
-            </Text>
-            <View style={styles.modeButtons}>
-              <ShuffleButton />
-              <LoopButton />
+          {/* Open Drop Slot Preview showing where the dragged track will land */}
+          {drag && draggedTrack && (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.dropSlot,
+                { top: drag.slotY, height: ROW_HEIGHT },
+              ]}
+            >
+              <View style={[styles.trackThumbWrapper, styles.dropSlotThumb]}>
+                {draggedArtwork ? (
+                  <Image source={{ uri: draggedArtwork }} style={styles.trackThumb} />
+                ) : (
+                  <View style={[styles.trackThumb, styles.thumbPlaceholder]}>
+                    <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.trackInfo}>
+                <Text style={styles.dropSlotTitle} numberOfLines={1}>
+                  {draggedTrack.title}
+                </Text>
+                <Text style={styles.dropSlotSubtitle} numberOfLines={1}>
+                  {drag.target.section === "queue"
+                    ? `Place #${drag.target.index + 1} in Your Queue`
+                    : `Place #${drag.target.index + 1} in Next Up`}
+                </Text>
+              </View>
+              <View style={styles.dropSlotIcon}>
+                <Ionicons name="locate-outline" size={20} color={theme.colors.primary} />
+              </View>
             </View>
-          </View>
-        )}
-
-        {upcomingTracks.map((track, idx) => {
-          const slot: QueueSlot = { section: "upcoming", index: idx };
-          return (
-            <React.Fragment key={`upcoming-${track.id ?? idx}-${idx}`}>
-              {idx === firstAutoplayIndex && (
-                <View style={styles.autoplayDivider}>
-                  <Ionicons name="radio-outline" size={14} color={theme.colors.primary} />
-                  <Text style={styles.autoplayDividerText}>
-                    Then: {AUTOPLAY_SOURCE}
-                  </Text>
-                </View>
-              )}
-              <QueueRow
-                track={track}
-                slot={slot}
-                dragging={isDragging(slot)}
-                dy={drag?.dy ?? 0}
-                onPress={() => skipToUpcoming(idx)}
-                onLayout={onRowLayout}
-                onDragStart={onDragStart}
-                onDragMove={onDragMove}
-                onDragEnd={onDragEnd}
-              />
-            </React.Fragment>
-          );
-        })}
-
-        {/* Drop position line */}
-        {drag && !(drag.target.section === "queue" && userQueue.length === 0) && (
-          <View style={[styles.dropLine, { top: drag.indicatorY - 1, pointerEvents: "none" }]} />
-        )}
+          )}
+        </View>
 
         {/* Global Empty State if nothing is playing and queue is completely empty */}
         {!activeTrack && userQueue.length === 0 && upcomingTracks.length === 0 && (
@@ -569,29 +746,72 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
   },
+  dragArea: {
+    position: "relative",
+  },
   trackRow: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    height: ROW_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
     paddingHorizontal: 8,
-    marginHorizontal: 8,
     borderRadius: theme.radius.sm,
+    zIndex: 1,
+  },
+  trackMainPressable: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
   },
   trackRowDragging: {
-    zIndex: 10,
-    elevation: 8,
+    zIndex: 100,
+    elevation: 12,
     backgroundColor: theme.colors.surfaceElevated,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.primary,
-    opacity: 0.95,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
   },
-  dropLine: {
+  trackTitleDragging: {
+    color: theme.colors.primary,
+  },
+  dropSlot: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: theme.colors.primary,
+    left: 8,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: theme.colors.primary,
+    backgroundColor: "rgba(56, 189, 248, 0.08)",
+    zIndex: 0,
+  },
+  dropSlotThumb: {
+    opacity: 0.4,
+  },
+  dropSlotTitle: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: "600",
+    opacity: 0.75,
+  },
+  dropSlotSubtitle: {
+    color: theme.colors.textCyan,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
+    opacity: 0.85,
+  },
+  dropSlotIcon: {
+    padding: 8,
+    opacity: 0.7,
   },
   trackThumbWrapper: {
     width: 46,
@@ -641,26 +861,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     // Web: a touch on the handle drags the row instead of panning the page
-    ...(Platform.OS === "web" ? ({ touchAction: "none" } as object) : {}),
+    ...(Platform.OS === "web"
+      ? ({ touchAction: "none", userSelect: "none", cursor: "grab" } as object)
+      : {}),
   },
   emptyQueuePrompt: {
-    marginHorizontal: 16,
+    position: "absolute",
+    top: 0,
+    left: 16,
+    right: 16,
+    height: ROW_HEIGHT,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    justifyContent: "center",
     borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: "transparent",
   },
-  emptyQueueDropActive: {
-    borderColor: theme.colors.primary,
-    borderStyle: "dashed",
+  emptyQueueHidden: {
+    opacity: 0,
   },
   emptyQueueText: {
     color: theme.colors.textMuted,
     fontSize: 13,
   },
   nextUpHeader: {
-    marginTop: 18,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: NEXT_UP_HEIGHT,
+    marginBottom: 0,
   },
   nextUpTitle: {
     flex: 1,
@@ -670,13 +899,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   autoplayDivider: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    height: AUTOPLAY_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 6,
-    paddingTop: 10,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: theme.colors.surfaceCardBorder,
   },
