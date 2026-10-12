@@ -24,6 +24,11 @@ import {
   RadioStation,
   queryRadioPlays,
 } from "@/queries/radio";
+import {
+  PODCAST_SHOWS,
+  PodcastShow,
+  queryPodcastEpisodes,
+} from "@/queries/podcast";
 import OfflineNotice from "@/components/OfflineNotice";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
@@ -333,6 +338,21 @@ export default function Index() {
                 renderItem={({ item }) => <StationCard station={item} cardWidth={cardWidth} />}
               />
             </View>
+
+            {/* DISCUSSION: one card per show, showing latest episode */}
+            <View style={styles.section}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionHeader}>Discussion</Text>
+              </View>
+              <FlatList
+                horizontal
+                data={PODCAST_SHOWS}
+                keyExtractor={(show) => show.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.carouselContent}
+                renderItem={({ item }) => <DiscussionCard show={item} cardWidth={cardWidth} />}
+              />
+            </View>
           </>
         )}
       </ScrollView>
@@ -369,6 +389,40 @@ function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth:
       </Text>
       <Text style={styles.cardArtist} numberOfLines={1}>
         {onAir ? `${onAir.song} Â· ${onAir.artist}` : station.location}
+      </Text>
+    </Pressable>
+  );
+}
+
+// A show in the Discussion row, shaped like an album card: the cover and latest episode,
+// and tapping opens the show's episode list
+function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: number }) {
+  const router = useRouter();
+  const { data: episodes } = useQuery(queryPodcastEpisodes(show));
+  const latest = episodes?.[0];
+
+  return (
+    <Pressable
+      onPress={() => router.push({ pathname: "/podcast/[id]", params: { id: show.id } })}
+      accessibilityLabel={`Open ${show.name}`}
+      style={[styles.albumCard, { width: cardWidth }]}
+    >
+      <View style={styles.cardImageContainer}>
+        {show.artwork ? (
+          <Image source={{ uri: show.artwork }} style={styles.cardCoverImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
+            <Ionicons name="mic" size={36} color={theme.colors.primary} />
+          </View>
+        )}
+        <View style={styles.glassSheen} />
+        <Text style={styles.airtimeBadge}>TALK</Text>
+      </View>
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {show.name}
+      </Text>
+      <Text style={styles.cardArtist} numberOfLines={1}>
+        {latest ? latest.title : show.author}
       </Text>
     </Pressable>
   );

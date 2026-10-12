@@ -19,6 +19,7 @@ import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation, RADIO_SET_SECONDS } from "@/queries/radio";
+import { findPodcastShow } from "@/queries/podcast";
 import { queryArtist } from "@/queries/queries";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
@@ -39,12 +40,13 @@ export default function NowPlaying() {
 
   // Live radio: show the song on air from the station's playlist feed (refreshes every minute)
   const station = findStation(activeTrack?.liveStation);
+  const podcastShow = findPodcastShow(activeTrack?.podcastId);
   const isLive = Boolean(station);
   // Repeat one keeps a station on past its 10-minute set
   const hasSetTimer = isLive && looping !== "track";
   const { data: plays } = useQuery(queryRadioPlays(station));
   const onAir = plays?.[0];
-  const artworkUri = isLive ? onAir?.artwork : activeTrack?.trackGroup?.cover?.sizes?.[600];
+  const artworkUri = isLive ? onAir?.artwork : (activeTrack?.artwork || activeTrack?.trackGroup?.cover?.sizes?.[600]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -146,12 +148,22 @@ export default function NowPlaying() {
 
           <View style={styles.artistGroupRow}>
             <Text style={styles.infoLabel}>
-              {t("trackGroupDetails.fromAlbum")
-                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                .trim() + " "}
+              {activeTrack?.podcastId
+                ? "Show "
+                : t("trackGroupDetails.fromAlbum")
+                    .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                    .trim() + " "}
             </Text>
             <Pressable
               onPress={() => {
+                if (activeTrack?.podcastId) {
+                  router.dismiss();
+                  router.navigate({
+                    pathname: "/podcast/[id]",
+                    params: { id: activeTrack.podcastId },
+                  });
+                  return;
+                }
                 if (!activeTrack?.trackGroup) return;
                 router.dismiss();
                 if (activeTrack.downloadAlbum) {
@@ -176,12 +188,14 @@ export default function NowPlaying() {
 
           <View style={styles.artistGroupRow}>
             <Text style={styles.infoLabel}>
-              {t("trackGroupDetails.byArtist")
-                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                .trim() + " "}
+              {activeTrack?.podcastId
+                ? "Host "
+                : t("trackGroupDetails.byArtist")
+                    .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                    .trim() + " "}
             </Text>
-            {/* A song saved on the phone has no Mirlo artist page to open */}
-            {activeTrack?.downloadAlbum ? (
+            {/* Saved songs and podcasts have no Mirlo artist page to open */}
+            {activeTrack?.downloadAlbum || activeTrack?.podcastId ? (
               <Text style={styles.infoLabel} numberOfLines={1}>
                 {activeTrack.artist}
               </Text>
@@ -252,7 +266,7 @@ export default function NowPlaying() {
           <Player />
         </View>
 
-        {/* Listener-supported stations: send listeners to the station's own donation page */}
+        {/* Support actions: radio donation, podcast support, or Mirlo artist support */}
         {station ? (
           <Pressable
             onPress={() => openInBrowser(station.donatePage)}
@@ -262,6 +276,18 @@ export default function NowPlaying() {
           >
             <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
             <Text style={styles.donateText}>Donate to {station.name}</Text>
+          </Pressable>
+        ) : podcastShow?.supportUrl ? (
+          <Pressable
+            onPress={() => openInBrowser(podcastShow.supportUrl!)}
+            style={styles.donateButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Support ${podcastShow.name}`}
+          >
+            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+            <Text style={styles.donateText} numberOfLines={1}>
+              Support {podcastShow.name}
+            </Text>
           </Pressable>
         ) : activeTrack ? (
           <SupportArtistButton track={activeTrack} />

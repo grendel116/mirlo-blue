@@ -155,6 +155,10 @@ interface RNTrack {
   liveStation?: string;
   // Album key of a song saved on this phone, the album it opens in Library > Downloads
   downloadAlbum?: string;
+  // Podcast show id if this track is a podcast episode
+  podcastId?: string;
+  // Podcast episode id or GUID
+  podcastEpisodeId?: string;
 }
 
 interface PlayButtonProps {
