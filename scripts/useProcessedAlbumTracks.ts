@@ -28,9 +28,13 @@ export function useProcessedAlbumTracks(
         url: `${API_ROOT}${track.audio.url}`,
         id: data.result.id,
         trackArtists: track.trackArtists,
+        allowIndividualSale: track.allowIndividualSale,
         queueIndex: track.order,
         trackGroupId: data.result.trackGroupId,
         trackGroup: {
+          id: data.result.id,
+          releaseDate: data.result.releaseDate,
+          trackGroupId: data.result.trackGroupId,
           userTrackGroupPurchases: data.result.userTrackGroupPurchases,
           artistId: data.result.artistId,
           urlSlug: data.result.urlSlug,

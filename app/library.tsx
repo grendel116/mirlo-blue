@@ -611,7 +611,9 @@ export default function LibraryScreen() {
         ) : (
           <FlatList
             data={purchases}
-            keyExtractor={(item, index) => String(item.id ?? index)}
+            keyExtractor={(item) =>
+              "trackGroupId" in item ? `album-${item.trackGroupId}` : `track-${item.trackId}`
+            }
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
               const tg = (item as any).trackGroup;
@@ -662,7 +664,7 @@ export default function LibraryScreen() {
       ) : (
         <FlatList
           data={wishlist}
-          keyExtractor={(item, index) => String(item.id ?? index)}
+          keyExtractor={(item) => String(item.trackGroupId)}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const tg = (item as any).trackGroup;
