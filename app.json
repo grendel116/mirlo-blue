@@ -2,12 +2,11 @@
   "expo": {
     "name": "Mirlo Blue",
     "slug": "mirlo-blue",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
     "userInterfaceStyle": "dark",
-    "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "space.mirlo.blue",
@@ -19,6 +18,7 @@
       }
     },
     "android": {
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/mirlo-blue-adaptive.png",
         "backgroundColor": "#070b14"
