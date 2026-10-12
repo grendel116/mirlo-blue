@@ -31,6 +31,7 @@ import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchDiscoveryTracks } from "@/scripts/autoplay";
 import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
+import { resetRadioTimer } from "@/scripts/radioTimer";
 
 // Autoplay tops up when fewer than this many previews wait after the playlist
 const AUTOPLAY_THRESHOLD = 2;
@@ -414,6 +415,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (event.type === Event.PlaybackActiveTrackChanged) {
+        resetRadioTimer();
         const track = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
         if (track) {
           setActiveTrack(track);

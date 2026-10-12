@@ -302,7 +302,8 @@ export function queryRadioPlays(station: RadioStation | undefined) {
 }
 
 // A station plays as a 10-minute set in the queue, then playback moves on to what's next
-export const RADIO_SET_SECONDS = 10 * 60;
+import { RADIO_SET_SECONDS } from "@/scripts/radioTimer";
+export { RADIO_SET_SECONDS };
 
 // The station's live broadcast as a player track. It has no Mirlo track id; the player
 // tells stations apart by stream URL. Empty headers keep the Mirlo API key off the

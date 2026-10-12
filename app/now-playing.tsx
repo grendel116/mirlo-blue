@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Text,
   View,
@@ -24,13 +25,15 @@ import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { savedAlbumHref } from "@/scripts/downloadManager";
+import { getRadioTimerElapsed, setRadioTimerElapsed } from "@/scripts/radioTimer";
 
 export default function NowPlaying() {
-  const { activeTrack, looping } = usePlayer();
+  const { activeTrack, looping, skipNext } = usePlayer();
   const progress = useProgress();
   const router = useRouter();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
+  const [slidingValue, setSlidingValue] = useState<number | null>(null);
 
   const albumArtSize = Math.min(width - 48, 380);
 
@@ -203,47 +206,45 @@ export default function NowPlaying() {
         </View>
         )}
 
-        {/* Progress Slider (a station shows its 10-minute set, which can't be scrubbed) */}
-        {isLive ? (
+        {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
+        {(!isLive || hasSetTimer) && (
           <View style={styles.progressContainer}>
-            {hasSetTimer ? (
-              <>
-                <View style={styles.setBar}>
-                  <View style={styles.setBarTrack}>
-                    <View
-                      style={[
-                        styles.setBarFill,
-                        {
-                          width: `${(Math.min(progress.position, RADIO_SET_SECONDS) / RADIO_SET_SECONDS) * 100}%`,
-                        },
-                      ]}
-                    />
-                  </View>
-                </View>
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeText}>{formatTime(progress.position)}</Text>
-                  <Text style={styles.timeText}>{formatTime(RADIO_SET_SECONDS)}</Text>
-                </View>
-              </>
-            ) : null}
+            <Slider
+              style={styles.progressBar}
+              value={
+                slidingValue ??
+                (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
+              }
+              minimumValue={0}
+              maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
+              thumbTintColor={theme.colors.primary}
+              minimumTrackTintColor={theme.colors.primary}
+              maximumTrackTintColor={theme.colors.progressTrack}
+              onValueChange={(val) => setSlidingValue(val)}
+              onSlidingComplete={async (val) => {
+                setSlidingValue(null);
+                if (isLive) {
+                  setRadioTimerElapsed(val, progress.position);
+                  if (val >= RADIO_SET_SECONDS) {
+                    await skipNext();
+                  }
+                } else {
+                  await TrackPlayer.seekTo(val);
+                }
+              }}
+            />
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>
+                {formatTime(
+                  slidingValue ??
+                    (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
+                )}
+              </Text>
+              <Text style={styles.timeText}>
+                {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
+              </Text>
+            </View>
           </View>
-        ) : (
-        <View style={styles.progressContainer}>
-          <Slider
-            style={styles.progressBar}
-            value={progress.position}
-            minimumValue={0}
-            maximumValue={progress.duration || 1}
-            thumbTintColor={theme.colors.primary}
-            minimumTrackTintColor={theme.colors.primary}
-            maximumTrackTintColor={theme.colors.progressTrack}
-            onSlidingComplete={async (value) => await TrackPlayer.seekTo(value)}
-          />
-          <View style={styles.timeRow}>
-            <Text style={styles.timeText}>{formatTime(progress.position)}</Text>
-            <Text style={styles.timeText}>{formatTime(progress.duration)}</Text>
-          </View>
-        </View>
         )}
 
         {/* Playback Controls */}
@@ -416,21 +417,6 @@ const styles = StyleSheet.create({
   progressBar: {
     width: "100%",
     height: 40,
-  },
-  setBar: {
-    height: 40,
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  setBarTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.colors.progressTrack,
-    overflow: "hidden",
-  },
-  setBarFill: {
-    height: "100%",
-    backgroundColor: theme.colors.primary,
   },
   timeRow: {
     flexDirection: "row",
