@@ -44,7 +44,9 @@ Open http://localhost:8081.
 
 ## Installation
 
-**Android:** [Download APK](https://expo.dev/artifacts/eas/KlegDJYLVUQ4RzrFPpINH5damdiEk0SGxSK83O6XbJs.apk) or scan the QR code on the [build page](https://expo.dev/accounts/drhodesw/projects/mirlo-blue/builds/0db15ef6-c5cb-4ad4-9c33-0717a3ac1b40).
+**Android:** Download the latest APK from [Releases](https://github.com/grendel116/mirlo-blue/releases).
+
+Install the APK once; future updates install automatically when opening the app.
 
 Build from source:
 ```bash
