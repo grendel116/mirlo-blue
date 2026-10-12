@@ -691,54 +691,10 @@ index b2409a0..45c794d 100644
      }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..6fb63a1 100644
+index afa6b0f..008f184 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-@@ -4,6 +4,9 @@ import android.app.*
- import android.content.Context
- import android.content.Intent
- import android.content.pm.ServiceInfo
-+import android.media.AudioAttributes
-+import android.media.AudioFocusRequest
-+import android.media.AudioManager
- import android.net.Uri
- import android.os.Binder
- import android.os.Build
-@@ -327,9 +330,33 @@ class MusicService : HeadlessJsTaskService() {
- 
-     @MainThread
-     fun play() {
-+        requestAudioFocus()
-         player.play()
-     }
- 
-+    // KotlinAudio asks for audio focus only when a track first becomes ready, so playing again
-+    // after another app took focus would go on without it. Every play asks again. The player is
-+    // the listener, so Android sees one focus client and its focus events reach JS as remote-duck
-+    @MainThread
-+    private fun requestAudioFocus() {
-+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-+            val attributes = AudioAttributes.Builder()
-+                .setUsage(AudioAttributes.USAGE_MEDIA)
-+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-+                .build()
-+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-+                .setAudioAttributes(attributes)
-+                .setWillPauseWhenDucked(player.playerOptions.alwaysPauseOnInterruption)
-+                .setOnAudioFocusChangeListener(player)
-+                .build()
-+            audioManager.requestAudioFocus(request)
-+        } else {
-+            @Suppress("DEPRECATION")
-+            audioManager.requestAudioFocus(player, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-+        }
-+    }
-+
-     @MainThread
-     fun pause() {
-         player.pause()
-@@ -739,9 +766,25 @@ class MusicService : HeadlessJsTaskService() {
+@@ -739,9 +739,25 @@ class MusicService : HeadlessJsTaskService() {
          return bundle
      }
  
@@ -765,7 +721,7 @@ index afa6b0f..6fb63a1 100644
              ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
              ?.emit(event, data?.let { Arguments.fromBundle(it) })
      }
-@@ -751,7 +794,7 @@ class MusicService : HeadlessJsTaskService() {
+@@ -751,7 +767,7 @@ class MusicService : HeadlessJsTaskService() {
          val payload = Arguments.createArray()
          data.forEach { payload.pushMap(Arguments.fromBundle(it)) }
  
@@ -774,51 +730,3 @@ index afa6b0f..6fb63a1 100644
              ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
              ?.emit(event, payload)
      }
-@@ -765,10 +808,39 @@ class MusicService : HeadlessJsTaskService() {
-         return binder
-     }
- 
-+    @MainThread
-+    override fun onCreate() {
-+        super.onCreate()
-+        application.registerActivityLifecycleCallbacks(appClosedListener)
-+    }
-+
-     @MainThread
-     override fun onTaskRemoved(rootIntent: Intent?) {
-         super.onTaskRemoved(rootIntent)
-+        onAppClosed()
-+    }
- 
-+    // Swiping the app away finishes its main screen. Android doesn't always follow up with
-+    // onTaskRemoved, so the main screen finishing also counts as the app closing. Back only
-+    // sends the app to the background, and a configuration change rebuilds the screen
-+    private val appClosedListener = object : Application.ActivityLifecycleCallbacks {
-+        override fun onActivityDestroyed(activity: Activity) {
-+            val mainScreen = packageManager.getLaunchIntentForPackage(packageName)?.component
-+            if (activity.isFinishing && !activity.isChangingConfigurations && activity.componentName == mainScreen) {
-+                onAppClosed()
-+            }
-+        }
-+
-+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-+        override fun onActivityStarted(activity: Activity) {}
-+        override fun onActivityResumed(activity: Activity) {}
-+        override fun onActivityPaused(activity: Activity) {}
-+        override fun onActivityStopped(activity: Activity) {}
-+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-+    }
-+
-+    @MainThread
-+    private fun onAppClosed() {
-         if (!::player.isInitialized) return
- 
-         when (appKilledPlaybackBehavior) {
-@@ -799,6 +871,7 @@ class MusicService : HeadlessJsTaskService() {
-     @MainThread
-     override fun onDestroy() {
-         super.onDestroy()
-+        application.unregisterActivityLifecycleCallbacks(appClosedListener)
-         if (::player.isInitialized) {
-             player.destroy()
-         }
