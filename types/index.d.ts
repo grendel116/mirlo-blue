@@ -159,6 +159,8 @@ interface RNTrack {
   podcastId?: string;
   // Podcast episode id or GUID
   podcastEpisodeId?: string;
+  // Stable unique key for preserving row identity across queue reorders
+  _queueKey?: string;
 }
 
 interface PlayButtonProps {

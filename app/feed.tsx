@@ -45,10 +45,9 @@ type QueueRowProps = {
   section: QueueSlot["section"];
   index: number;
   baseY: number;
+  targetY: number;
   dragging: boolean;
   isAnyDragging: boolean;
-  dragDyAnim: Animated.Value;
-  offsetY: number;
   onPlay: (section: QueueSlot["section"], index: number) => void;
   onDragStart: (slot: QueueSlot) => void;
   onDragMove: (dy: number) => void;
@@ -60,10 +59,9 @@ const QueueRow = React.memo(function QueueRow({
   section,
   index,
   baseY,
+  targetY,
   dragging,
   isAnyDragging,
-  dragDyAnim,
-  offsetY,
   onPlay,
   onDragStart,
   onDragMove,
@@ -72,29 +70,59 @@ const QueueRow = React.memo(function QueueRow({
   const slotRef = useRef<QueueSlot>({ section, index });
   slotRef.current = { section, index };
 
-  const shiftAnim = useRef(new Animated.Value(0)).current;
+  const baseYRef = useRef(baseY);
+  baseYRef.current = baseY;
+  const dragStartYRef = useRef(baseY);
+  const prevTargetYRef = useRef(targetY);
+  const wasDraggingRef = useRef(false);
+
+  const yAnim = useRef(new Animated.Value(targetY)).current;
 
   useEffect(() => {
-    if (!isAnyDragging || dragging) {
-      shiftAnim.setValue(0);
+    if (dragging) {
+      wasDraggingRef.current = true;
+      prevTargetYRef.current = targetY;
       return;
     }
-    Animated.spring(shiftAnim, {
-      toValue: offsetY,
-      useNativeDriver: true,
-      damping: 22,
-      stiffness: 280,
-      mass: 0.6,
-    }).start();
-  }, [offsetY, isAnyDragging, dragging, shiftAnim]);
+    if (wasDraggingRef.current) {
+      wasDraggingRef.current = false;
+      prevTargetYRef.current = targetY;
+      Animated.spring(yAnim, {
+        toValue: targetY,
+        useNativeDriver: true,
+        damping: 26,
+        stiffness: 380,
+        mass: 0.5,
+      }).start();
+      return;
+    }
+    if (prevTargetYRef.current !== targetY) {
+      prevTargetYRef.current = targetY;
+      Animated.spring(yAnim, {
+        toValue: targetY,
+        useNativeDriver: true,
+        damping: 22,
+        stiffness: 280,
+        mass: 0.6,
+      }).start();
+    }
+  }, [targetY, dragging, yAnim]);
 
   const responder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => onDragStart(slotRef.current),
-      onPanResponderMove: (_e, g) => onDragMove(g.dy),
+      onPanResponderGrant: () => {
+        dragStartYRef.current = baseYRef.current;
+        yAnim.stopAnimation();
+        yAnim.setValue(baseYRef.current);
+        onDragStart(slotRef.current);
+      },
+      onPanResponderMove: (_e, g) => {
+        yAnim.setValue(dragStartYRef.current + g.dy);
+        onDragMove(g.dy);
+      },
       onPanResponderRelease: () => onDragEnd(),
       onPanResponderTerminate: () => onDragEnd(),
     }),
@@ -110,15 +138,13 @@ const QueueRow = React.memo(function QueueRow({
     <Animated.View
       style={[
         styles.trackRow,
-        { top: baseY },
-        dragging
-          ? [
-              styles.trackRowDragging,
-              { transform: [{ translateY: dragDyAnim }, { scale: 1.02 }] },
-            ]
-          : isAnyDragging
-            ? { transform: [{ translateY: shiftAnim }] }
-            : null,
+        dragging && styles.trackRowDragging,
+        {
+          transform: [
+            { translateY: yAnim },
+            { scale: dragging ? 1.02 : 1 },
+          ],
+        },
       ]}
     >
       <Pressable
@@ -226,41 +252,40 @@ export default function QueueScreen() {
   const dragRef = useRef<QueueDragState | null>(null);
   const [drag, setDrag] = useState<QueueDragState | null>(null);
 
-  const dragDyAnim = useRef(new Animated.Value(0)).current;
-  const nextUpHeaderAnim = useRef(new Animated.Value(0)).current;
-  const autoplayDividerAnim = useRef(new Animated.Value(0)).current;
-
   const isAnyDragging = Boolean(drag);
-  const nextUpOffset = drag?.nextUpHeaderOffset ?? 0;
-  const autoplayOffset = drag?.autoplayDividerOffset ?? 0;
+  const nextUpTargetY = nextUpHeaderY(metrics) + (drag?.nextUpHeaderOffset ?? 0);
+  const autoplayTargetY = autoplayDividerY(metrics) + (drag?.autoplayDividerOffset ?? 0);
+
+  const nextUpHeaderAnim = useRef(new Animated.Value(nextUpTargetY)).current;
+  const prevNextUpYRef = useRef(nextUpTargetY);
+  const autoplayDividerAnim = useRef(new Animated.Value(autoplayTargetY)).current;
+  const prevAutoplayYRef = useRef(autoplayTargetY);
 
   useEffect(() => {
-    if (!isAnyDragging) {
-      nextUpHeaderAnim.setValue(0);
-      return;
+    if (prevNextUpYRef.current !== nextUpTargetY) {
+      prevNextUpYRef.current = nextUpTargetY;
+      Animated.spring(nextUpHeaderAnim, {
+        toValue: nextUpTargetY,
+        useNativeDriver: true,
+        damping: 22,
+        stiffness: 280,
+        mass: 0.6,
+      }).start();
     }
-    Animated.spring(nextUpHeaderAnim, {
-      toValue: nextUpOffset,
-      useNativeDriver: true,
-      damping: 22,
-      stiffness: 280,
-      mass: 0.6,
-    }).start();
-  }, [isAnyDragging, nextUpOffset, nextUpHeaderAnim]);
+  }, [nextUpTargetY, nextUpHeaderAnim]);
 
   useEffect(() => {
-    if (!isAnyDragging) {
-      autoplayDividerAnim.setValue(0);
-      return;
+    if (prevAutoplayYRef.current !== autoplayTargetY) {
+      prevAutoplayYRef.current = autoplayTargetY;
+      Animated.spring(autoplayDividerAnim, {
+        toValue: autoplayTargetY,
+        useNativeDriver: true,
+        damping: 22,
+        stiffness: 280,
+        mass: 0.6,
+      }).start();
     }
-    Animated.spring(autoplayDividerAnim, {
-      toValue: autoplayOffset,
-      useNativeDriver: true,
-      damping: 22,
-      stiffness: 280,
-      mass: 0.6,
-    }).start();
-  }, [isAnyDragging, autoplayOffset, autoplayDividerAnim]);
+  }, [autoplayTargetY, autoplayDividerAnim]);
 
   const onPlayRow = useCallback(
     (section: QueueSlot["section"], index: number) => {
@@ -270,53 +295,64 @@ export default function QueueScreen() {
     [playFromUserQueue, skipToUpcoming],
   );
 
-  const onDragStart = useCallback(
-    (slot: QueueSlot) => {
-      dragDyAnim.setValue(0);
-      const next = computeQueueDrag(slot, 0, metricsRef.current);
+  const onDragStart = useCallback((slot: QueueSlot) => {
+    const next = computeQueueDrag(slot, 0, metricsRef.current);
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
+
+  const onDragMove = useCallback((dy: number) => {
+    const current = dragRef.current;
+    if (!current) return;
+    const next = computeQueueDrag(current.from, dy, metricsRef.current);
+    if (
+      next.target.section !== current.target.section ||
+      next.target.index !== current.target.index
+    ) {
       dragRef.current = next;
       setDrag(next);
-    },
-    [dragDyAnim],
-  );
-
-  const onDragMove = useCallback(
-    (dy: number) => {
-      dragDyAnim.setValue(dy);
-      const current = dragRef.current;
-      if (!current) return;
-      const next = computeQueueDrag(current.from, dy, metricsRef.current);
-      if (
-        next.target.section !== current.target.section ||
-        next.target.index !== current.target.index
-      ) {
-        dragRef.current = next;
-        setDrag(next);
-      }
-    },
-    [dragDyAnim],
-  );
+    }
+  }, []);
 
   const onDragEnd = useCallback(() => {
     const current = dragRef.current;
     dragRef.current = null;
-    setDrag(null);
-    dragDyAnim.setValue(0);
     if (current) moveRef.current(current.from, current.target);
-  }, [dragDyAnim]);
+    setDrag(null);
+  }, []);
 
   const minY = Math.max(0, windowScrollY - dragAreaTopRef.current - OVERSCAN_PX);
   const maxY = windowScrollY - dragAreaTopRef.current + viewportHeight + OVERSCAN_PX;
 
-  const visibleQueueIndices = useMemo(
-    () => getVisibleIndices("queue", metrics, minY, maxY, drag?.from),
-    [metrics, minY, maxY, drag?.from],
-  );
+  const visibleRows = useMemo(() => {
+    const qIndices = getVisibleIndices("queue", metrics, minY, maxY, drag?.from);
+    const uIndices = getVisibleIndices("upcoming", metrics, minY, maxY, drag?.from);
+    const seenKeys = new Map<string, number>();
+    const rows: {
+      key: string;
+      track: RNTrack;
+      section: QueueSlot["section"];
+      index: number;
+    }[] = [];
 
-  const visibleUpcomingIndices = useMemo(
-    () => getVisibleIndices("upcoming", metrics, minY, maxY, drag?.from),
-    [metrics, minY, maxY, drag?.from],
-  );
+    const pushRow = (track: RNTrack | undefined, section: QueueSlot["section"], index: number) => {
+      if (!track) return;
+      const baseKey = track._queueKey || `track-${track.id ?? track.url ?? track.title}`;
+      const count = (seenKeys.get(baseKey) ?? 0) + 1;
+      seenKeys.set(baseKey, count);
+      rows.push({
+        key: count === 1 ? baseKey : `${baseKey}-${count}`,
+        track,
+        section,
+        index,
+      });
+    };
+
+    for (const idx of qIndices) pushRow(userQueue[idx], "queue", idx);
+    for (const idx of uIndices) pushRow(upcomingTracks[idx], "upcoming", idx);
+
+    return rows;
+  }, [metrics, minY, maxY, drag?.from, userQueue, upcomingTracks]);
 
   const draggedTrack = drag
     ? drag.from.section === "queue"
@@ -439,32 +475,7 @@ export default function QueueScreen() {
             dragAreaTopRef.current = e.nativeEvent.layout.y;
           }}
         >
-          {userQueue.length > 0 ? (
-            visibleQueueIndices.map((idx) => {
-              const track = userQueue[idx];
-              if (!track) return null;
-              const slot: QueueSlot = { section: "queue", index: idx };
-              const dragging =
-                drag?.from.section === "queue" && drag.from.index === idx;
-              return (
-                <QueueRow
-                  key={`user-queue-${idx}`}
-                  track={track}
-                  section="queue"
-                  index={idx}
-                  baseY={slotBaseY(metrics, slot)}
-                  dragging={dragging}
-                  isAnyDragging={isAnyDragging}
-                  dragDyAnim={dragDyAnim}
-                  offsetY={getRowOffset(slot, drag, metrics)}
-                  onPlay={onPlayRow}
-                  onDragStart={onDragStart}
-                  onDragMove={onDragMove}
-                  onDragEnd={onDragEnd}
-                />
-              );
-            })
-          ) : (
+          {userQueue.length === 0 && (
             <View
               style={[
                 styles.emptyQueuePrompt,
@@ -488,8 +499,7 @@ export default function QueueScreen() {
               style={[
                 styles.sectionHeaderRow,
                 styles.nextUpHeader,
-                { top: nextUpHeaderY(metrics) },
-                isAnyDragging && { transform: [{ translateY: nextUpHeaderAnim }] },
+                { transform: [{ translateY: nextUpHeaderAnim }] },
               ]}
             >
               <Text style={[styles.sectionTitle, styles.nextUpTitle]} numberOfLines={1}>
@@ -507,8 +517,7 @@ export default function QueueScreen() {
             <Animated.View
               style={[
                 styles.autoplayDivider,
-                { top: autoplayDividerY(metrics) },
-                isAnyDragging && { transform: [{ translateY: autoplayDividerAnim }] },
+                { transform: [{ translateY: autoplayDividerAnim }] },
               ]}
             >
               <Ionicons name="radio-outline" size={14} color={theme.colors.primary} />
@@ -518,23 +527,23 @@ export default function QueueScreen() {
             </Animated.View>
           )}
 
-          {visibleUpcomingIndices.map((idx) => {
-            const track = upcomingTracks[idx];
-            if (!track) return null;
-            const slot: QueueSlot = { section: "upcoming", index: idx };
+          {/* Unified visible rows list so track instances never unmount across section moves */}
+          {visibleRows.map(({ key, track, section, index }) => {
+            const slot: QueueSlot = { section, index };
+            const baseY = slotBaseY(metrics, slot);
+            const targetY = baseY + getRowOffset(slot, drag, metrics);
             const dragging =
-              drag?.from.section === "upcoming" && drag.from.index === idx;
+              drag?.from.section === section && drag.from.index === index;
             return (
               <QueueRow
-                key={`upcoming-${idx}`}
+                key={key}
                 track={track}
-                section="upcoming"
-                index={idx}
-                baseY={slotBaseY(metrics, slot)}
+                section={section}
+                index={index}
+                baseY={baseY}
+                targetY={targetY}
                 dragging={dragging}
                 isAnyDragging={isAnyDragging}
-                dragDyAnim={dragDyAnim}
-                offsetY={getRowOffset(slot, drag, metrics)}
                 onPlay={onPlayRow}
                 onDragStart={onDragStart}
                 onDragMove={onDragMove}
@@ -751,6 +760,7 @@ const styles = StyleSheet.create({
   },
   trackRow: {
     position: "absolute",
+    top: 0,
     left: 8,
     right: 8,
     height: ROW_HEIGHT,
@@ -886,6 +896,7 @@ const styles = StyleSheet.create({
   },
   nextUpHeader: {
     position: "absolute",
+    top: 0,
     left: 0,
     right: 0,
     height: NEXT_UP_HEIGHT,
@@ -900,6 +911,7 @@ const styles = StyleSheet.create({
   },
   autoplayDivider: {
     position: "absolute",
+    top: 0,
     left: 16,
     right: 16,
     height: AUTOPLAY_HEIGHT,

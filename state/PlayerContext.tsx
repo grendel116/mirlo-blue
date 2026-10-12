@@ -148,6 +148,8 @@ function resolveStreamUrl(rawAudio: string): string {
   return `${API_ROOT}${path}`;
 }
 
+let nextQueueKeyId = 1;
+
 // Prepares any track for the player: absolute stream URL, API key header, artwork, and artist.
 // A song saved on the phone plays from its file instead of streaming
 function toPlayerTrack(
@@ -177,6 +179,7 @@ function toPlayerTrack(
 
   return {
     ...t,
+    _queueKey: t._queueKey || `qk-${nextQueueKeyId++}`,
     url: streamUrl,
     headers: saved ? {} : t.headers || { "mirlo-api-key": API_KEY },
     type: saved ? TrackType.Default : t.type || audioTrackType(streamUrl),
@@ -546,6 +549,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
         setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
+        setActiveIndex(startIndex);
         queueGenerationRef.current += 1;
         setQueueSource(nextSource);
         await TrackPlayer.setQueue(tracksToLoad);
