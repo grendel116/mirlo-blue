@@ -4,7 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { theme } from "@/constants/theme";
 import { songPageUrl } from "@/scripts/utils";
 
-const MIRLO_BLUE_URL = "https://github.com/grendel116/mirlo-blue";
+const MIRLO_BLUE_URL = "https://grendel116.github.io/mirlo-blue/";
 
 // Shares the current track and Mirlo Blue link through the phone's share sheet.
 // Browsers without a share sheet copy the text instead.

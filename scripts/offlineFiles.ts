@@ -1,4 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
+import { copyAsync } from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
 import { unzip } from "react-native-zip-archive";
 import { readTags } from "./readTags";
@@ -21,6 +22,7 @@ export const OFFLINE_SUPPORTED = true;
 
 const AUDIO_FILE = /\.(mp3|flac|m4a|opus|ogg|wav|aac)$/i;
 const IMAGE_FILE = /\.(jpe?g|png|webp)$/i;
+const ZIP_FILE = /\.zip$/i;
 const POLL_MS = 4000;
 const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -178,14 +180,26 @@ export async function downloadTrack(
   if (!file) throw new Error("Mirlo didn't send this song");
   await saveDownloadedTracks([savedFromMirlo(file, folder, album, track, cover, track.id)]);
 }
-// "01 - Artist - Title.mp3" → artist and title; anything else becomes the title
-function namesFromFile(fileName: string): { title: string; artist: string } {
-  const base = fileName.replace(/\.[^.]+$/, "").replace(/^\d+\s*[-.]\s*/, "");
+
+// "01 - Artist - Title.mp3" → track number, artist, and title; anything else becomes the title
+function namesFromFile(fileName: string): { title: string; artist: string; track?: number } {
+  const withoutExt = fileName.replace(/\.[^.]+$/, "");
+  const numMatch = withoutExt.match(/^(\d+)\s*[-._\s]\s*/);
+  const track = numMatch ? parseInt(numMatch[1], 10) : undefined;
+  const base = withoutExt.replace(/^\d+\s*[-._\s]\s*/, "");
   const split = base.indexOf(" - ");
-  if (split === -1) return { title: base, artist: "" };
-  return { artist: base.slice(0, split), title: base.slice(split + 3) };
+  if (split === -1) return { title: base, artist: "", track };
+  return { artist: base.slice(0, split), title: base.slice(split + 3), track };
 }
 
+function cleanEntryName(uri: string): string {
+  const decoded = decodeURIComponent(uri).replace(/\/+$/, "");
+  return decoded.split(/[/:]/).pop() || "file";
+}
+
+function safeFileName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+}
 
 // Moves a file the picker handed us into app storage, so no copy is left in the cache
 function adopt(pickedUri: string, destination: File): void {
@@ -208,11 +222,88 @@ function tagsOf(file: File) {
   }
 }
 
-// Adds audio files from the phone. Song details come from each file's tags, then its name;
-// a title typed in the import dialog names the whole album. Files group into albums by title
-export async function importFiles(albumTitle?: string, artistName?: string): Promise<string | null> {
+function buildImportedTrack(
+  file: File,
+  originalName: string,
+  index: number,
+  now: number,
+  covers: Map<string, string>,
+  fallbackAlbum?: string,
+  fallbackArtist?: string,
+  fallbackCover?: string,
+): DownloadedTrack {
+  const tags = tagsOf(file);
+  const named = namesFromFile(originalName);
+  const album = tags.album || fallbackAlbum || "Imported Audio";
+  const albumKey = album.toLowerCase();
+
+  if (tags.cover && !covers.has(albumKey)) {
+    const extension = tags.cover.mime.includes("png") ? "png" : "jpg";
+    const cover = new File(downloadsFolder("covers"), `${now}-${index}.${extension}`);
+    cover.write(tags.cover.bytes);
+    covers.set(albumKey, cover.uri);
+  } else if (fallbackCover && !covers.has(albumKey)) {
+    covers.set(albumKey, fallbackCover);
+  }
+
+  return {
+    id: -(now + index),
+    title: tags.title || named.title,
+    artist: tags.artist || named.artist || fallbackArtist || "Unknown Artist",
+    albumTitle: album,
+    artwork: covers.get(albumKey),
+    order: tags.track ?? named.track ?? index + 1,
+    url: file.uri,
+    bytes: file.size,
+    downloadedAt: now,
+    source: "file" as const,
+  };
+}
+
+async function ingestUnpackedDir(
+  dir: Directory,
+  fallbackAlbum: string,
+  fallbackArtist: string,
+  now: number,
+  startIndex: number,
+  covers: Map<string, string>,
+): Promise<DownloadedTrack[]> {
+  const allFiles = filesIn(dir);
+  const audioFiles = allFiles.filter((f) => AUDIO_FILE.test(f.name));
+  if (audioFiles.length === 0) return [];
+
+  let folderCover: string | undefined;
+  const imageFile = allFiles.find((f) => IMAGE_FILE.test(f.name));
+  if (imageFile) {
+    const ext = imageFile.name.split(".").pop() || "jpg";
+    const destCover = new File(downloadsFolder("covers"), `${now}-${startIndex}-cover.${ext}`);
+    adopt(imageFile.uri, destCover);
+    folderCover = destCover.uri;
+  }
+
+  const destFolder = downloadsFolder("files");
+  return audioFiles.map((audioFile, offset) => {
+    const idx = startIndex + offset;
+    const destFile = new File(destFolder, `${now}-${idx}-${safeFileName(audioFile.name)}`);
+    adopt(audioFile.uri, destFile);
+    return buildImportedTrack(
+      destFile,
+      audioFile.name,
+      idx,
+      now,
+      covers,
+      fallbackAlbum,
+      fallbackArtist,
+      folderCover,
+    );
+  });
+}
+
+// Adds audio files or .zip album archives from the phone. Song details and covers come from
+// each file's tags or filename, automatically grouping into one or more albums
+export async function importFiles(): Promise<string | null> {
   const picked = await DocumentPicker.getDocumentAsync({
-    type: "audio/*",
+    type: ["audio/*", "application/zip", "application/x-zip-compressed"],
     multiple: true,
     copyToCacheDirectory: true,
   });
@@ -220,38 +311,148 @@ export async function importFiles(albumTitle?: string, artistName?: string): Pro
 
   const folder = downloadsFolder("files");
   const now = Date.now();
-  const typedTitle = albumTitle?.trim();
-  const typedArtist = artistName?.trim();
   const covers = new Map<string, string>();
+  const saved: DownloadedTrack[] = [];
+  let index = 0;
 
-  const saved: DownloadedTrack[] = picked.assets.map((asset, i) => {
-    const file = new File(folder, `${now}-${i}-${asset.name}`);
-    adopt(asset.uri, file);
-    const tags = tagsOf(file);
-    const named = namesFromFile(asset.name);
-    const album = typedTitle || tags.album || "Imported Audio";
-    if (tags.cover && !covers.has(album.toLowerCase())) {
-      const extension = tags.cover.mime.includes("png") ? "png" : "jpg";
-      const cover = new File(downloadsFolder("covers"), `${now}-${i}.${extension}`);
-      cover.write(tags.cover.bytes);
-      covers.set(album.toLowerCase(), cover.uri);
+  for (const asset of picked.assets) {
+    if (ZIP_FILE.test(asset.name)) {
+      const tempDir = new Directory(Paths.cache, `unzip-${now}-${index}`);
+      tempDir.create({ intermediates: true, idempotent: true });
+      try {
+        await unzip(pathOf(asset.uri), pathOf(tempDir.uri));
+        const namedZip = namesFromFile(asset.name);
+        const zipTracks = await ingestUnpackedDir(
+          tempDir,
+          namedZip.title || "Imported Album",
+          namedZip.artist,
+          now,
+          index,
+          covers,
+        );
+        saved.push(...zipTracks);
+        index += zipTracks.length + 1;
+      } finally {
+        if (tempDir.exists) tempDir.delete();
+        deleteQuietly(asset.uri);
+      }
+      continue;
     }
-    return {
-      id: -(now + i),
-      title: tags.title || named.title,
-      artist: typedArtist || tags.artist || named.artist || "Unknown Artist",
-      albumTitle: album,
-      artwork: covers.get(album.toLowerCase()),
-      order: tags.track ?? i + 1,
-      url: file.uri,
-      bytes: file.size,
-      downloadedAt: now,
-      source: "file" as const,
-    };
-  });
+
+    const file = new File(folder, `${now}-${index}-${safeFileName(asset.name)}`);
+    adopt(asset.uri, file);
+    saved.push(buildImportedTrack(file, asset.name, index, now, covers));
+    index++;
+  }
+
+  if (saved.length === 0) return null;
   await saveDownloadedTracks(saved);
   return albumKeyOf(saved[0]);
 }
+
+// Picks a device folder and imports all albums, audio files, and .zip archives inside it
+export async function importFolder(): Promise<string | null> {
+  let rootDir: Directory;
+  try {
+    rootDir = await Directory.pickDirectoryAsync();
+  } catch {
+    return null;
+  }
+
+  const destFolder = downloadsFolder("files");
+  const now = Date.now();
+  const covers = new Map<string, string>();
+  const saved: DownloadedTrack[] = [];
+  let index = 0;
+
+  async function scanDir(dir: Directory): Promise<void> {
+    const entries = dir.list();
+    const dirName = cleanEntryName(dir.uri);
+    const parsedDir = namesFromFile(dirName);
+    const subDirs: Directory[] = [];
+    const audioEntries: File[] = [];
+    const zipEntries: File[] = [];
+    let imageEntry: File | undefined;
+
+    for (const entry of entries) {
+      if (entry instanceof Directory) {
+        subDirs.push(entry);
+        continue;
+      }
+      const name = cleanEntryName(entry.uri);
+      if (AUDIO_FILE.test(name)) {
+        audioEntries.push(entry);
+      } else if (ZIP_FILE.test(name)) {
+        zipEntries.push(entry);
+      } else if (!imageEntry && IMAGE_FILE.test(name)) {
+        imageEntry = entry;
+      }
+    }
+
+    let folderCover: string | undefined;
+    if (imageEntry && audioEntries.length > 0) {
+      const imgName = cleanEntryName(imageEntry.uri);
+      const ext = imgName.split(".").pop() || "jpg";
+      const destCover = new File(downloadsFolder("covers"), `${now}-${index}-cover.${ext}`);
+      await copyAsync({ from: imageEntry.uri, to: destCover.uri });
+      folderCover = destCover.uri;
+    }
+
+    for (const audioEntry of audioEntries) {
+      const origName = cleanEntryName(audioEntry.uri);
+      const destFile = new File(destFolder, `${now}-${index}-${safeFileName(origName)}`);
+      await copyAsync({ from: audioEntry.uri, to: destFile.uri });
+      saved.push(
+        buildImportedTrack(
+          destFile,
+          origName,
+          index,
+          now,
+          covers,
+          parsedDir.title || dirName,
+          parsedDir.artist,
+          folderCover,
+        ),
+      );
+      index++;
+    }
+
+    for (const zipEntry of zipEntries) {
+      const origName = cleanEntryName(zipEntry.uri);
+      const tempZip = new File(Paths.cache, `folder-zip-${now}-${index}.zip`);
+      const tempDir = new Directory(Paths.cache, `folder-unzip-${now}-${index}`);
+      tempDir.create({ intermediates: true, idempotent: true });
+      try {
+        await copyAsync({ from: zipEntry.uri, to: tempZip.uri });
+        await unzip(pathOf(tempZip.uri), pathOf(tempDir.uri));
+        const namedZip = namesFromFile(origName);
+        const zipTracks = await ingestUnpackedDir(
+          tempDir,
+          namedZip.title || parsedDir.title || dirName,
+          namedZip.artist || parsedDir.artist,
+          now,
+          index,
+          covers,
+        );
+        saved.push(...zipTracks);
+        index += zipTracks.length + 1;
+      } finally {
+        if (tempDir.exists) tempDir.delete();
+        if (tempZip.exists) tempZip.delete();
+      }
+    }
+
+    for (const subDir of subDirs) {
+      await scanDir(subDir);
+    }
+  }
+
+  await scanDir(rootDir);
+  if (saved.length === 0) return null;
+  await saveDownloadedTracks(saved);
+  return albumKeyOf(saved[0]);
+}
+
 function deleteQuietly(uri: string): void {
   try {
     const entry = new File(uri);

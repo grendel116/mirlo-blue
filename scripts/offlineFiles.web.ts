@@ -20,8 +20,12 @@ export async function downloadTrack(
   throw new Error("Downloads work in the phone app");
 }
 
-export async function importFiles(_albumTitle?: string, _artistName?: string): Promise<string | null> {
+export async function importFiles(): Promise<string | null> {
   throw new Error("Adding files works in the phone app");
+}
+
+export async function importFolder(): Promise<string | null> {
+  throw new Error("Adding folders works in the phone app");
 }
 
 export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
