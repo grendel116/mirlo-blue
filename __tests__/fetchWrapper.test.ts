@@ -1,3 +1,4 @@
+import { waitFor } from "@testing-library/react-native";
 import * as api from "@/queries/fetch/fetchWrapper";
 import { MirloFetchError } from "@/queries/fetch/MirloFetchError";
 
@@ -189,5 +190,38 @@ describe("fetchWrapper.del", () => {
       expect(e).toBeInstanceOf(MirloFetchError);
       expect((e as MirloFetchError).status).toBe(401);
     }
+  });
+});
+
+describe("fetchWrapper timeout", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedGetItem.mockResolvedValue(null);
+    // A connection that never answers, until its request is aborted
+    global.fetch = jest.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    ) as jest.Mock;
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  test("a stalled request fails after 10 seconds", async () => {
+    jest.useFakeTimers();
+    const request = api.get("/v1/stalled", {});
+    const failure = expect(request).rejects.toThrow("aborted");
+    await jest.advanceTimersByTimeAsync(10_000);
+    await failure;
+  });
+
+  test("the caller's own abort still cancels the request", async () => {
+    const controller = new AbortController();
+    const request = api.get("/v1/cancelled", { signal: controller.signal });
+    const failure = expect(request).rejects.toThrow("aborted");
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    controller.abort();
+    await failure;
   });
 });

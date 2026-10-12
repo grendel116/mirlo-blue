@@ -34,21 +34,23 @@ export default function Index() {
   const { width } = useWindowDimensions();
 
   // Recent Releases: a random pick of released albums, like the website, drawn fresh each
-  // time Home comes into view. When this can't load, Mirlo is out of reach
+  // time Home comes into view. When this can't load, Mirlo is out of reach. It holds the
+  // splash screen, so it fails on the first timeout and Retry in the notice tries again
   const {
     data: recentData,
     isPending: isRecentPending,
     isError: offline,
     isFetching: isRecentFetching,
     refetch: refetchRecent,
-  } = useQuery(
-    queryTrackGroups({
+  } = useQuery({
+    ...queryTrackGroups({
       take: 12,
       orderBy: "random",
       distinctArtists: true,
       isReleased: "released",
     }),
-  );
+    retry: false,
+  });
 
   // Query Popular Purchases
   const {
