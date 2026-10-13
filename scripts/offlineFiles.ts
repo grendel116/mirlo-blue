@@ -1,10 +1,11 @@
 import { Platform } from "react-native";
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, type FileHandle, Paths } from "expo-file-system";
 import { copyAsync } from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
 import * as MediaLibrary from "expo-media-library";
 import { unzip } from "react-native-zip-archive";
 import { readTags } from "./readTags";
+import { flacHeaderWithCover } from "./flacCover";
 import { API_ROOT } from "@/constants/api-root";
 import * as api from "@/queries/fetch/fetchWrapper";
 import {
@@ -27,6 +28,7 @@ const IMAGE_FILE = /\.(jpe?g|png|webp)$/i;
 const ZIP_FILE = /\.zip$/i;
 const POLL_MS = 4000;
 const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
+const COPY_CHUNK = 1024 * 1024;
 
 type MirloJobResponse = { result: true | { jobId: string } | { url: string } };
 
@@ -121,76 +123,123 @@ async function fetchMirloFiles(
   }
 }
 
-function savedFromMirlo(
-  file: File,
-  folder: Directory,
-  album: AlbumProps,
-  track: MirloTrack | undefined,
-  cover: string | undefined,
-  fallbackId: number,
-): DownloadedTrack {
-  return {
-    id: track?.id ?? fallbackId,
-    title: track?.title ?? namesFromFile(file.name).title,
-    artist: album.artist?.name ?? "",
-    albumTitle: album.title,
-    artwork: cover,
-    url: file.uri,
-    folder: folder.uri,
-    duration: track?.audio?.duration,
-    bytes: file.size,
-    order: track?.order,
-    downloadedAt: Date.now(),
-    source: "mirlo",
+// An unpacked song and the Mirlo track it belongs to
+type Song = { file: File; track: MirloTrack | undefined; fallbackId: number };
+
+// Ties an unpacked song to its Mirlo track by the title Mirlo tags it with, then by track
+// number. A song whose id matches its Mirlo track shows once in All Tracks
+function matchTrack(file: File, tracks: MirloTrack[]): MirloTrack | undefined {
+  const tags = tagsOf(file);
+  const title = tags.title?.trim().toLowerCase();
+  const number = tags.track ?? parseInt(file.name, 10);
+  return (
+    tracks.find((t) => t.title.trim().toLowerCase() === title) ??
+    tracks.find((t) => t.order === number)
+  );
+}
+
+// Mirlo's cover CDN serves every size as JPEG too, the cover format every music app reads
+async function fetchCoverJpeg(album: AlbumProps): Promise<Uint8Array | undefined> {
+  const url = album.cover?.sizes?.[600]?.replace(/\.webp(?=\?|$)/, ".jpg");
+  if (!url) return undefined;
+  const response = await fetch(url);
+  if (!response.ok) return undefined;
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function readerOf(handle: FileHandle) {
+  return (offset: number, length: number) => {
+    handle.offset = offset;
+    return handle.readBytes(length);
   };
 }
 
-// Copies audio files into the device's public Music folder via Android MediaStore
-export async function exportFilesToMusic(
-  albumTitle: string,
-  artistName: string | undefined,
-  files: (File | { uri: string })[],
-): Promise<boolean> {
-  if (Platform.OS !== "android") return false;
-  if (!files || files.length === 0) return false;
-
+// Writes the cover into a FLAC file; other files, and FLACs that have one, stay as they are
+function withFlacCover(file: File, jpeg: Uint8Array): File {
+  const source = file.open();
   try {
-    const isAvail = await MediaLibrary.isAvailableAsync();
-    if (!isAvail) return false;
-
-    const { status } = await MediaLibrary.requestPermissionsAsync(false, ["audio"]);
-    if (status !== "granted") return false;
-
-    const albumName = artistName ? `${artistName} - ${albumTitle}` : albumTitle;
-    let targetAlbum = await MediaLibrary.getAlbumAsync(albumName);
-
-    for (const file of files) {
-      try {
-        const asset = await MediaLibrary.createAssetAsync(file.uri);
-        if (!targetAlbum) {
-          targetAlbum = await MediaLibrary.createAlbumAsync(albumName, asset, false);
-        } else {
-          await MediaLibrary.addAssetsToAlbumAsync([asset], targetAlbum, false);
-        }
-      } catch (err) {
-        console.warn("Failed to export track to music library:", file.uri, err);
+    const rebuilt = flacHeaderWithCover(readerOf(source), jpeg);
+    if (!rebuilt) return file;
+    const covered = new File(Paths.cache, `covered-${file.name}`);
+    if (covered.exists) covered.delete();
+    covered.create();
+    const out = covered.open();
+    try {
+      out.writeBytes(rebuilt.header);
+      source.offset = rebuilt.audioStart;
+      for (let chunk = source.readBytes(COPY_CHUNK); chunk.length > 0; chunk = source.readBytes(COPY_CHUNK)) {
+        out.writeBytes(chunk);
       }
+    } finally {
+      out.close();
     }
-    return true;
-  } catch (err) {
-    console.warn("Failed to export to Music library:", err);
-    return false;
+    deleteQuietly(file.uri);
+    return covered;
+  } finally {
+    source.close();
   }
 }
 
-// Exports all songs of an already-downloaded album to the device's Music folder
-export async function exportAlbumToMusic(album: DownloadedAlbum): Promise<boolean> {
-  const files = album.tracks.map((t) => ({ uri: t.url }));
-  return exportFilesToMusic(album.title, album.artist, files);
+// On Android a song lives in the phone's Music folder as "Artist - Title", where any music app
+// finds it and sorts it by its tags. iOS has no shared Music folder, so songs stay in the app
+async function moveToMusic(file: File, name: string): Promise<string> {
+  if (Platform.OS !== "android") return file.uri;
+  const { granted } = await MediaLibrary.requestPermissionsAsync(false, ["audio"]);
+  if (!granted) throw new Error("Allow Mirlo Blue to access music to save songs to your Music folder");
+  const extension = file.name.split(".").pop();
+  const named = new File(Paths.cache, `${safeFileName(name)}.${extension}`);
+  if (named.exists) named.delete();
+  file.move(named);
+  try {
+    const asset = await MediaLibrary.createAssetAsync(named.uri);
+    return asset.uri;
+  } finally {
+    deleteQuietly(named.uri);
+  }
 }
 
-// Downloads an album you own from Mirlo and unpacks it into the app's storage, tying every
-// file back to its Mirlo track by track number
+// Saves unpacked songs: earlier copies go first, then each song gets its cover and moves into
+// the Music folder. `replaces` picks out earlier downloads this one supersedes
+async function keepSongs(
+  songs: Song[],
+  album: AlbumProps,
+  folder: Directory,
+  cover: string | undefined,
+  replaces: (t: DownloadedTrack) => boolean,
+): Promise<void> {
+  const ids = new Set(songs.map((s) => s.track?.id ?? s.fallbackId));
+  const replaced = (await getDownloadedTracks()).filter((t) => ids.has(t.id) || replaces(t));
+  replaced.forEach((t) => deleteQuietly(t.url));
+  await forgetDownloadedTracks(replaced.map((t) => t.id));
+
+  const hasFlac = songs.some((s) => /\.flac$/i.test(s.file.name));
+  const jpeg = hasFlac ? await fetchCoverJpeg(album) : undefined;
+  const artist = album.artist?.name ?? "";
+  const saved: DownloadedTrack[] = [];
+  for (const { file, track, fallbackId } of songs) {
+    const ready = jpeg ? withFlacCover(file, jpeg) : file;
+    const title = track?.title ?? namesFromFile(file.name).title;
+    const bytes = ready.size;
+    const url = await moveToMusic(ready, artist ? `${artist} - ${title}` : title);
+    saved.push({
+      id: track?.id ?? fallbackId,
+      title,
+      artist,
+      albumTitle: album.title,
+      artwork: cover,
+      url,
+      folder: folder.uri,
+      duration: track?.audio?.duration,
+      bytes,
+      order: track?.order,
+      downloadedAt: Date.now(),
+      source: "mirlo",
+    });
+  }
+  await saveDownloadedTracks(saved);
+}
+
+// Downloads an album you own from Mirlo. It replaces any earlier download of the album
 export async function downloadAlbum(
   album: AlbumProps,
   format: DownloadFormat,
@@ -198,24 +247,13 @@ export async function downloadAlbum(
 ): Promise<number> {
   const { folder, audio, cover } = await fetchMirloFiles("trackGroups", album.id, album, format, onStage);
   const tracks = album.tracks ?? [];
-  const saved = audio
-    .sort((a, b) => parseInt(a.name, 10) - parseInt(b.name, 10))
-    .map((file, i) =>
-      savedFromMirlo(
-        file,
-        folder,
-        album,
-        tracks.find((t) => t.order === parseInt(file.name, 10)),
-        cover,
-        -(Date.now() + i),
-      ),
-    );
-  await saveDownloadedTracks(saved);
-  await exportFilesToMusic(album.title, album.artist?.name, audio);
-  return saved.length;
+  const now = Date.now();
+  const songs = audio.map((file, i) => ({ file, track: matchTrack(file, tracks), fallbackId: -(now + i) }));
+  await keepSongs(songs, album, folder, cover, (t) => t.folder === folder.uri);
+  return songs.length;
 }
 
-// Downloads one song of an album you own, into that album's folder
+// Downloads one song of an album you own
 export async function downloadTrack(
   album: AlbumProps,
   track: MirloTrack,
@@ -225,8 +263,7 @@ export async function downloadTrack(
   const { folder, audio, cover } = await fetchMirloFiles("tracks", track.id, album, format, onStage);
   const file = audio[0];
   if (!file) throw new Error("Mirlo didn't send this song");
-  await saveDownloadedTracks([savedFromMirlo(file, folder, album, track, cover, track.id)]);
-  await exportFilesToMusic(album.title, album.artist?.name, [file]);
+  await keepSongs([{ file, track, fallbackId: track.id }], album, folder, cover, () => false);
 }
 
 // "01 - Artist - Title.mp3" → track number, artist, and title; anything else becomes the title
@@ -261,10 +298,7 @@ function adopt(pickedUri: string, destination: File): void {
 function tagsOf(file: File) {
   const handle = file.open();
   try {
-    return readTags((offset, length) => {
-      handle.offset = offset;
-      return handle.readBytes(length);
-    });
+    return readTags(readerOf(handle));
   } finally {
     handle.close();
   }

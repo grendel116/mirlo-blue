@@ -33,15 +33,3 @@ export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> 
 }
 
 export async function chooseAlbumCover(_album: DownloadedAlbum): Promise<void> {}
-
-export async function exportFilesToMusic(
-  _albumTitle: string,
-  _artistName: string | undefined,
-  _files: { uri: string }[],
-): Promise<boolean> {
-  return false;
-}
-
-export async function exportAlbumToMusic(_album: DownloadedAlbum): Promise<boolean> {
-  return false;
-}
