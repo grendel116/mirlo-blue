@@ -335,32 +335,20 @@ export default function LibraryScreen() {
       }
     });
 
-    // 2. Add tracks from wishlisted / liked albums
-    wishlist.forEach((w: any) => {
-      const tg = w?.trackGroup || w;
-      const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
-      const added = timeOf(w?.createdAt);
-      if (tg?.tracks && Array.isArray(tg.tracks)) {
-        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
-      } else if (w.track) {
-        addTrackToMap(w.track, w, albumFallback, added);
-      }
-    });
-
-    // 3. Add tracks from user's explicit track favorites
+    // 2. Add tracks from user's explicit track favorites
     if (user?.trackFavorites) {
       user.trackFavorites.forEach((fav: any) => {
         addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
       });
     }
 
-    // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
+    // 3. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
     downloadedTracks.forEach((dl) => {
       markAdded(dl.id, dl.downloadedAt);
       if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
     });
 
-    // 5. Add liked radio stations, kept on the phone
+    // 4. Add liked radio stations, kept on the phone
     stationLikes.forEach(({ stationId, likedAt }) => {
       const station = findStation(stationId);
       if (!station) return;

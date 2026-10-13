@@ -1,6 +1,8 @@
+import { Platform } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
 import { copyAsync } from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
+import * as MediaLibrary from "expo-media-library";
 import { unzip } from "react-native-zip-archive";
 import { readTags } from "./readTags";
 import { API_ROOT } from "@/constants/api-root";
@@ -143,6 +145,50 @@ function savedFromMirlo(
   };
 }
 
+// Copies audio files into the device's public Music folder via Android MediaStore
+export async function exportFilesToMusic(
+  albumTitle: string,
+  artistName: string | undefined,
+  files: (File | { uri: string })[],
+): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  if (!files || files.length === 0) return false;
+
+  try {
+    const isAvail = await MediaLibrary.isAvailableAsync();
+    if (!isAvail) return false;
+
+    const { status } = await MediaLibrary.requestPermissionsAsync(false, ["audio"]);
+    if (status !== "granted") return false;
+
+    const albumName = artistName ? `${artistName} - ${albumTitle}` : albumTitle;
+    let targetAlbum = await MediaLibrary.getAlbumAsync(albumName);
+
+    for (const file of files) {
+      try {
+        const asset = await MediaLibrary.createAssetAsync(file.uri);
+        if (!targetAlbum) {
+          targetAlbum = await MediaLibrary.createAlbumAsync(albumName, asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], targetAlbum, false);
+        }
+      } catch (err) {
+        console.warn("Failed to export track to music library:", file.uri, err);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn("Failed to export to Music library:", err);
+    return false;
+  }
+}
+
+// Exports all songs of an already-downloaded album to the device's Music folder
+export async function exportAlbumToMusic(album: DownloadedAlbum): Promise<boolean> {
+  const files = album.tracks.map((t) => ({ uri: t.url }));
+  return exportFilesToMusic(album.title, album.artist, files);
+}
+
 // Downloads an album you own from Mirlo and unpacks it into the app's storage, tying every
 // file back to its Mirlo track by track number
 export async function downloadAlbum(
@@ -165,6 +211,7 @@ export async function downloadAlbum(
       ),
     );
   await saveDownloadedTracks(saved);
+  await exportFilesToMusic(album.title, album.artist?.name, audio);
   return saved.length;
 }
 
@@ -179,6 +226,7 @@ export async function downloadTrack(
   const file = audio[0];
   if (!file) throw new Error("Mirlo didn't send this song");
   await saveDownloadedTracks([savedFromMirlo(file, folder, album, track, cover, track.id)]);
+  await exportFilesToMusic(album.title, album.artist?.name, [file]);
 }
 
 // "01 - Artist - Title.mp3" → track number, artist, and title; anything else becomes the title
