@@ -26,9 +26,10 @@ export default function DismissModalBar() {
             style={styles.logoImage}
             resizeMode="contain"
           />
-          <Text style={styles.brandText}>
-            mirlo<Text style={styles.brandHighlight}>blue</Text>
-          </Text>
+          <View style={styles.brandWordmark}>
+            <Text style={styles.brandText}>MIRLO</Text>
+            <Text style={[styles.brandText, styles.brandHighlight]}>BLUE</Text>
+          </View>
         </View>
       </Pressable>
     </View>
@@ -61,6 +62,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
   },
+  brandWordmark: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   logoImage: {
     width: 22,
     height: 22,
@@ -74,9 +79,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   brandHighlight: {
-    fontFamily: theme.fonts.display,
     color: theme.colors.primary,
-    fontWeight: "normal",
+    paddingRight: 2,
   },
 });
 

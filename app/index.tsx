@@ -123,7 +123,10 @@ export default function Index() {
             style={styles.logoImage}
             resizeMode="contain"
           />
-          <Text style={styles.brandText}>mirlo<Text style={styles.brandHighlight}>blue</Text></Text>
+          <View style={styles.brandWordmark}>
+            <Text style={styles.brandText}>MIRLO</Text>
+            <Text style={[styles.brandText, styles.brandHighlight]}>BLUE</Text>
+          </View>
         </View>
 
         <View style={styles.headerActions}>
@@ -453,6 +456,10 @@ const styles = StyleSheet.create({
     height: 28,
     tintColor: theme.colors.logo,
   },
+  brandWordmark: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   brandText: {
     fontFamily: theme.fonts.display,
     fontSize: 22,
@@ -461,9 +468,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   brandHighlight: {
-    fontFamily: theme.fonts.display,
     color: theme.colors.primary,
-    fontWeight: "normal",
+    paddingRight: 2,
   },
   headerActions: {
     flexDirection: "row",

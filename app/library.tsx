@@ -725,6 +725,7 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     color: theme.colors.textPrimary,
     letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   subtitle: {
     fontSize: 12,

@@ -54,6 +54,10 @@ export default function RootLayout() {
     }
   }, [isDataLoaded, fontsLoaded, fontError]);
 
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
+
   return (
     <AppReadyContextProvider
       value={{ isDataLoaded: isDataLoaded, setIsDataLoaded: setIsDataLoaded }}
