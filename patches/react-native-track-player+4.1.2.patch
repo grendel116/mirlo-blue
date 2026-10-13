@@ -691,10 +691,28 @@ index b2409a0..45c794d 100644
      }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..008f184 100644
+index afa6b0f..4832597 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-@@ -739,9 +739,25 @@ class MusicService : HeadlessJsTaskService() {
+@@ -94,9 +94,16 @@ class MusicService : HeadlessJsTaskService() {
+     private var compactCapabilities: List<Capability> = emptyList()
+ 
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        // A null intent means Android restarted the service on its own after the app was
++        // killed. Playback stops when the app is killed, so there is nothing to resume, and
++        // Android forbids startForeground from the background: stop quietly instead
++        if (intent == null) {
++            stopSelf(startId)
++            return START_NOT_STICKY
++        }
+         startTask(getTaskConfig(intent))
+         startAndStopEmptyNotificationToAvoidANR()
+-        return START_STICKY
++        return START_NOT_STICKY
+     }
+ 
+     /**
+@@ -739,9 +746,25 @@ class MusicService : HeadlessJsTaskService() {
          return bundle
      }
  
@@ -721,7 +739,7 @@ index afa6b0f..008f184 100644
              ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
              ?.emit(event, data?.let { Arguments.fromBundle(it) })
      }
-@@ -751,7 +767,7 @@ class MusicService : HeadlessJsTaskService() {
+@@ -751,7 +774,7 @@ class MusicService : HeadlessJsTaskService() {
          val payload = Arguments.createArray()
          data.forEach { payload.pushMap(Arguments.fromBundle(it)) }
  
