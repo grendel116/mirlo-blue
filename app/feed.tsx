@@ -751,9 +751,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: 18,
-    fontWeight: "700",
+    fontFamily: theme.fonts.display,
+    color: theme.colors.primary,
+    fontSize: 16,
+    fontWeight: "normal",
+    letterSpacing: 0.8,
   },
   dragArea: {
     position: "relative",

@@ -454,14 +454,16 @@ const styles = StyleSheet.create({
     tintColor: theme.colors.logo,
   },
   brandText: {
+    fontFamily: theme.fonts.display,
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "normal",
     color: theme.colors.textPrimary,
-    letterSpacing: -0.5,
+    letterSpacing: 0.5,
   },
   brandHighlight: {
+    fontFamily: theme.fonts.display,
     color: theme.colors.primary,
-    fontWeight: "800",
+    fontWeight: "normal",
   },
   headerActions: {
     flexDirection: "row",

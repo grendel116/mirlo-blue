@@ -720,9 +720,11 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.surfaceCardBorder,
   },
   title: {
+    fontFamily: theme.fonts.display,
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "normal",
     color: theme.colors.textPrimary,
+    letterSpacing: 0.5,
   },
   subtitle: {
     fontSize: 12,
