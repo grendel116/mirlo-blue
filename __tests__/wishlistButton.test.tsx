@@ -3,6 +3,12 @@ jest.mock("@preeternal/react-native-cookie-manager", () => ({
   default: { get: jest.fn(), getAll: jest.fn(), clearAll: jest.fn() },
 }));
 
+jest.mock("@react-native-async-storage/async-storage", () =>
+  jest.requireActual(
+    "@react-native-async-storage/async-storage/jest/async-storage-mock",
+  ),
+);
+
 import React from "react";
 import { render, fireEvent, waitFor } from "@testing-library/react-native";
 import WishlistButton from "@/components/WishlistButton";

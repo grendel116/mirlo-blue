@@ -306,18 +306,6 @@ export default function AlbumTracks() {
                       </Text>
                     </Pressable>
                   </View>
-                  {albumSource ? (
-                    <View style={styles.sourceTagRow}>
-                      <Ionicons
-                        name="globe-outline"
-                        size={12}
-                        color={theme.colors.textCyan}
-                      />
-                      <Text style={styles.sourceTagText}>
-                        {albumSource}
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
                 <View style={styles.albumActions}>
                   <AddAlbumButton

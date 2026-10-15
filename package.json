@@ -1,7 +1,7 @@
 {
   "name": "mirlo-mobile",
   "main": "index.js",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -73,6 +73,7 @@
     "jest-expo": "~55.0.9",
     "lodash": "^4.17.21",
     "lucide-react": "^0.468.0",
+    "parse5": "^7.3.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-hook-form": "^7.54.2",

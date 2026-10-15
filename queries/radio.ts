@@ -309,6 +309,46 @@ export const RADIO_STATIONS: RadioStation[] = [
   REFUGE,
 ];
 
+function normalizeStationName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeStationUrl(rawUrl: string, includeQuery: boolean): string {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const path = url.pathname.replace(/\/+$/, "");
+    const query = includeQuery ? url.search : "";
+    return `${host}${path}${query}`;
+  } catch {
+    return "";
+  }
+}
+
+export function deduplicateRadioStations(
+  stations: RadioStation[],
+): RadioStation[] {
+  const seenIdentities = new Set<string>();
+  return stations.filter((station) => {
+    const identities = [
+      `id:${station.id}`,
+      `name-location:${normalizeStationName(station.name)}:${normalizeStationName(station.location)}`,
+      `homepage:${normalizeStationUrl(station.playlistPage, false)}`,
+      `stream:${normalizeStationUrl(station.streamUrl, true)}`,
+    ].filter((identity) => !identity.endsWith(":"));
+
+    if (identities.some((identity) => seenIdentities.has(identity))) {
+      return false;
+    }
+    identities.forEach((identity) => seenIdentities.add(identity));
+    return true;
+  });
+}
+
 export type RadioBrowserStation = {
   changeuuid?: string;
   stationuuid: string;

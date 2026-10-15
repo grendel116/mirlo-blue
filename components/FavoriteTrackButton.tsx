@@ -7,22 +7,16 @@ import { queryAuthProfile } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
 import { toggleStationLike, useStationLikes } from "@/scripts/stationLikes";
 import { togglePodcastEpisodeLike, usePodcastEpisodeLikes } from "@/scripts/podcastLikes";
+import {
+  isFaircampTrack,
+  toggleFaircampTrackLike,
+  useFaircampSaves,
+} from "@/scripts/faircampSaves";
 import * as api from "../queries/fetch/fetchWrapper";
 import { ViewStyle } from "react-native";
 
 type FavoriteTrackButton = {
-  track: {
-    id?: number;
-    trackGroupId?: number;
-    liveStation?: string;
-    podcastId?: string;
-    podcastEpisodeId?: string;
-    title?: string;
-    artist?: string;
-    url?: string;
-    artwork?: string;
-    duration?: number;
-  };
+  track: RNTrack;
   style?: ViewStyle;
   size?: number;
 };
@@ -46,7 +40,7 @@ function Heart({ liked, onPress, style, size }: HeartProps) {
   );
 }
 
-// Songs are liked on the Mirlo account; radio stations and podcast episodes are liked on the phone
+// Mirlo songs are account favorites; federated tracks, radio stations and podcast episodes are device-only
 export default function FavoriteTrackButton({ track, style, size }: FavoriteTrackButton) {
   if (track.liveStation) {
     return <StationHeart stationId={track.liveStation} style={style} size={size} />;
@@ -54,10 +48,34 @@ export default function FavoriteTrackButton({ track, style, size }: FavoriteTrac
   if (track.podcastEpisodeId) {
     return <PodcastEpisodeHeart track={track} style={style} size={size} />;
   }
+  if (isFaircampTrack(track)) {
+    return <FaircampTrackHeart track={track} style={style} size={size} />;
+  }
   if (!track.id || track.id <= 0) return null;
   return (
     <SongHeart
       track={{ id: track.id, trackGroupId: track.trackGroupId }}
+      style={style}
+      size={size}
+    />
+  );
+}
+
+function FaircampTrackHeart({
+  track,
+  style,
+  size,
+}: {
+  track: RNTrack;
+  style?: ViewStyle;
+  size?: number;
+}) {
+  const { tracks } = useFaircampSaves();
+  const liked = tracks.some((saved) => saved.track.url === track.url);
+  return (
+    <Heart
+      liked={liked}
+      onPress={() => toggleFaircampTrackLike(track)}
       style={style}
       size={size}
     />

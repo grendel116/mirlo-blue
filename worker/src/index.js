@@ -460,6 +460,215 @@ function castopodPodcastResponse(record) {
   };
 }
 
+const FAIRPLAYER_ROOT = "https://fairplayer.band";
+
+function decodeHtmlAttribute(value) {
+  return value
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&");
+}
+
+function getHtmlAttribute(tag, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = tag.match(
+    new RegExp(`(?:^|\\s)${escapedName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"),
+  );
+  return match ? decodeHtmlAttribute(match[1] || match[2] || match[3] || "") : "";
+}
+
+function normalizedCatalogDomain(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function isVerifiedFaircampCatalog(hubHtml, expectedDomain) {
+  const anchors = hubHtml.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi);
+  for (const [, attributes, content] of anchors) {
+    const href = getHtmlAttribute(attributes, "href");
+    const domain = normalizedCatalogDomain(href);
+    const isVerified = /bg-success|title=["'](?:verified|verificat)/i.test(content);
+    if (
+      domain === expectedDomain &&
+      /faircamp/i.test(content.replace(/<[^>]*>/g, " ")) &&
+      isVerified
+    ) {
+      return href;
+    }
+  }
+  return "";
+}
+
+function getFairplayerSongElements(html) {
+  return [...html.matchAll(/<div\b[^>]*\bclass=["'][^"']*\bsong\b[^"']*["'][^>]*>/gi)]
+    .map((match) => match[0]);
+}
+
+async function getFaircampArtworkMime(artworkUrl) {
+  try {
+    const imageResponse = await fetch(artworkUrl, { method: "HEAD" });
+    if (imageResponse.ok) {
+      const contentType = imageResponse.headers.get("Content-Type") || "";
+      if (/^image\/[a-z0-9.+-]+(?:\s*;|$)/i.test(contentType)) {
+        return contentType.split(";", 1)[0].trim().toLowerCase();
+      }
+    }
+  } catch (error) {
+    console.warn("Could not inspect Faircamp artwork content type:", error);
+  }
+  return "";
+}
+
+async function resolveFaircampShare(releaseId, trackNumber) {
+  const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+  if (!idMatch) return null;
+  const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+  if (!domain) return null;
+
+  const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
+  if (!hubResponse.ok) {
+    throw new Error(`Fairplayer hub request failed: ${hubResponse.status}`);
+  }
+  const hubHtml = await hubResponse.text();
+  const sourceUrl = isVerifiedFaircampCatalog(hubHtml, domain);
+  if (!sourceUrl) return null;
+
+  const releaseResponse = await fetch(
+    `${FAIRPLAYER_ROOT}/player/release/${encodeURIComponent(releaseId)}`,
+  );
+  if (releaseResponse.status === 404) return null;
+  if (!releaseResponse.ok) {
+    throw new Error(`Fairplayer release request failed: ${releaseResponse.status}`);
+  }
+  const releaseHtml = await releaseResponse.text();
+  const songs = getFairplayerSongElements(releaseHtml);
+  const songTag = songs[trackNumber - 1];
+  if (!songTag) return null;
+
+  const rawAudio = getHtmlAttribute(songTag, "data-url");
+  const rawArtwork = getHtmlAttribute(songTag, "data-image");
+  if (!rawAudio || !rawArtwork) return null;
+  let audioUrl;
+  let artwork;
+  try {
+    audioUrl = new URL(rawAudio, FAIRPLAYER_ROOT);
+    artwork = new URL(rawArtwork, FAIRPLAYER_ROOT);
+  } catch {
+    return null;
+  }
+  if (
+    !["http:", "https:"].includes(audioUrl.protocol) ||
+    !["http:", "https:"].includes(artwork.protocol)
+  ) {
+    return null;
+  }
+
+  const releaseTitle = getHtmlAttribute(songTag, "data-release");
+  const trackTitle = getHtmlAttribute(songTag, "data-title");
+  const artist = getHtmlAttribute(songTag, "data-artist");
+  if (!releaseTitle || !trackTitle || !artist) return null;
+
+  const fairplayerSlug = `fairplayer-${encodeURIComponent(releaseId)}`;
+  return {
+    title: trackTitle,
+    artist,
+    album: releaseTitle,
+    artwork: artwork.href,
+    audioUrl: audioUrl.href,
+    sourceUrl,
+    imageMime: await getFaircampArtworkMime(artwork.href),
+    appRoute: `/artist/fairplayer/album/${fairplayerSlug}/album-tracks`,
+  };
+}
+
+async function resolveFaircampSongShare(trackId) {
+  if (!/^\d+$/.test(trackId)) {
+    const syntheticTrack = trackId.match(/^(.+)#(\d+)$/);
+    if (!syntheticTrack) return null;
+    return resolveFaircampShare(
+      syntheticTrack[1],
+      Number(syntheticTrack[2]),
+    );
+  }
+
+  const songResponse = await fetch(`${FAIRPLAYER_ROOT}/player/song/${trackId}`);
+  if (songResponse.status === 404) return null;
+  if (!songResponse.ok) {
+    throw new Error(`Fairplayer track request failed: ${songResponse.status}`);
+  }
+  const songTag = getFairplayerSongElements(await songResponse.text())[0];
+  if (!songTag || getHtmlAttribute(songTag, "data-id") !== trackId) return null;
+
+  const releaseUrl = getHtmlAttribute(songTag, "data-releaseUrl");
+  let release;
+  try {
+    release = new URL(releaseUrl, FAIRPLAYER_ROOT);
+  } catch {
+    return null;
+  }
+  const releaseMatch = release.pathname.match(/^\/player\/release\/([^/]+)\/?$/);
+  if (release.origin !== FAIRPLAYER_ROOT || !releaseMatch) return null;
+
+  let releaseId;
+  try {
+    releaseId = decodeURIComponent(releaseMatch[1]);
+  } catch {
+    return null;
+  }
+  const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+  if (!idMatch) return null;
+  const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+  if (!domain) return null;
+
+  const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
+  if (!hubResponse.ok) {
+    throw new Error(`Fairplayer hub request failed: ${hubResponse.status}`);
+  }
+  const sourceUrl = isVerifiedFaircampCatalog(await hubResponse.text(), domain);
+  if (!sourceUrl) return null;
+
+  const rawAudio = getHtmlAttribute(songTag, "data-url");
+  const rawArtwork = getHtmlAttribute(songTag, "data-image");
+  if (!rawAudio || !rawArtwork) return null;
+  let audioUrl;
+  let artwork;
+  try {
+    audioUrl = new URL(rawAudio, FAIRPLAYER_ROOT);
+    artwork = new URL(rawArtwork, FAIRPLAYER_ROOT);
+  } catch {
+    return null;
+  }
+  if (
+    !["http:", "https:"].includes(audioUrl.protocol) ||
+    !["http:", "https:"].includes(artwork.protocol)
+  ) {
+    return null;
+  }
+
+  const title = getHtmlAttribute(songTag, "data-title");
+  const album = getHtmlAttribute(songTag, "data-release");
+  const artist = getHtmlAttribute(songTag, "data-artist");
+  if (!title || !album || !artist) return null;
+
+  const fairplayerSlug = `fairplayer-${encodeURIComponent(releaseId)}`;
+  return {
+    title,
+    artist,
+    album,
+    artwork: artwork.href,
+    audioUrl: audioUrl.href,
+    sourceUrl,
+    imageMime: await getFaircampArtworkMime(artwork.href),
+    appRoute: `/artist/fairplayer/album/${fairplayerSlug}/album-tracks`,
+  };
+}
+
 function renderHtml(meta) {
   const { title, artist, album, artwork, proxiedArtwork, imageMime, audioUrl, webUrl, appRoute, type } = meta;
   const isLiveLocation = Boolean(artist && artist.toLowerCase().startsWith("live from"));
@@ -472,7 +681,13 @@ function renderHtml(meta) {
   const safeArtist = escapeHtml(artist);
   const safeAlbum = escapeHtml(album);
   const safeWeb = escapeHtml(webUrl || "https://mirlo.space");
-  const webLabel = type === "radio" ? "Station Website" : type === "podcast" ? "Episode Page" : "Listen & Buy on Mirlo";
+  const webLabel = type === "radio"
+    ? "Station Website"
+    : type === "podcast"
+      ? "Episode Page"
+      : type === "faircamp"
+        ? "Visit Faircamp Catalog"
+        : "Listen & Buy on Mirlo";
   const safeMime = escapeHtml(imageMime || "image/jpeg");
 
   return `<!DOCTYPE html>
@@ -486,7 +701,7 @@ function renderHtml(meta) {
     <!-- OpenGraph / Social Cards -->
     <meta property="og:title" content="${safeLabel} | MIRLOBLUE" />
     <meta property="og:description" content="${safeDesc}" />
-    <meta property="og:type" content="${type === "track" ? "music.song" : type === "album" ? "music.album" : "website"}" />
+    <meta property="og:type" content="${type === "track" || type === "faircamp" ? "music.song" : type === "album" ? "music.album" : "website"}" />
     <meta property="og:image" content="${safeImage}" />
     <meta property="og:image:secure_url" content="${safeImage}" />
     <meta property="og:image:alt" content="${safeLabel}" />
@@ -906,6 +1121,87 @@ export default {
       }
     }
 
+    if (url.pathname.startsWith("/fairplayer/")) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed.", {
+          status: 405,
+          headers: { ...corsHeaders, Allow: "GET, HEAD, OPTIONS" },
+        });
+      }
+
+      let fairplayerUrl;
+      let accept = "text/html";
+      let cacheDuration = 30;
+
+      if (url.pathname === "/fairplayer/hub") {
+        fairplayerUrl = new URL("https://fairplayer.band/hub/");
+        cacheDuration = 15;
+      } else if (url.pathname === "/fairplayer/player/all/releases") {
+        fairplayerUrl = new URL("https://fairplayer.band/player/all/releases");
+      } else if (/^\/fairplayer\/player\/song\/\d+$/.test(url.pathname)) {
+        const trackId = url.pathname.split("/").pop();
+        fairplayerUrl = new URL(
+          `/player/song/${trackId}`,
+          "https://fairplayer.band",
+        );
+      } else if (url.pathname === "/fairplayer/search") {
+        const query = (url.searchParams.get("q") || "").trim();
+        if (query.length < 2 || query.length > 160) {
+          return new Response("Search query must contain 2 to 160 characters.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        fairplayerUrl = new URL("https://fairplayer.band/search/");
+        fairplayerUrl.searchParams.set("q", query);
+        accept = "application/json";
+        cacheDuration = 15;
+      } else {
+        const match = url.pathname.match(/^\/fairplayer\/player\/release\/([^/]+)$/);
+        let releaseId = "";
+        try {
+          releaseId = match ? decodeURIComponent(match[1]) : "";
+        } catch {
+          releaseId = "";
+        }
+        if (!/^[^/@\s]+@[a-z0-9.-]+(?::\d+)?$/i.test(releaseId)) {
+          return new Response("Invalid Faircamp release identifier.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        fairplayerUrl = new URL(
+          `/player/release/${encodeURIComponent(releaseId)}`,
+          "https://fairplayer.band",
+        );
+        cacheDuration = 15;
+      }
+
+      try {
+        const fairplayerResponse = await fetch(fairplayerUrl, {
+          method: request.method,
+          headers: { Accept: accept },
+        });
+        const headers = new Headers(corsHeaders);
+        headers.set(
+          "Content-Type",
+          fairplayerResponse.headers.get("Content-Type") || "text/html; charset=utf-8",
+        );
+        headers.set("Cache-Control", `public, max-age=${cacheDuration}`);
+        headers.set("Vary", "Accept");
+        return new Response(request.method === "HEAD" ? null : fairplayerResponse.body, {
+          status: fairplayerResponse.status,
+          headers,
+        });
+      } catch (error) {
+        console.error("Fairplayer catalog request failed:", error);
+        return new Response("Fairplayer catalog is temporarily unavailable.", {
+          status: 502,
+          headers: corsHeaders,
+        });
+      }
+    }
+
     // Route: Image Proxy (fixes upstream Mirlo issue #2494 for social bots)
     if (url.pathname === "/image" || url.pathname.endsWith("/image")) {
       const targetUrl = url.searchParams.get("url");
@@ -998,12 +1294,15 @@ export default {
     let artist = url.searchParams.get("artist") || "";
     let album = url.searchParams.get("album") || "";
     let artwork = url.searchParams.get("art") || "";
+    let resolvedImageMime = "";
     let audioUrl = url.searchParams.get("audio") || "";
     let webUrl = url.searchParams.get("web") || "";
     let appRoute = url.searchParams.get("app") || "/";
     let trackId = url.searchParams.get("id");
 
     // Route matching for ultra-short paths
+    const faircampMatch = normalizedPath.match(/^\/f\/([^/]+)(?:\/(\d+))?$/i);
+    const faircampTrackMatch = normalizedPath.match(/^\/(?:t|track)\/f([^/]+)$/i);
     const trackMatch = normalizedPath.match(/^\/(?:t|track)\/(\d+)$/i);
     const radioMatch = normalizedPath.match(/^\/(?:r|radio|station)\/([a-z0-9-]+)$/i);
     const podcastMatch = normalizedPath.match(/^\/(?:p|podcast)\/([a-z0-9-]+)$/i);
@@ -1064,6 +1363,61 @@ export default {
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(" ");
       }
+    } else if (faircampMatch) {
+      let releaseId;
+      try {
+        releaseId = decodeURIComponent(faircampMatch[1]);
+      } catch {
+        return new Response("Invalid Faircamp release identifier.", { status: 400 });
+      }
+      const trackNumber = Number(faircampMatch[2] || "1");
+      if (!Number.isSafeInteger(trackNumber) || trackNumber < 1) {
+        return new Response("Invalid Faircamp track number.", { status: 400 });
+      }
+      let share;
+      try {
+        share = await resolveFaircampShare(releaseId, trackNumber);
+      } catch (err) {
+        console.error("Faircamp share metadata lookup failed:", err);
+        return new Response("Faircamp release is temporarily unavailable.", { status: 502 });
+      }
+      if (!share) {
+        return new Response("Faircamp release is not available for sharing.", { status: 404 });
+      }
+      type = "faircamp";
+      title = share.title;
+      artist = share.artist;
+      album = share.album;
+      artwork = share.artwork;
+      audioUrl = share.audioUrl;
+      webUrl = share.sourceUrl;
+      appRoute = share.appRoute;
+    } else if (faircampTrackMatch) {
+      let fairplayerTrackId;
+      try {
+        fairplayerTrackId = decodeURIComponent(faircampTrackMatch[1]);
+      } catch {
+        return new Response("Invalid Faircamp track identifier.", { status: 400 });
+      }
+      let share;
+      try {
+        share = await resolveFaircampSongShare(fairplayerTrackId);
+      } catch (err) {
+        console.error("Faircamp track metadata lookup failed:", err);
+        return new Response("Faircamp track is temporarily unavailable.", { status: 502 });
+      }
+      if (!share) {
+        return new Response("Faircamp track is not available for sharing.", { status: 404 });
+      }
+      type = "faircamp";
+      title = share.title;
+      artist = share.artist;
+      album = share.album;
+      artwork = share.artwork;
+      audioUrl = share.audioUrl;
+      webUrl = share.sourceUrl;
+      appRoute = share.appRoute;
+      resolvedImageMime = share.imageMime;
     } else if (albumMatch) {
       type = "album";
       const slug = albumMatch[1].toLowerCase();
@@ -1166,8 +1520,8 @@ export default {
       return new Response("This station or discussion has no quality artwork.", { status: 404 });
     }
 
-    let imageMime = "image/jpeg";
-    if (artwork) {
+    let imageMime = resolvedImageMime || "image/jpeg";
+    if (artwork && !resolvedImageMime) {
       const lower = artwork.toLowerCase();
       if (lower.includes(".webp")) imageMime = "image/webp";
       else if (lower.includes(".png")) imageMime = "image/png";

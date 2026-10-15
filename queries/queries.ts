@@ -8,6 +8,7 @@ import {
 import * as api from "./fetch/fetchWrapper";
 import { MirloFetchError } from "./fetch/MirloFetchError";
 import { findChorusAlbum } from "./chorus";
+import { fetchFairplayerAlbum } from "./fairplayer";
 
 type UserPurchase = UserTrackPurchase | UserTrackGroupPurchase;
 
@@ -140,6 +141,12 @@ const fetchAlbum: QueryFunction<
 > = ({ queryKey: [_, { slug, id }], signal }) => {
   const safeSlug = Array.isArray(slug) ? slug[0] : slug;
   const safeId = Array.isArray(id) ? id[0] : id;
+
+  if (safeId === "fairplayer") {
+    return fetchFairplayerAlbum(safeSlug, signal).then((result) => ({
+      result,
+    }));
+  }
 
   const attachMirloSource = (res: { result: AlbumProps }) => {
     if (res?.result) {

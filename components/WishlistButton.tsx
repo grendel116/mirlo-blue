@@ -7,10 +7,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { AUTH_PROFILE_QUERY_KEY } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
+import {
+  isFaircampAlbum,
+  toggleFaircampAlbumWishlist,
+  useFaircampSaves,
+} from "@/scripts/faircampSaves";
 
 type WishlistButtonProps = {
   trackGroup: {
     id: number;
+    source?: string;
+    urlSlug?: string;
     tracks?: RNTrack[];
     [key: string]: any;
   };
@@ -20,6 +27,65 @@ type WishlistButtonProps = {
 };
 
 export default function WishlistButton({
+  trackGroup,
+  displayedTracks,
+  style,
+  size,
+}: WishlistButtonProps) {
+  if (isFaircampAlbum(trackGroup)) {
+    return (
+      <FaircampWishlistButton
+        trackGroup={trackGroup}
+        displayedTracks={displayedTracks}
+        style={style}
+        size={size}
+      />
+    );
+  }
+  return (
+    <MirloWishlistButton
+      trackGroup={trackGroup}
+      displayedTracks={displayedTracks}
+      style={style}
+      size={size}
+    />
+  );
+}
+
+function FaircampWishlistButton({
+  trackGroup,
+  displayedTracks,
+  style,
+  size,
+}: WishlistButtonProps) {
+  const { albums } = useFaircampSaves();
+  const isInWishlist = albums.some(
+    (saved) => saved.album.urlSlug === trackGroup.urlSlug,
+  );
+  const tracks =
+    displayedTracks && displayedTracks.length > 0
+      ? displayedTracks
+      : trackGroup.tracks || [];
+
+  return (
+    <Pressable
+      onPress={() =>
+        toggleFaircampAlbumWishlist(trackGroup as AlbumProps, tracks)
+      }
+      style={style}
+      accessibilityRole="button"
+      accessibilityLabel={isInWishlist ? "Remove from wishlist" : "Add to wishlist"}
+    >
+      <Ionicons
+        name={isInWishlist ? "heart" : "heart-outline"}
+        color={isInWishlist ? "#BE3455" : "#ababab"}
+        size={size}
+      />
+    </Pressable>
+  );
+}
+
+function MirloWishlistButton({
   trackGroup,
   displayedTracks,
   style,

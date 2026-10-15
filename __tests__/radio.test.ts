@@ -1,10 +1,73 @@
 import {
+  deduplicateRadioStations,
   fetchDiscoveredRadioStations,
   RADICAL_RADIO_TAGS,
+  type RadioStation,
   radioBrowserToRadioStation,
 } from "@/queries/radio";
 
 describe("discovered radio stations", () => {
+  test("removes duplicate stations by name, homepage, or stream while keeping the first entry", () => {
+    const makeStation = (
+      overrides: Partial<RadioStation>,
+    ): RadioStation => ({
+      id: "station",
+      name: "Independent Radio",
+      liveName: "Independent Radio",
+      location: "Global",
+      artwork: "https://example.com/art.jpg",
+      about: "",
+      streamUrl: "https://stream.example.com/live",
+      playlistPage: "https://example.com/",
+      donatePage: "https://example.com/",
+      fetchPlays: async () => [],
+      ...overrides,
+    });
+
+    const curated = makeStation({ id: "curated" });
+    const duplicateByName = makeStation({
+      id: "discovered-name",
+      name: "Independent-Radio",
+      streamUrl: "https://different.example.com/live",
+      playlistPage: "https://different.example.com/",
+    });
+    const duplicateByHomepage = makeStation({
+      id: "discovered-homepage",
+      name: "Another Name",
+      streamUrl: "https://different.example.com/other",
+      playlistPage: "https://www.example.com",
+    });
+    const duplicateByStream = makeStation({
+      id: "discovered-stream",
+      name: "Third Name",
+      streamUrl: "http://www.stream.example.com/live/",
+      playlistPage: "https://third.example.com/",
+    });
+    const unique = makeStation({
+      id: "unique",
+      name: "Unique Station",
+      streamUrl: "https://unique.example.com/live",
+      playlistPage: "https://unique.example.com/",
+    });
+    const sameNameDifferentLocation = makeStation({
+      id: "same-name-different-location",
+      location: "Elsewhere",
+      streamUrl: "https://elsewhere.example.com/live",
+      playlistPage: "https://elsewhere.example.com/",
+    });
+
+    expect(
+      deduplicateRadioStations([
+        curated,
+        duplicateByName,
+        duplicateByHomepage,
+        duplicateByStream,
+        unique,
+        sameNameDifferentLocation,
+      ]),
+    ).toEqual([curated, unique, sameNameDifferentLocation]);
+  });
+
   test("uses the full Radio-Browser UUID for server-side short-link resolution", () => {
     const station = radioBrowserToRadioStation({
       stationuuid: "11111111-1111-1111-1111-111111111111",

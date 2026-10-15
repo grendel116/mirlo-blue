@@ -2,7 +2,7 @@
   "expo": {
     "name": "MirloBlue",
     "slug": "mirlo-blue",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
@@ -79,9 +79,7 @@
         "projectId": "797fb379-0d0b-4d23-b827-bb78570fb948"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.6",
     "owner": "drhodesw",
     "updates": {
       "url": "https://u.expo.dev/797fb379-0d0b-4d23-b827-bb78570fb948"

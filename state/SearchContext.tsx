@@ -2,6 +2,7 @@ import { useState, createContext, useContext } from "react";
 import SearchItem from "@/components/SearchItem";
 import * as api from "../queries/fetch/fetchWrapper";
 import { useTranslation } from "react-i18next";
+import { searchFairplayerAlbums } from "@/queries/fairplayer";
 
 type SearchContextType = {
   isSearching: boolean;
@@ -83,7 +84,12 @@ export const SearchContextProvider: React.FC<{
       {},
       { tag: searchString.trim(), orderBy: "count" },
     );
-    console.log(tags);
+    let fairplayerAlbums: AlbumProps[] = [];
+    try {
+      fairplayerAlbums = await searchFairplayerAlbums(searchString);
+    } catch (error) {
+      console.warn("Fairplayer catalog search failed:", error);
+    }
     const results = [
       ...artists.results.map((r, rid) => ({
         firstInCategory: rid === 0,
@@ -121,6 +127,16 @@ export const SearchContextProvider: React.FC<{
         name: tg.tag,
         category: t("headerSearch.tags").slice(0, -1),
         isTag: true,
+      })),
+      ...fairplayerAlbums.map((album) => ({
+        category: t("manageArtistTools.album"),
+        id: album.urlSlug,
+        artistId: album.artist.urlSlug,
+        artistName: album.artist.name,
+        trackGroupId: album.urlSlug,
+        trackGroupCover: album.cover,
+        name: album.title,
+        isTrackGroup: true,
       })),
     ];
 

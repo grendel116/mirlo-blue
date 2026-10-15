@@ -325,8 +325,16 @@ export default function NowPlaying() {
 function SupportArtistButton({ track }: { track: RNTrack }) {
   const router = useRouter();
   const artistId = track.trackGroup?.artistId;
+  const source = track.source || track.trackGroup?.source;
+  const sourceUrl = track.trackGroup?.sourceUrl || track.sourceUrl;
+  const isExternalSource = Boolean(
+    source && source !== "Mirlo Space" && !sourceUrl?.includes("mirlo.space"),
+  );
   const { data: artist } = useQuery(
-    queryArtist({ artistSlug: artistId ? String(artistId) : "" }),
+    queryArtist({
+      artistSlug:
+        !isExternalSource && artistId ? String(artistId) : "",
+    }),
   );
 
   const artistName =
@@ -340,14 +348,14 @@ function SupportArtistButton({ track }: { track: RNTrack }) {
   // Build purchase / support options
   const purchaseLinks: { label: string; url: string }[] = [];
 
-  if (takesSubscribers && artistSlug) {
+  if (!isExternalSource && takesSubscribers && artistSlug) {
     purchaseLinks.push({
       label: "Subscribe on Mirlo",
       url: `https://mirlo.space/${artistSlug}/support`,
     });
   }
 
-  if (artistSlug && albumSlug) {
+  if (!isExternalSource && artistSlug && albumSlug) {
     purchaseLinks.push({
       label: "Purchase on Mirlo",
       url: `https://mirlo.space/${artistSlug}/release/${albumSlug}`,
@@ -363,10 +371,9 @@ function SupportArtistButton({ track }: { track: RNTrack }) {
     }
   }
 
-  const sourceUrl = track.trackGroup?.sourceUrl || track.sourceUrl;
   if (purchaseLinks.length === 0 && sourceUrl) {
     purchaseLinks.push({
-      label: track.source || track.trackGroup?.source || "Store",
+      label: source || "Store",
       url: sourceUrl,
     });
   }
@@ -386,7 +393,7 @@ function SupportArtistButton({ track }: { track: RNTrack }) {
         urlSlug: artistSlug || "",
       } as any,
       urlSlug: albumSlug || "",
-      source: track.source || track.trackGroup?.source,
+      source,
       sourceUrl,
       purchaseLinks: purchaseLinks.length > 0 ? purchaseLinks : undefined,
     };

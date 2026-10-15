@@ -5,6 +5,7 @@ import { theme } from "@/constants/theme";
 import { songPageUrl } from "@/scripts/utils";
 import { findStation } from "@/queries/radio";
 import { findPodcastShow } from "@/queries/podcast";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 
 /**
  * Resolves the primary web page URL for the track (Mirlo song page, station site, or podcast site).
@@ -63,6 +64,20 @@ export function buildShareUrl(
 
   if (track.podcastId) {
     return `${origin}/p/${track.podcastId}`;
+  }
+
+  const faircampReleaseId = fairplayerReleaseSlug.decode(
+    track.trackGroup?.urlSlug || "",
+  );
+  if (faircampReleaseId) {
+    const fairplayerTrackId =
+      track.fairplayerTrackId ||
+      (Number.isSafeInteger(track.id) && track.id > 0
+        ? String(track.id)
+        : "");
+    if (fairplayerTrackId) {
+      return `${origin}/t/f${encodeURIComponent(fairplayerTrackId)}`;
+    }
   }
 
   const isExternalTrack = Boolean(

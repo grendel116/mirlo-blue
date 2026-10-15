@@ -153,6 +153,7 @@ interface RNTrack {
   order: number;
   headers: {};
   type?: import("react-native-track-player").TrackType;
+  fairplayerTrackId?: string;
   source?: string;
   sourceUrl?: string;
   // Length in seconds the lock screen shows; streams report their own

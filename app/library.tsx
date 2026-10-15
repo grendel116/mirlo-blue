@@ -35,6 +35,7 @@ import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
+import { useFaircampSaves, FaircampSavedTrack } from "@/scripts/faircampSaves";
 import { findStation, liveTrack } from "@/queries/radio";
 import { hashString } from "@/queries/podcast";
 
@@ -120,6 +121,7 @@ export interface BuildCombinedLibraryTracksParams {
   downloadedTracks: any[];
   stationLikes: { stationId: string; likedAt: number }[];
   podcastEpisodeLikes?: PodcastEpisodeLike[];
+  faircampTracks?: FaircampSavedTrack[];
 }
 
 export function buildCombinedLibraryTracks({
@@ -134,6 +136,7 @@ export function buildCombinedLibraryTracks({
   downloadedTracks,
   stationLikes,
   podcastEpisodeLikes,
+  faircampTracks = [],
 }: BuildCombinedLibraryTracksParams): RNTrack[] {
   const trackMap = new Map<number | string, RNTrack>();
   // When each track joined the library; a track found in several places keeps the latest date
@@ -248,7 +251,9 @@ export function buildCombinedLibraryTracks({
     if (!t) return;
     const trackId = t.id ?? fav?.trackId ?? t.trackId;
     if (!trackId) return;
-    markAdded(trackId, added);
+    const mapKey =
+      t.source === "Faircamp" && t.url ? `faircamp:${t.url}` : trackId;
+    markAdded(mapKey, added);
 
     const matched = matchAlbum(t, fav) || albumFallback;
     const rawAudio = t.audio?.url || t.url || trackStreamPath(trackId);
@@ -270,7 +275,7 @@ export function buildCombinedLibraryTracks({
       matched?.artist ||
       "";
 
-    const existing = trackMap.get(trackId);
+    const existing = trackMap.get(mapKey);
     if (existing) {
       if (!existing.artwork && artwork) existing.artwork = artwork;
       if (!existing.artist && artist) existing.artist = artist;
@@ -291,7 +296,7 @@ export function buildCombinedLibraryTracks({
         cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
       };
 
-    trackMap.set(trackId, {
+    trackMap.set(mapKey, {
       ...t,
       id: trackId,
       title: t.title || fav?.title || "Unknown Track",
@@ -394,9 +399,16 @@ export function buildCombinedLibraryTracks({
     } as RNTrack);
   });
 
+  // 7. Add liked Faircamp tracks, kept on the phone
+  faircampTracks.forEach(({ track, likedAt }) => {
+    addTrackToMap(track, undefined, undefined, likedAt);
+  });
+
   // Newest additions first; tracks added together keep their album order
   const keyOf = (t: RNTrack) =>
-    t.liveStation
+    t.source === "Faircamp" && t.url
+      ? `faircamp:${t.url}`
+      : t.liveStation
       ? `station:${t.liveStation}`
       : t.podcastEpisodeId
         ? `episode:${t.podcastEpisodeId}`
@@ -428,6 +440,7 @@ export default function LibraryScreen() {
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();
   const podcastEpisodeLikes = usePodcastEpisodeLikes();
+  const faircampSaves = useFaircampSaves();
   const [librarySearch, setLibrarySearch] = useState("");
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
@@ -451,7 +464,23 @@ export default function LibraryScreen() {
   }, []);
 
   const purchases = collectionData?.results || [];
-  const wishlist = wishlistData?.results || [];
+  const remoteWishlist = wishlistData?.results || [];
+  const wishlist = [
+    ...remoteWishlist,
+    ...faircampSaves.albums
+      .filter(
+        ({ album }) =>
+          !remoteWishlist.some(
+            (item: any) => item?.trackGroup?.urlSlug === album.urlSlug,
+          ),
+      )
+      .map(({ album, savedAt }) => ({
+        userId: user?.id || 0,
+        trackGroupId: album.id,
+        trackGroup: album,
+        createdAt: new Date(savedAt),
+      })),
+  ];
 
   // Unique album descriptors for purchased albums that need their full tracks fetched
   const purchasedAlbumDescriptors = useMemo(() => {
@@ -530,6 +559,7 @@ export default function LibraryScreen() {
         downloadedTracks,
         stationLikes,
         podcastEpisodeLikes,
+        faircampTracks: faircampSaves.tracks,
       }),
     [
       user,
@@ -543,6 +573,7 @@ export default function LibraryScreen() {
       downloadedTracks,
       stationLikes,
       podcastEpisodeLikes,
+      faircampSaves.tracks,
     ],
   );
 
@@ -660,7 +691,8 @@ export default function LibraryScreen() {
       {/* Content */}
       {!user &&
       activeTab !== "downloads" &&
-      !(activeTab === "library" && combinedTracks.length > 0) ? (
+      !(activeTab === "library" && combinedTracks.length > 0) &&
+      !(activeTab === "wishlist" && faircampSaves.albums.length > 0) ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
@@ -795,7 +827,10 @@ export default function LibraryScreen() {
                     if (tg?.artistId && tg?.urlSlug) {
                       router.push({
                         pathname: "/artist/[id]/album/[slug]/album-tracks",
-                        params: { id: String(tg.artistId), slug: String(tg.urlSlug) },
+                        params: {
+                          id: String(tg.artist?.urlSlug || tg.artistId),
+                          slug: String(tg.urlSlug),
+                        },
                       });
                     }
                   }}
@@ -822,7 +857,7 @@ export default function LibraryScreen() {
             }}
           />
         )
-      ) : isWishlistPending ? (
+      ) : user && isWishlistPending ? (
         <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
       ) : wishlist.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -835,7 +870,9 @@ export default function LibraryScreen() {
       ) : (
         <FlatList
           data={wishlist}
-          keyExtractor={(item) => String(item.trackGroupId)}
+          keyExtractor={(item) =>
+            String((item as any).trackGroup?.urlSlug || item.trackGroupId)
+          }
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const tg = (item as any).trackGroup;
@@ -846,7 +883,10 @@ export default function LibraryScreen() {
                   if (tg?.artistId && tg?.urlSlug) {
                     router.push({
                       pathname: "/artist/[id]/album/[slug]/album-tracks",
-                      params: { id: String(tg.artistId), slug: String(tg.urlSlug) },
+                      params: {
+                        id: String(tg.artist?.urlSlug || tg.artistId),
+                        slug: String(tg.urlSlug),
+                      },
                     });
                   }
                 }}

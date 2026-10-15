@@ -3,6 +3,7 @@ import { queryClient } from "@/queries/QueryClientWrapper";
 import { queryArtist } from "@/queries/queries";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import * as api from "@/queries/fetch/fetchWrapper";
+import { fetchFairplayerSongReleaseSlug } from "@/queries/fairplayer";
 
 // Artist pages share the site root with routes like /login, so a single
 // segment is an artist only if the API says so. Fetching through the query
@@ -84,6 +85,18 @@ export async function redirectSystemPath({
   // Handle explicit ?app= query param on share hubs
   const appParam = url.searchParams.get("app");
   if (appParam) return normalizeAppRoute(appParam);
+
+  const faircampTrackMatch = cleanPath.match(/^\/(?:t|track)\/f([^/]+)$/i);
+  if (faircampTrackMatch) {
+    try {
+      const trackId = decodeURIComponent(faircampTrackMatch[1]);
+      const albumSlug = await fetchFairplayerSongReleaseSlug(trackId);
+      return `/artist/fairplayer/album/${albumSlug}/album-tracks`;
+    } catch (err) {
+      console.warn("Could not resolve Faircamp share link", err);
+      return path;
+    }
+  }
 
   // Handle radio station short links (/r/:id or /station/:id)
   const radioMatch = cleanPath.match(/^\/(?:r|radio|station)\/([a-z0-9-]+)$/i);

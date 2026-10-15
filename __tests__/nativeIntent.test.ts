@@ -1,12 +1,16 @@
 import { redirectSystemPath } from "@/app/+native-intent";
 import { MirloFetchError } from "@/queries/fetch/MirloFetchError";
 import { queryClient } from "@/queries/QueryClientWrapper";
+import { fetchFairplayerSongReleaseSlug } from "@/queries/fairplayer";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 
 jest.mock("@preeternal/react-native-cookie-manager", () => ({
   __esModule: true,
   default: { get: jest.fn(), getAll: jest.fn(), clearAll: jest.fn() },
+}));
+jest.mock("@/queries/fairplayer", () => ({
+  fetchFairplayerSongReleaseSlug: jest.fn(),
 }));
 jest.mock("expo-web-browser", () => ({
   openBrowserAsync: jest.fn(),
@@ -134,6 +138,20 @@ describe("redirectSystemPath", () => {
     expect(
       await redirect("https://mirlo.space/t/42"),
     ).toBe("/artist/arod/album/penaflor-single/album-tracks");
+  });
+
+  test("opens short Faircamp track links at the release page", async () => {
+    jest
+      .mocked(fetchFairplayerSongReleaseSlug)
+      .mockResolvedValue("fairplayer-primer-calaix%40calaixdesastre.online");
+    expect(
+      await redirect(
+        "https://mirlo-blue-share.mirloblue.workers.dev/t/f8153",
+      ),
+    ).toBe(
+      "/artist/fairplayer/album/fairplayer-primer-calaix%40calaixdesastre.online/album-tracks",
+    );
+    expect(fetchFairplayerSongReleaseSlug).toHaveBeenCalledWith("8153");
   });
 
   test("handles workers.dev short routes for stations and podcasts", async () => {

@@ -115,7 +115,7 @@ export default function SearchPage() {
         >
           {searchResults.length > 0 ? (
             <View>
-              <Text style={styles.sectionHeader}>ON MIRLO</Text>
+              <Text style={styles.sectionHeader}>CATALOG RESULTS</Text>
               {searchResults.map((item, index) => (
                 <View key={`${index}-${item.id || item.name}`}>
                   {optionDisplay(item, index)}

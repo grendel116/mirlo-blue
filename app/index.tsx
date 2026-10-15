@@ -18,6 +18,7 @@ import {
   distributeFairChorusAlbums,
   queryFederatedChorusAlbums,
 } from "@/queries/chorus";
+import { queryFairplayerAlbums } from "@/queries/fairplayer";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
@@ -26,6 +27,7 @@ import { savedAlbumHref } from "@/scripts/downloadManager";
 import {
   RADIO_STATIONS,
   RadioStation,
+  deduplicateRadioStations,
   queryRadioPlays,
   queryDiscoveredRadioStations,
 } from "@/queries/radio";
@@ -91,6 +93,11 @@ export default function Index() {
     retry: false,
   });
 
+  const { data: fairplayerAlbums, refetch: refetchFairplayer } = useQuery({
+    ...queryFairplayerAlbums(40),
+    retry: false,
+  });
+
   // Query discovered autonomous community and pirate radio stations
   const {
     data: discoveredRadio = [],
@@ -107,19 +114,21 @@ export default function Index() {
     refetchRecent();
     refetchTopSold();
     refetchChorus();
+    refetchFairplayer();
     refetchDiscoveredRadio();
     refetchDiscoveredPodcasts();
   };
 
-  // Weave Chorus releases into Recent Releases, prioritizing genuine recency and fair artist representation
+  // Weave federated and Faircamp releases into Recent Releases with fair artist representation
   const recentReleases = useMemo(() => {
     const direct = recentData?.results || [];
-    if (!chorusAlbums || chorusAlbums.length === 0) return direct;
+    const catalogAlbums = [...(chorusAlbums || []), ...(fairplayerAlbums || [])];
+    if (catalogAlbums.length === 0) return direct;
 
-    // Apply fair representation cap per artist across Chorus releases
-    const fairChorus = distributeFairChorusAlbums(chorusAlbums, 2);
+    // Apply fair representation across federated and Faircamp releases
+    const fairChorus = distributeFairChorusAlbums(catalogAlbums, 2);
 
-    // Sort Chorus albums by releaseDate descending so the newest releases lead
+    // Dated releases lead; Faircamp releases retain the verified directory order
     const sortedChorus = [...fairChorus].sort((a, b) => {
       const da = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
       const db = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
@@ -168,14 +177,14 @@ export default function Index() {
     }
 
     return blended;
-  }, [recentData?.results, chorusAlbums]);
+  }, [recentData?.results, chorusAlbums, fairplayerAlbums]);
 
   // Keep curated stations first, followed by discovered stations ranked by recent clicks
   const radioStations = useMemo(() => {
     const combined = [...RADIO_STATIONS, ...discoveredRadio].filter((station) =>
       isQualityArtwork(station.artwork),
     );
-    return combined;
+    return deduplicateRadioStations(combined);
   }, [discoveredRadio]);
 
   // Curated and Castopod-indexed discussion shows, ordered by latest episode
@@ -223,11 +232,18 @@ export default function Index() {
       if (hasFocused.current) {
         refetchRecent();
         refetchChorus();
+        refetchFairplayer();
         refetchDiscoveredRadio();
         refetchDiscoveredPodcasts();
       }
       hasFocused.current = true;
-    }, [refetchRecent, refetchChorus, refetchDiscoveredRadio, refetchDiscoveredPodcasts]),
+    }, [
+      refetchRecent,
+      refetchChorus,
+      refetchFairplayer,
+      refetchDiscoveredRadio,
+      refetchDiscoveredPodcasts,
+    ]),
   );
 
   // Top 6 items for the "Viewing History" 2-column grid

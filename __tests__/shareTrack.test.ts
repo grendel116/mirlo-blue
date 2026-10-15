@@ -37,6 +37,42 @@ describe("ShareTrackButton clean short routes", () => {
     expect(fullText).toBe("https://mirlo-blue-share.mirloblue.workers.dev/t/42");
   });
 
+  test("builds the same short track route style for Faircamp tracks", () => {
+    const shareUrl = buildShareUrl({
+      id: 8153,
+      title: "La del cowboy",
+      artist: "Calaix desastre",
+      artwork: "https://images.example/cover.jpg",
+      url: "https://calaixdesastre.online/track.opus",
+      order: 2,
+      source: "Faircamp",
+      trackGroup: {
+        urlSlug: "fairplayer-primer-calaix%40calaixdesastre.online",
+      },
+    } as any);
+
+    expect(shareUrl).toBe(
+      "https://mirlo-blue-share.mirloblue.workers.dev/t/f8153",
+    );
+  });
+
+  test("keeps Faircamp tracks with generated IDs on compact short routes", () => {
+    const shareUrl = buildShareUrl({
+      id: 14582523,
+      title: "Untitled song",
+      artist: "Sockpuppet",
+      source: "Faircamp",
+      fairplayerTrackId: "primer-calaix@sockpuppet.band#2",
+      trackGroup: {
+        urlSlug: "fairplayer-primer-calaix%40sockpuppet.band",
+      },
+    } as any);
+
+    expect(shareUrl).toBe(
+      "https://mirlo-blue-share.mirloblue.workers.dev/t/fprimer-calaix%40sockpuppet.band%232",
+    );
+  });
+
   test("builds short /r/:station URL for live radio station", () => {
     const track = {
       id: -100,
