@@ -1,0 +1,304 @@
+import { Directory, File, Paths } from "expo-file-system";
+import * as DocumentPicker from "expo-document-picker";
+import { unzip } from "react-native-zip-archive";
+import { readTags } from "./readTags";
+import { API_ROOT } from "@/constants/api-root";
+import * as api from "@/queries/fetch/fetchWrapper";
+import {
+  albumKeyOf,
+  DownloadedAlbum,
+  DownloadedTrack,
+  DownloadFormat,
+  DownloadStage,
+  forgetDownloadedTracks,
+  getDownloadedTracks,
+  saveDownloadedTracks,
+  updateAlbum,
+} from "./downloadManager";
+
+// Saving files to the phone. The web build uses offlineFiles.web.ts instead
+export const OFFLINE_SUPPORTED = true;
+
+const AUDIO_FILE = /\.(mp3|flac|m4a|opus|ogg|wav|aac)$/i;
+const IMAGE_FILE = /\.(jpe?g|png|webp)$/i;
+const POLL_MS = 4000;
+const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
+
+type MirloJobResponse = { result: true | { jobId: string } | { url: string } };
+
+function downloadsFolder(name: string): Directory {
+  const folder = new Directory(Paths.document, "downloads", name);
+  folder.create({ intermediates: true, idempotent: true });
+  return folder;
+}
+
+// The zip library takes plain paths rather than file:// uris
+function pathOf(uri: string): string {
+  return decodeURIComponent(uri.replace(/^file:\/\//, ""));
+}
+
+function filesIn(folder: Directory): File[] {
+  return folder.list().flatMap((entry) => (entry instanceof Directory ? filesIn(entry) : [entry]));
+}
+
+async function waitForMirloJob(jobId: string): Promise<void> {
+  const deadline = Date.now() + PREPARE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const { results } = await api.get<{ results: { jobStatus: string }[] }>(
+      `/v1/jobs?queue=generateAlbum&ids=${jobId}`,
+      {},
+    );
+    const status = results[0]?.jobStatus;
+    if (status === "completed") return;
+    if (status === "failed") throw new Error("Mirlo couldn't prepare this download");
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+  throw new Error("Mirlo took too long to prepare this download");
+}
+
+type MirloSource = "trackGroups" | "tracks";
+
+// The parts of a Mirlo track we save
+type MirloTrack = { id: number; title: string; order?: number; audio?: { duration?: number } };
+
+// Mirlo builds a zip on request: start it, wait until it's ready, then ask for it.
+// The answer is a temporary download link, or the zip itself when Mirlo serves it directly
+async function mirloZipUrl(source: MirloSource, id: number, format: DownloadFormat): Promise<string> {
+  const resource = `/v1/${source}/${id}`;
+  const generated = await api.get<MirloJobResponse>(`${resource}/generate?format=${format}`, {});
+  if (typeof generated.result === "object" && "jobId" in generated.result) {
+    await waitForMirloJob(generated.result.jobId);
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const download = await api.get<MirloJobResponse>(`${resource}/download?format=${format}`, {});
+    if (typeof download.result === "object" && "url" in download.result) return download.result.url;
+    if (typeof download.result === "object" && "jobId" in download.result) {
+      await waitForMirloJob(download.result.jobId);
+      continue;
+    }
+    break;
+  }
+  return `${API_ROOT}${resource}/download?format=${format}`;
+}
+
+// Downloads a Mirlo zip and unpacks it into the album's folder, returning the folder, its
+// audio files and its cover. Mirlo names each song "<track number>-<title>"
+async function fetchMirloFiles(
+  source: MirloSource,
+  id: number,
+  album: AlbumProps,
+  format: DownloadFormat,
+  onStage: (stage: DownloadStage) => void,
+) {
+  onStage("preparing");
+  const url = await mirloZipUrl(source, id, format);
+
+  onStage("downloading");
+  const zip = new File(Paths.cache, `${source}-${id}.zip`);
+  const headers = url.startsWith(API_ROOT) ? await api.mirloHeaders() : undefined;
+  try {
+    await File.downloadFileAsync(url, zip, { headers, idempotent: true });
+
+    onStage("unpacking");
+    // A song joins the album's folder; a whole album replaces it
+    const folder = new Directory(Paths.document, "downloads", `album-${album.id}`);
+    if (source === "trackGroups" && folder.exists) folder.delete();
+    folder.create({ intermediates: true, idempotent: true });
+    await unzip(pathOf(zip.uri), pathOf(folder.uri));
+
+    const files = filesIn(folder);
+    return {
+      folder,
+      audio: files.filter((f) => AUDIO_FILE.test(f.name)),
+      cover: files.find((f) => IMAGE_FILE.test(f.name))?.uri ?? album.cover?.sizes?.[600],
+    };
+  } finally {
+    if (zip.exists) zip.delete();
+  }
+}
+
+function savedFromMirlo(
+  file: File,
+  folder: Directory,
+  album: AlbumProps,
+  track: MirloTrack | undefined,
+  cover: string | undefined,
+  fallbackId: number,
+): DownloadedTrack {
+  return {
+    id: track?.id ?? fallbackId,
+    title: track?.title ?? namesFromFile(file.name).title,
+    artist: album.artist?.name ?? "",
+    albumTitle: album.title,
+    artwork: cover,
+    url: file.uri,
+    folder: folder.uri,
+    duration: track?.audio?.duration,
+    bytes: file.size,
+    order: track?.order,
+    downloadedAt: Date.now(),
+    source: "mirlo",
+  };
+}
+
+// Downloads an album you own from Mirlo and unpacks it into the app's storage, tying every
+// file back to its Mirlo track by track number
+export async function downloadAlbum(
+  album: AlbumProps,
+  format: DownloadFormat,
+  onStage: (stage: DownloadStage) => void,
+): Promise<number> {
+  const { folder, audio, cover } = await fetchMirloFiles("trackGroups", album.id, album, format, onStage);
+  const tracks = album.tracks ?? [];
+  const saved = audio
+    .sort((a, b) => parseInt(a.name, 10) - parseInt(b.name, 10))
+    .map((file, i) =>
+      savedFromMirlo(
+        file,
+        folder,
+        album,
+        tracks.find((t) => t.order === parseInt(file.name, 10)),
+        cover,
+        -(Date.now() + i),
+      ),
+    );
+  await saveDownloadedTracks(saved);
+  return saved.length;
+}
+
+// Downloads one song of an album you own, into that album's folder
+export async function downloadTrack(
+  album: AlbumProps,
+  track: MirloTrack,
+  format: DownloadFormat,
+  onStage: (stage: DownloadStage) => void,
+): Promise<void> {
+  const { folder, audio, cover } = await fetchMirloFiles("tracks", track.id, album, format, onStage);
+  const file = audio[0];
+  if (!file) throw new Error("Mirlo didn't send this song");
+  await saveDownloadedTracks([savedFromMirlo(file, folder, album, track, cover, track.id)]);
+}
+// "01 - Artist - Title.mp3" → artist and title; anything else becomes the title
+function namesFromFile(fileName: string): { title: string; artist: string } {
+  const base = fileName.replace(/\.[^.]+$/, "").replace(/^\d+\s*[-.]\s*/, "");
+  const split = base.indexOf(" - ");
+  if (split === -1) return { title: base, artist: "" };
+  return { artist: base.slice(0, split), title: base.slice(split + 3) };
+}
+
+
+// Moves a file the picker handed us into app storage, so no copy is left in the cache
+function adopt(pickedUri: string, destination: File): void {
+  const source = new File(pickedUri);
+  source.copy(destination);
+  try {
+    source.delete();
+  } catch {}
+}
+
+function tagsOf(file: File) {
+  const handle = file.open();
+  try {
+    return readTags((offset, length) => {
+      handle.offset = offset;
+      return handle.readBytes(length);
+    });
+  } finally {
+    handle.close();
+  }
+}
+
+// Adds audio files from the phone. Song details come from each file's tags, then its name;
+// a title typed in the import dialog names the whole album. Files group into albums by title
+export async function importFiles(albumTitle?: string, artistName?: string): Promise<string | null> {
+  const picked = await DocumentPicker.getDocumentAsync({
+    type: "audio/*",
+    multiple: true,
+    copyToCacheDirectory: true,
+  });
+  if (picked.canceled || !picked.assets?.length) return null;
+
+  const folder = downloadsFolder("files");
+  const now = Date.now();
+  const typedTitle = albumTitle?.trim();
+  const typedArtist = artistName?.trim();
+  const covers = new Map<string, string>();
+
+  const saved: DownloadedTrack[] = picked.assets.map((asset, i) => {
+    const file = new File(folder, `${now}-${i}-${asset.name}`);
+    adopt(asset.uri, file);
+    const tags = tagsOf(file);
+    const named = namesFromFile(asset.name);
+    const album = typedTitle || tags.album || "Imported Audio";
+    if (tags.cover && !covers.has(album.toLowerCase())) {
+      const extension = tags.cover.mime.includes("png") ? "png" : "jpg";
+      const cover = new File(downloadsFolder("covers"), `${now}-${i}.${extension}`);
+      cover.write(tags.cover.bytes);
+      covers.set(album.toLowerCase(), cover.uri);
+    }
+    return {
+      id: -(now + i),
+      title: tags.title || named.title,
+      artist: typedArtist || tags.artist || named.artist || "Unknown Artist",
+      albumTitle: album,
+      artwork: covers.get(album.toLowerCase()),
+      order: tags.track ?? i + 1,
+      url: file.uri,
+      bytes: file.size,
+      downloadedAt: now,
+      source: "file" as const,
+    };
+  });
+  await saveDownloadedTracks(saved);
+  return albumKeyOf(saved[0]);
+}
+function deleteQuietly(uri: string): void {
+  try {
+    const entry = new File(uri);
+    if (entry.exists) entry.delete();
+  } catch {}
+}
+
+// Covers you picked live in one folder; remove the ones no saved song uses any more
+async function pruneCovers(): Promise<void> {
+  const covers = new Directory(Paths.document, "downloads", "covers");
+  if (!covers.exists) return;
+  const nameOf = (uri: string) => uri.split("/").pop();
+  const inUse = new Set((await getDownloadedTracks()).map((t) => t.artwork && nameOf(t.artwork)));
+  for (const entry of covers.list()) {
+    if (entry instanceof File && !inUse.has(nameOf(entry.uri))) deleteQuietly(entry.uri);
+  }
+}
+
+// Deletes saved songs, then the album folders and covers nothing uses any more
+export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
+  tracks.forEach((t) => deleteQuietly(t.url));
+  await forgetDownloadedTracks(tracks.map((t) => t.id));
+
+  const remaining = await getDownloadedTracks();
+  const folders = new Set(tracks.map((t) => t.folder).filter((f): f is string => !!f));
+  for (const folder of folders) {
+    if (remaining.some((t) => t.folder === folder)) continue;
+    try {
+      const dir = new Directory(folder);
+      if (dir.exists) dir.delete();
+    } catch {}
+  }
+  await pruneCovers();
+}
+
+// Lets you pick an image from the phone as an album's cover
+export async function chooseAlbumCover(album: DownloadedAlbum): Promise<void> {
+  const picked = await DocumentPicker.getDocumentAsync({
+    type: "image/*",
+    copyToCacheDirectory: true,
+  });
+  if (picked.canceled || !picked.assets?.[0]) return;
+
+  const asset = picked.assets[0];
+  const extension = asset.name.split(".").pop() || "jpg";
+  const cover = new File(downloadsFolder("covers"), `${Date.now()}.${extension}`);
+  adopt(asset.uri, cover);
+  await updateAlbum(album.key, { artwork: cover.uri });
+  await pruneCovers();
+}

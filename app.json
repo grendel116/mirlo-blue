@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mirlo Blue",
     "slug": "mirlo-blue",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
@@ -52,7 +52,8 @@
         }
       ],
       "expo-localization",
-      "expo-asset"
+      "expo-asset",
+      "react-native-zip-archive"
     ],
     "experiments": {
       "typedRoutes": true

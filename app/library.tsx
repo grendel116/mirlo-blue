@@ -25,13 +25,9 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
+import DownloadsTab from "@/components/DownloadsTab";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
-import {
-  getDownloadedTracks,
-  subscribeDownloads,
-  removeDownloadedTrack,
-  DownloadedTrack,
-} from "@/scripts/downloadManager";
+import { downloadToTrack, useDownloads } from "@/scripts/downloadManager";
 import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
@@ -110,11 +106,11 @@ function resolveAudioStreamUrl(rawUrl?: string): string {
 export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
-  const { playTrack, activeTrack, isPlaying } = usePlayer();
+  const { playTrack, activeTrack } = usePlayer();
   const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">(
     "library",
   );
-  const [downloadedTracks, setDownloadedTracks] = useState<DownloadedTrack[]>([]);
+  const downloadedTracks = useDownloads();
   const [librarySearch, setLibrarySearch] = useState("");
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
@@ -139,12 +135,6 @@ export default function LibraryScreen() {
 
   const purchases = collectionData?.results || [];
   const wishlist = wishlistData?.results || [];
-
-  // Subscribe to offline downloaded tracks
-  useEffect(() => {
-    getDownloadedTracks().then(setDownloadedTracks);
-    return subscribeDownloads(setDownloadedTracks);
-  }, []);
 
   // Combined tracks (sans duplicates) across purchased albums and favorited tracks
   const combinedTracks = useMemo(() => {
@@ -356,35 +346,10 @@ export default function LibraryScreen() {
       });
     }
 
-    // 4. Add tracks from downloaded files
+    // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
     downloadedTracks.forEach((dl) => {
-      if (dl && dl.id && !trackMap.has(dl.id)) {
-        markAdded(dl.id, dl.downloadedAt || 0);
-        trackMap.set(dl.id, {
-          id: dl.id,
-          title: dl.title,
-          artist: dl.artist,
-          artwork: resolveArtworkUrl(dl.artwork) || "",
-          url: dl.url,
-          queueIndex: 0,
-          trackGroupId: 0,
-          trackGroup: {
-            id: 0,
-            releaseDate: "",
-            trackGroupId: 0,
-            title: dl.albumTitle || "Downloaded Audio",
-            artist: { name: dl.artist } as any,
-            artistId: 0,
-            urlSlug: "",
-            cover: { sizes: {} as any },
-          },
-          audio: { url: dl.url, duration: dl.duration },
-          isPreview: true,
-          order: 1,
-          headers: {},
-          allowIndividualSale: false,
-        });
-      }
+      markAdded(dl.id, dl.downloadedAt);
+      if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
     });
 
     // Newest additions first; tracks added together keep their album order
@@ -499,7 +464,9 @@ export default function LibraryScreen() {
       </View>
 
       {/* Content */}
-      {!user && activeTab !== "downloads" ? (
+      {!user &&
+      activeTab !== "downloads" &&
+      !(activeTab === "library" && downloadedTracks.length > 0) ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
@@ -593,7 +560,7 @@ export default function LibraryScreen() {
                     </View>
                     <View style={styles.actionRow}>
                       <AddToQueueButton track={item} size={17} />
-                      <FavoriteTrackButton track={item} size={17} />
+                      {item.id > 0 && <FavoriteTrackButton track={item} size={17} />}
                     </View>
                   </Pressable>
                 );
@@ -602,90 +569,7 @@ export default function LibraryScreen() {
           </View>
         )
       ) : activeTab === "downloads" ? (
-        downloadedTracks.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTitle}>No on-device downloads</Text>
-            <Text style={styles.emptySubtitle}>
-              Audio files downloaded for offline playback will be stored on your device and
-              displayed here.
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={downloadedTracks}
-            keyExtractor={(item) => `dl-${item.id}`}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => {
-              const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
-              return (
-                <Pressable
-                  onPress={() => {
-                    const rnTrack: RNTrack = {
-                      id: item.id,
-                      title: item.title,
-                      artist: item.artist,
-                      artwork: item.artwork || "",
-                      url: item.url,
-                      queueIndex: 0,
-                      trackGroupId: 0,
-                      trackGroup: {
-                        id: 0,
-                        releaseDate: "",
-                        trackGroupId: 0,
-                        title: item.albumTitle || "Downloaded Audio",
-                        artist: { name: item.artist } as any,
-                        artistId: 0,
-                        urlSlug: "",
-                        cover: { sizes: {} as any },
-                      },
-                      audio: { url: item.url, duration: item.duration },
-                      isPreview: true,
-                      order: 1,
-                      headers: {},
-                      allowIndividualSale: false,
-                    };
-                    playTrack(rnTrack);
-                  }}
-                  style={[styles.card, isSelected && styles.selectedCard]}
-                >
-                  {item.artwork ? (
-                    <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                  ) : (
-                    <View style={[styles.thumb, styles.placeholder]}>
-                      <Ionicons
-                        name="phone-portrait-outline"
-                        size={20}
-                        color={theme.colors.primary}
-                      />
-                    </View>
-                  )}
-                  <View style={styles.cardInfo}>
-                    <Text
-                      style={[
-                        styles.cardTitle,
-                        isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardArtist} numberOfLines={1}>
-                      {item.artist} {item.fileSize ? `• ${item.fileSize}` : ""}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => removeDownloadedTrack(item.id)}
-                    style={{ padding: 6 }}
-                    accessibilityLabel="Delete download"
-                  >
-                    <Ionicons name="trash-outline" size={18} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
-                </Pressable>
-              );
-            }}
-          />
-        )
+        <DownloadsTab />
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />

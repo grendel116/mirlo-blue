@@ -3,13 +3,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useState } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import * as api from "../queries/fetch/fetchWrapper";
-import { ViewProps } from "react-native";
+import { ViewStyle } from "react-native";
 
 type FavoriteTrackButton = {
   track: {
     id: number;
   };
-  style?: ViewProps;
+  style?: ViewStyle;
   size?: number;
 };
 

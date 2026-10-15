@@ -32,6 +32,7 @@ import { linkifyUrls } from "@/scripts/utils";
 import WishlistButton from "@/components/WishlistButton";
 import ErrorNotification from "@/components/ErrorNotification";
 import AddAlbumButton from "@/components/AddAlbumButton";
+import DownloadAlbumButton from "@/components/DownloadAlbumButton";
 import { mirloRed } from "@/constants/mirlo-red";
 import { theme } from "@/constants/theme";
 import TagPill from "@/components/TagPill";
@@ -296,6 +297,7 @@ export default function AlbumTracks() {
                     size={36}
                     style={{ marginHorizontal: 8 }}
                   />
+                  <DownloadAlbumButton album={selectedAlbum} size={36} />
                   <MemoizedAlbumPlayButton />
                 </View>
               </View>

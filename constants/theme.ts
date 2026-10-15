@@ -23,6 +23,7 @@ export const theme = {
     textPrimary: "#f8fafc",
     textSecondary: "#94a3b8",
     textMuted: "#64748b",
+    danger: "#ff4d4d",
     textCyan: "#38bdf8",
 
     // Player & Transport

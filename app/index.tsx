@@ -24,6 +24,7 @@ import {
   queryRadioPlays,
   liveTrack,
 } from "@/queries/radio";
+import OfflineNotice from "@/components/OfflineNotice";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { usePlayer } from "@/state/PlayerContext";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
@@ -33,11 +34,13 @@ export default function Index() {
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // Query Recent Releases
+  // Query Recent Releases; when this can't load, Mirlo is out of reach
   const {
     data: recentData,
     isPending: isRecentPending,
-    isError: isRecentError,
+    isError: offline,
+    isFetching: isRecentFetching,
+    refetch: refetchRecent,
   } = useQuery(
     queryTrackGroups({
       take: 12,
@@ -49,11 +52,17 @@ export default function Index() {
   const {
     data: topSoldData,
     isPending: isTopSoldPending,
+    refetch: refetchTopSold,
   } = useQuery(
     queryTopSold({
       take: 10,
     }),
   );
+
+  const retry = () => {
+    refetchRecent();
+    refetchTopSold();
+  };
 
   const recentReleases = recentData?.results || [];
   const popularPurchases = topSoldData?.results || [];
@@ -110,14 +119,25 @@ export default function Index() {
           <Text style={styles.brandText}>mirlo<Text style={styles.brandHighlight}>blue</Text></Text>
         </View>
 
-        <Pressable
-          onPress={() => router.push("/search")}
-          style={styles.searchButton}
-          accessibilityRole="button"
-          accessibilityLabel="Search"
-        >
-          <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => openInBrowser("https://mirlo.space/team/support")}
+            style={styles.subscribeButton}
+            accessibilityRole="button"
+            accessibilityLabel="Subscribe to support Mirlo"
+          >
+            <Ionicons name="heart" size={15} color={theme.colors.playButtonIcon} />
+            <Text style={styles.subscribeText}>Subscribe</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/search")}
+            style={styles.searchButton}
+            accessibilityRole="button"
+            accessibilityLabel="Search"
+          >
+            <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -125,176 +145,182 @@ export default function Index() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Viewing History / Quick Access 2-Column Grid */}
-        {quickAccessItems.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionHeader}>History</Text>
+        {offline ? (
+          <OfflineNotice retrying={isRecentFetching} onRetry={retry} onOpenLibrary={() => router.push("/library")} />
+        ) : (
+          <>
+            {/* Viewing History / Quick Access 2-Column Grid */}
+            {quickAccessItems.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionTitleRow}>
+                  <Text style={styles.sectionHeader}>History</Text>
+                </View>
+                <View style={styles.historyGrid}>
+                  {quickAccessItems.map((item, idx) => {
+                    return (
+                      <Pressable
+                        key={`${item.id}-${idx}`}
+                        onPress={() =>
+                          router.push({
+                            pathname: "/artist/[id]/album/[slug]/album-tracks",
+                            params: {
+                              id: String(item.artistId),
+                              slug: String(item.urlSlug),
+                            },
+                          })
+                        }
+                        style={styles.historyCard}
+                      >
+                        {item.coverUri ? (
+                          <Image source={{ uri: item.coverUri }} style={styles.historyThumb} />
+                        ) : (
+                          <View style={[styles.historyThumb, styles.thumbPlaceholder]}>
+                            <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
+                          </View>
+                        )}
+                        <View style={styles.historyTextContainer}>
+                          <Text style={styles.historyTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.historyArtist} numberOfLines={1}>
+                            {item.artistName}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* SECTION 1: RECENT RELEASES (Horizontal Carousel) */}
+            <View style={styles.section}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionHeader}>Recent Releases</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              </View>
+
+              {isRecentPending ? (
+                <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
+              ) : (
+                <FlatList
+                  horizontal
+                  data={recentReleases}
+                  keyExtractor={(item, index) => String(item.id ?? index)}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.carouselContent}
+                  renderItem={({ item }) => {
+                    const coverUri =
+                      item.cover?.sizes?.[600] ||
+                      item.cover?.sizes?.[300] ||
+                      item.cover?.sizes?.[120];
+                    return (
+                      <Pressable
+                        onPress={() =>
+                          router.push({
+                            pathname: "/artist/[id]/album/[slug]/album-tracks",
+                            params: {
+                              id: String(item.artistId),
+                              slug: String(item.urlSlug),
+                            },
+                          })
+                        }
+                        style={[styles.albumCard, { width: cardWidth }]}
+                      >
+                        <View style={styles.cardImageContainer}>
+                          {coverUri ? (
+                            <Image
+                              source={{ uri: coverUri }}
+                              style={styles.cardCoverImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
+                              <Ionicons name="musical-notes" size={36} color={theme.colors.primary} />
+                            </View>
+                          )}
+                          <View style={styles.glassSheen} />
+                        </View>
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={styles.cardArtist} numberOfLines={1}>
+                          {item.artist?.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  }}
+                />
+              )}
             </View>
-            <View style={styles.historyGrid}>
-              {quickAccessItems.map((item, idx) => {
-                return (
-                  <Pressable
-                    key={`${item.id}-${idx}`}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/artist/[id]/album/[slug]/album-tracks",
-                        params: {
-                          id: String(item.artistId),
-                          slug: String(item.urlSlug),
-                        },
-                      })
-                    }
-                    style={styles.historyCard}
-                  >
-                    {item.coverUri ? (
-                      <Image source={{ uri: item.coverUri }} style={styles.historyThumb} />
-                    ) : (
-                      <View style={[styles.historyThumb, styles.thumbPlaceholder]}>
-                        <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
-                      </View>
-                    )}
-                    <View style={styles.historyTextContainer}>
-                      <Text style={styles.historyTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={styles.historyArtist} numberOfLines={1}>
-                        {item.artistName}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
+
+            {/* SECTION 2: POPULAR PURCHASES (Horizontal Carousel) */}
+            <View style={styles.section}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionHeader}>Popular Purchases</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              </View>
+
+              {isTopSoldPending ? (
+                <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
+              ) : (
+                <FlatList
+                  horizontal
+                  data={popularPurchases.length > 0 ? popularPurchases : recentReleases.slice().reverse()}
+                  keyExtractor={(item, index) => String(item.id ?? index)}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.carouselContent}
+                  renderItem={({ item }) => {
+                    const coverUri =
+                      item.cover?.sizes?.[600] ||
+                      item.cover?.sizes?.[300] ||
+                      item.cover?.sizes?.[120];
+                    return (
+                      <Pressable
+                        onPress={() =>
+                          router.push({
+                            pathname: "/artist/[id]/album/[slug]/album-tracks",
+                            params: {
+                              id: String(item.artistId),
+                              slug: String(item.urlSlug),
+                            },
+                          })
+                        }
+                        style={[styles.albumCard, { width: cardWidth }]}
+                      >
+                        <View style={styles.cardImageContainer}>
+                          {coverUri ? (
+                            <Image
+                              source={{ uri: coverUri }}
+                              style={styles.cardCoverImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
+                              <Ionicons name="flame" size={36} color={theme.colors.primary} />
+                            </View>
+                          )}
+                          <View style={styles.glassSheen} />
+                        </View>
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={styles.cardArtist} numberOfLines={1}>
+                          {item.artist?.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  }}
+                />
+              )}
             </View>
-          </View>
+
+            {/* RADIO: one carousel per station, recently played songs */}
+            {RADIO_STATIONS.map((station) => (
+              <RadioSection key={station.id} station={station} cardWidth={cardWidth} />
+            ))}
+          </>
         )}
-
-        {/* SECTION 1: RECENT RELEASES (Horizontal Carousel) */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionHeader}>Recent Releases</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </View>
-
-          {isRecentPending ? (
-            <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
-          ) : (
-            <FlatList
-              horizontal
-              data={recentReleases}
-              keyExtractor={(item, index) => String(item.id ?? index)}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carouselContent}
-              renderItem={({ item }) => {
-                const coverUri =
-                  item.cover?.sizes?.[600] ||
-                  item.cover?.sizes?.[300] ||
-                  item.cover?.sizes?.[120];
-                return (
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/artist/[id]/album/[slug]/album-tracks",
-                        params: {
-                          id: String(item.artistId),
-                          slug: String(item.urlSlug),
-                        },
-                      })
-                    }
-                    style={[styles.albumCard, { width: cardWidth }]}
-                  >
-                    <View style={styles.cardImageContainer}>
-                      {coverUri ? (
-                        <Image
-                          source={{ uri: coverUri }}
-                          style={styles.cardCoverImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-                          <Ionicons name="musical-notes" size={36} color={theme.colors.primary} />
-                        </View>
-                      )}
-                      <View style={styles.glassSheen} />
-                    </View>
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardArtist} numberOfLines={1}>
-                      {item.artist?.name}
-                    </Text>
-                  </Pressable>
-                );
-              }}
-            />
-          )}
-        </View>
-
-        {/* SECTION 2: POPULAR PURCHASES (Horizontal Carousel) */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionHeader}>Popular Purchases</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
-          </View>
-
-          {isTopSoldPending ? (
-            <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
-          ) : (
-            <FlatList
-              horizontal
-              data={popularPurchases.length > 0 ? popularPurchases : recentReleases.slice().reverse()}
-              keyExtractor={(item, index) => String(item.id ?? index)}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carouselContent}
-              renderItem={({ item }) => {
-                const coverUri =
-                  item.cover?.sizes?.[600] ||
-                  item.cover?.sizes?.[300] ||
-                  item.cover?.sizes?.[120];
-                return (
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/artist/[id]/album/[slug]/album-tracks",
-                        params: {
-                          id: String(item.artistId),
-                          slug: String(item.urlSlug),
-                        },
-                      })
-                    }
-                    style={[styles.albumCard, { width: cardWidth }]}
-                  >
-                    <View style={styles.cardImageContainer}>
-                      {coverUri ? (
-                        <Image
-                          source={{ uri: coverUri }}
-                          style={styles.cardCoverImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-                          <Ionicons name="flame" size={36} color={theme.colors.primary} />
-                        </View>
-                      )}
-                      <View style={styles.glassSheen} />
-                    </View>
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardArtist} numberOfLines={1}>
-                      {item.artist?.name}
-                    </Text>
-                  </Pressable>
-                );
-              }}
-            />
-          )}
-        </View>
-
-        {/* RADIO: one carousel per station, recently played songs */}
-        {RADIO_STATIONS.map((station) => (
-          <RadioSection key={station.id} station={station} cardWidth={cardWidth} />
-        ))}
       </ScrollView>
     </SafeAreaView>
   );
@@ -305,6 +331,7 @@ export default function Index() {
 function RadioSection({ station, cardWidth }: { station: RadioStation; cardWidth: number }) {
   const { playTrack } = usePlayer();
   const { data: plays = [], isPending } = useQuery(queryRadioPlays(station));
+  if (!isPending && plays.length === 0) return null;
   const playLive = () => {
     const track = liveTrack(station);
     playTrack(track, [track], station.liveName);
@@ -405,6 +432,25 @@ const styles = StyleSheet.create({
   brandHighlight: {
     color: theme.colors.primary,
     fontWeight: "800",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  subscribeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primary,
+  },
+  subscribeText: {
+    color: theme.colors.playButtonIcon,
+    fontSize: 14,
+    fontWeight: "700",
   },
   searchButton: {
     width: 38,

@@ -19,6 +19,7 @@ import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation } from "@/queries/radio";
 import ShareTrackButton from "@/components/ShareTrackButton";
+import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 
 export default function NowPlaying() {
   const { activeTrack } = usePlayer() as {
@@ -78,6 +79,9 @@ export default function NowPlaying() {
             <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
               {activeTrack?.title || "No track playing"}
             </Text>
+            {activeTrack && activeTrack.id > 0 ? (
+              <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+            ) : null}
             {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
           </View>
 
