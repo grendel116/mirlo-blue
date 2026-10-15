@@ -43,8 +43,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
     await expect(
       fetchFairplayerSongReleaseSlug("primer-calaix@sockpuppet.band#2"),
     ).resolves.toBe("fairplayer-primer-calaix%40sockpuppet.band");
-  });
-
+  }  );
   test("fetches the Fairplayer directory and filters it through verified hub catalogs", async () => {
     const originalFetch = global.fetch;
     const directory = `

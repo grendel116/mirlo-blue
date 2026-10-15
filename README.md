@@ -18,9 +18,7 @@ A music player for Mirlo, Faircamp, independent radio, podcasts, and your own fi
 
 ## Music federation
 
-MirloBlue brings together music from Mirlo's [Chorus catalog](https://docs.mirlo.space/api/#fairplayer-canimus-federation) and verified Faircamp catalogs listed in the [Fairplayer hub](https://fairplayer.band/hub/). Faircamp releases appear alongside Mirlo music in discovery and search. Fairplayer's [data-sharing protocol](https://interop.fairplayer.org/specs/catalog/data-sharing-protocol.html) defines how independent catalogs can share release metadata.
-
-Faircamp releases play from the artists' own audio URLs, and catalog verification is checked against Fairplayer's public hub. Faircamp likes and wishlist entries are stored on the device because Faircamp releases do not have Mirlo account IDs. Mirlo purchases remain available through Mirlo to support artists and cooperative workers.
+MirloBlue reads Mirlo's Chorus catalog at `/v1/sm/canimus.json` and discovers verified Faircamp catalogs listed in the [Fairplayer hub](https://fairplayer.band/hub/). Faircamp releases appear alongside Mirlo music in discovery and search, and play from the artists' original audio URLs. Fairplayer's [data-sharing protocol](https://interop.fairplayer.org/specs/catalog/data-sharing-protocol.html) defines how independent catalogs can share release metadata. Faircamp likes and wishlist entries are stored on the device because Faircamp releases do not have Mirlo account IDs. Mirlo purchases remain available through Mirlo to support artists and cooperative workers.
 
 Other catalogs may be added when MirloBlue can play their audio directly and respect artist consent and access limits. Catalogs that require another platform's player are not included.
 
@@ -65,6 +63,14 @@ starting Expo to route Fairplayer requests through that local worker.
 ## Installation
 
 **Android:** Download the latest APK from [Releases](https://github.com/grendel116/mirlo-blue/releases).
+
+## Faircamp support
+
+MirloBlue discovers verified Faircamp catalogs through the [Fairplayer
+hub](https://fairplayer.band/hub/) and its public release directory. Releases
+appear alongside Mirlo music in discovery and search, and play from the artist's
+Faircamp site. Faircamp likes and wishlist entries are kept locally on the
+device.
 
 To build from source:
 ```bash
