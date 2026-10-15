@@ -1,4 +1,14 @@
-import { Text, View, StyleSheet, FlatList, Image, TouchableOpacity, Pressable } from "react-native";
+import { useState } from "react";
+import {
+  Text,
+  View,
+  StyleSheet,
+  FlatList,
+  Image,
+  TouchableOpacity,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +19,10 @@ import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import AddToQueueButton from "@/components/AddToQueueButton";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { theme } from "@/constants/theme";
+import {
+  isQualityArtwork,
+  resolveArtworkUrl,
+} from "@/scripts/utils";
 
 // A station's screen, laid out like an album: the cover is what's on air, and the track
 // list is the station's play history, newest first
@@ -18,10 +32,15 @@ export default function StationScreen() {
   const router = useRouter();
   const { data: plays = [] } = useQuery(queryRadioPlays(station));
   const { activeTrack } = usePlayer();
+  const [imgError, setImgError] = useState(false);
 
-  if (!station) return null;
+  if (!station || !isQualityArtwork(station.artwork)) {
+    return null;
+  }
   const onAir = plays[0];
   const isPlaying = activeTrack?.liveStation === station.id;
+  const onAirArtwork = onAir?.artwork;
+  const rawArt = isQualityArtwork(onAirArtwork) ? onAirArtwork : station.artwork;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -46,12 +65,13 @@ export default function StationScreen() {
         ListHeaderComponent={
           <View style={styles.headerSection}>
             <View style={styles.coverWrapper}>
-              {onAir?.artwork ? (
-                <Image source={{ uri: onAir.artwork }} style={styles.coverImage} resizeMode="cover" />
-              ) : (
-                <View style={[styles.coverImage, styles.coverPlaceholder]}>
-                  <Ionicons name="radio" size={72} color={theme.colors.primary} />
-                </View>
+              {!imgError && isQualityArtwork(rawArt) && (
+                <Image
+                  source={{ uri: resolveArtworkUrl(rawArt) }}
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                  onError={() => setImgError(true)}
+                />
               )}
             </View>
             <View style={styles.metaRow}>
@@ -131,19 +151,23 @@ function StationPlayButton({ station }: { station: RadioStation }) {
 // A song from the play history, shaped like an album's track row with the airtime in place
 // of the length
 function PlayRow({ play, onAir, highlighted }: { play: RadioPlay; onAir: boolean; highlighted: boolean }) {
+  const [imgError, setImgError] = useState(false);
   const airtime = new Date(play.airdate).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
+  const thumbSource = (!imgError && isQualityArtwork(play.artwork))
+    ? { uri: resolveArtworkUrl(play.artwork) }
+    : undefined;
+
   return (
     <View style={[styles.row, highlighted && styles.rowHighlighted]}>
-      {play.artwork ? (
-        <Image source={{ uri: play.artwork }} style={styles.rowThumb} resizeMode="cover" />
-      ) : (
-        <View style={[styles.rowThumb, styles.coverPlaceholder]}>
-          <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
-        </View>
-      )}
+      <Image
+        source={thumbSource}
+        style={styles.rowThumb}
+        resizeMode="cover"
+        onError={() => setImgError(true)}
+      />
       <View style={styles.rowText}>
         <Text
           style={[styles.rowTitle, highlighted && styles.rowTitleHighlighted]}

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
-import { TrackType } from "react-native-track-player";
+import type { TrackType } from "react-native-track-player";
+import { isQualityArtwork } from "@/scripts/utils";
 
 // Independent radio stations shown on Home. Each station has a live stream and a
 // public feed of what's on air. All feeds except WFMU's are CORS-open, so web reads them directly.
@@ -17,11 +18,13 @@ export type RadioStation = {
   name: string;
   liveName: string;
   location: string;
+  artwork: string;
   // A line or two for the station screen's About section
   about: string;
   streamUrl: string;
   playlistPage: string;
   donatePage: string;
+  headers?: Record<string, string>;
   fetchPlays: (signal: AbortSignal) => Promise<RadioPlay[]>;
 };
 
@@ -55,6 +58,8 @@ const KEXP: RadioStation = {
   name: "KEXP",
   liveName: "KEXP 90.3 FM",
   location: "Seattle",
+  artwork:
+    "https://www.kexp.org/media/filer_public/4f/52/4f52b5aa-bd93-4fe7-ab94-2d3258a3804c/kexp_primarylogo_black.png",
   about:
     "Listener-powered, non-profit radio from Seattle, championing new and independent music since 1972.",
   streamUrl: "https://kexp.streamguys1.com/kexp160.aac",
@@ -91,6 +96,8 @@ const CARBON_SOUND: RadioStation = {
   name: "Carbon Sound",
   liveName: "Carbon Sound",
   location: "Minneapolis",
+  artwork:
+    "https://img.apmcdn.org/cb53893e052517a661546c52c2e5401774619f99/uncropped/d82f35-20220711-carbon-sound-png-1826.png",
   about:
     "Minnesota Public Radio's stream for Black music past and present: hip-hop, soul, R&B and more.",
   streamUrl: "https://carbonsound.stream.publicradio.org/carbonsound.aac",
@@ -141,11 +148,15 @@ function decodeHtml(text: string): string {
   );
 }
 
+const WFMU_LOGO =
+  "https://is1-ssl.mzstatic.com/image/thumb/Purple126/v4/12/46/a8/1246a8d2-9aac-c896-868b-c9f78c278c6e/AppIcon-0-0-1x_U007emarketing-0-7-0-0-85-220.jpeg/512x512bb.jpg";
+
 const WFMU: RadioStation = {
   id: "wfmu",
   name: "WFMU",
   liveName: "WFMU 91.1 FM",
   location: "Jersey City",
+  artwork: WFMU_LOGO,
   about:
     "Listener-supported freeform radio since 1958, with no playlists, no formats and DJs who play whatever they love.",
   streamUrl: "https://stream0.wfmu.org/freeform-128k.mp3",
@@ -164,7 +175,7 @@ const WFMU: RadioStation = {
           song: decodeHtml(segment.title_html),
           artist: decodeHtml(segment.artist_html ?? ""),
           airdate: now,
-          artwork: toArtworkUrl(segment.image),
+          artwork: toArtworkUrl(segment.image) || WFMU_LOGO,
         },
       ];
     }
@@ -175,82 +186,83 @@ const WFMU: RadioStation = {
         song: decodeHtml(program.title_html),
         artist: "WFMU",
         airdate: now,
-        artwork: "",
+        artwork: WFMU_LOGO,
       },
     ];
   },
 };
 
-// NTS: show-based, so the current show stands in for the song on air
-type NtsBroadcast = {
-  start_timestamp: string;
-  embeds: {
-    details: {
-      name: string;
-      show_alias: string;
-      episode_alias: string;
-      location_long: string | null;
-      media: { picture_medium: string };
-    };
-  };
+// Radio alHara: communal cultural space and solidarity broadcast from Bethlehem, Palestine
+const RADIO_ALHARA: RadioStation = {
+  id: "radio-alhara",
+  name: "Radio alHara",
+  liveName: "Radio alHara",
+  location: "Bethlehem, Palestine",
+  artwork: "https://radioalhara.net/img/radio-alhara-logo-512.png",
+  about:
+    "Communal, independent Palestinian radio station and cultural space broadcast from Bethlehem, dedicated to solidarity and artistic resistance across the Global South.",
+  streamUrl: "https://stream.radioalhara.net/ra",
+  playlistPage: "https://radioalhara.net/",
+  donatePage: "https://radioalhara.net/",
+  fetchPlays: async () => [
+    {
+      key: "alhara-live",
+      song: "Radio alHara",
+      artist: "Live from Bethlehem",
+      airdate: new Date().toISOString(),
+      artwork: "https://radioalhara.net/img/radio-alhara-logo-512.png",
+    },
+  ],
 };
 
-const NTS_1: RadioStation = {
-  id: "nts-1",
-  name: "NTS",
-  liveName: "NTS Radio 1",
-  location: "London",
+// Dublin Digital Radio: wholly funded by listeners and members, anti-capitalist, community-operated
+const DDR: RadioStation = {
+  id: "dublin-digital-radio",
+  name: "ddr.",
+  liveName: "Dublin Digital Radio (ddr.)",
+  location: "Dublin, Ireland",
+  artwork:
+    "https://play-lh.googleusercontent.com/mVz6RPCPV4vBX875xKk8tiBJ-z-A2hqbf3QO2SSSYxe_RtyPUumEXlxmETuYbsXHsUw",
   about:
-    "Independent radio from London with shows by artists and selectors around the world. Don't assume.",
-  streamUrl: "https://stream-relay-geo.ntslive.net/stream",
-  playlistPage: "https://www.nts.live/schedule",
-  donatePage: "https://www.nts.live/supporters",
-  fetchPlays: async (signal) => {
-    const data = await getJson<{ results: { channel_name: string; now: NtsBroadcast }[] }>(
-      "https://www.nts.live/api/v2/live",
-      signal,
-    );
-    const now = data.results.find((c) => c.channel_name === "1")?.now;
-    if (!now) return [];
-    const show = now.embeds.details;
-    return [
-      {
-        key: `${show.show_alias}-${show.episode_alias}`,
-        song: show.name,
-        artist: show.location_long || "NTS",
-        airdate: now.start_timestamp,
-        artwork: toArtworkUrl(show.media?.picture_medium),
-      },
-    ];
-  },
+    "Wholly member-funded and democratically operated alternative community radio station representing experimental music, art, and radical politics across Ireland.",
+  streamUrl: "https://dublin-digital-radio.radiocult.fm/stream",
+  playlistPage: "https://listen.dublindigitalradio.com",
+  donatePage: "https://listen.dublindigitalradio.com/support",
+  fetchPlays: async () => [
+    {
+      key: "ddr-live",
+      song: "Dublin Digital Radio",
+      artist: "Community Broadcast",
+      airdate: new Date().toISOString(),
+      artwork: "https://play-lh.googleusercontent.com/mVz6RPCPV4vBX875xKk8tiBJ-z-A2hqbf3QO2SSSYxe_RtyPUumEXlxmETuYbsXHsUw",
+    },
+  ],
 };
 
-// SomaFM: songs carry no artwork, so each shows the channel logo. `date` is unix seconds
-type SomaSong = { title: string; artist: string; date: string; albumArt: string };
+const RESONANCE_LOGO =
+  "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/2d/ee/1c/2dee1cc1-fec2-52ab-df7a-b5d66f8163d8/AppIcon-1x_U007emarketing-0-11-0-85-220-0.png/512x512bb.jpg";
 
-const SOMAFM_INDIE_POP: RadioStation = {
-  id: "somafm-indiepop",
-  name: "SomaFM",
-  liveName: "SomaFM Indie Pop Rocks!",
-  location: "San Francisco",
+// Resonance FM: the UK's radio arts station operated by the London Musicians' Collective
+const RESONANCE_FM: RadioStation = {
+  id: "resonance-fm",
+  name: "Resonance FM",
+  liveName: "Resonance 104.4 FM",
+  location: "London, UK",
+  artwork: RESONANCE_LOGO,
   about:
-    "Listener-supported, commercial-free radio from San Francisco. Indie Pop Rocks! plays new and classic indie pop.",
-  streamUrl: "https://ice2.somafm.com/indiepop-128-aac",
-  playlistPage: "https://somafm.com/indiepop/songhistory.html",
-  donatePage: "https://somafm.com/support/",
-  fetchPlays: async (signal) => {
-    const data = await getJson<{ songs: SomaSong[] }>(
-      "https://api.somafm.com/songs/indiepop.json",
-      signal,
-    );
-    return data.songs.map((s) => ({
-      key: `${s.date}-${s.title}`,
-      song: s.title,
-      artist: s.artist,
-      airdate: new Date(Number(s.date) * 1000).toISOString(),
-      artwork: toArtworkUrl(s.albumArt) || "https://api.somafm.com/logos/256/indiepop256.png",
-    }));
-  },
+    "The world's first radio art station, operated by the London Musicians' Collective. Freeform, non-commercial, and volunteer-powered.",
+  streamUrl: "https://stream.resonance.fm/resonance",
+  playlistPage: "https://www.resonancefm.com",
+  donatePage: "https://www.resonancefm.com/donate",
+  fetchPlays: async () => [
+    {
+      key: "resonance-live",
+      song: "Resonance 104.4 FM",
+      artist: "Radio Arts & Freeform",
+      airdate: new Date().toISOString(),
+      artwork: RESONANCE_LOGO,
+    },
+  ],
 };
 
 // Refuge Worldwide: titles read "Show - Hosts"; only the current show carries a start time
@@ -263,6 +275,7 @@ const REFUGE: RadioStation = {
   name: "Refuge Worldwide",
   liveName: "Refuge Worldwide",
   location: "Berlin",
+  artwork: "https://images.radio.co/station_logos/s3699c5e49.20201221111634.png",
   about:
     "Community radio and fundraising platform from Berlin-Neukölln, giving airtime to grassroots causes and the artists around them.",
   streamUrl: "https://streaming.radio.co/s3699c5e49/listen",
@@ -280,7 +293,7 @@ const REFUGE: RadioStation = {
         song: title,
         artist: hosts.join(" - ") || "Refuge Worldwide",
         airdate: show.start_time,
-        artwork: toArtworkUrl(show.artwork_url),
+        artwork: toArtworkUrl(show.artwork_url) || "https://images.radio.co/station_logos/s3699c5e49.20201221111634.png",
       },
     ];
   },
@@ -290,13 +303,145 @@ export const RADIO_STATIONS: RadioStation[] = [
   KEXP,
   CARBON_SOUND,
   WFMU,
-  NTS_1,
-  SOMAFM_INDIE_POP,
+  RADIO_ALHARA,
+  DDR,
+  RESONANCE_FM,
   REFUGE,
 ];
 
+export type RadioBrowserStation = {
+  changeuuid?: string;
+  stationuuid: string;
+  name: string;
+  url: string;
+  url_resolved?: string;
+  homepage?: string;
+  favicon?: string;
+  tags?: string;
+  country?: string;
+  state?: string;
+  votes?: number;
+  clicktimestamp?: string;
+  codec?: string;
+  bitrate?: number;
+};
+
+export const RADICAL_RADIO_TAGS = [
+  "pirate radio",
+  "community radio",
+  "free radio",
+  "freies radio",
+  "radio libre",
+  "diy",
+  "underground",
+];
+
+export const DISCOVERED_STATIONS = new Map<string, RadioStation>();
+
+export function registerDiscoveredStation(station: RadioStation) {
+  DISCOVERED_STATIONS.set(station.id, station);
+}
+
+export function radioBrowserToRadioStation(rb: RadioBrowserStation): RadioStation {
+  const cleanId = `rb-${rb.stationuuid.replace(/-/g, "").toLowerCase()}`;
+  const location = [rb.state, rb.country].filter(Boolean).join(", ") || "Autonomous / Global";
+  const name = rb.name?.trim() || "Independent Broadcast";
+  const artwork = isQualityArtwork(rb.favicon) ? rb.favicon!.trim() : "";
+  const station: RadioStation = {
+    id: cleanId,
+    name,
+    liveName: name,
+    location,
+    artwork,
+    about: `${name} — Autonomous community & pirate radio broadcast from ${location}.`,
+    streamUrl: rb.url_resolved || rb.url,
+    playlistPage: rb.homepage || "",
+    donatePage: rb.homepage || "",
+    fetchPlays: async () => [],
+  };
+  registerDiscoveredStation(station);
+  return station;
+}
+
+export async function fetchDiscoveredRadioStations(
+  limit: number = 8,
+  signal?: AbortSignal,
+): Promise<RadioStation[]> {
+  const results = await Promise.allSettled(
+    RADICAL_RADIO_TAGS.map(async (tag) => {
+      const endpoint = `https://de1.api.radio-browser.info/json/stations/bytag/${encodeURIComponent(tag)}?order=clicktimestamp&reverse=true&hidebroken=true&limit=${limit * 3}`;
+      const res = await fetch(endpoint, { signal });
+      if (!res.ok) throw new Error(`Radio-Browser tag search failed (${tag}): ${res.status}`);
+      const data: RadioBrowserStation[] = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error(`Radio-Browser returned an invalid station list for tag: ${tag}`);
+      }
+      return data;
+    }),
+  );
+
+  if (signal?.aborted) throw signal.reason;
+
+  const stationLists = results.flatMap((result, index) => {
+    if (result.status === "fulfilled") return [result.value];
+    console.warn(`Radio-Browser tag search failed (${RADICAL_RADIO_TAGS[index]}):`, result.reason);
+    return [];
+  });
+  if (stationLists.length === 0) {
+    throw new Error("All Radio-Browser tag searches failed.");
+  }
+
+  const stationsById = new Map<string, RadioBrowserStation>();
+  stationLists
+    .flat()
+    .sort((a, b) => {
+      const aTime = Date.parse(a.clicktimestamp || "");
+      const bTime = Date.parse(b.clicktimestamp || "");
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    })
+    .forEach((station) => {
+      if (station.stationuuid && !stationsById.has(station.stationuuid)) {
+        stationsById.set(station.stationuuid, station);
+      }
+    });
+
+  return [...stationsById.values()]
+    .filter(
+      (station) =>
+        Boolean(station.url || station.url_resolved) &&
+        Boolean(station.name) &&
+        isQualityArtwork(station.favicon),
+    )
+    .slice(0, limit)
+    .map(radioBrowserToRadioStation);
+}
+
+export function queryDiscoveredRadioStations(limit: number = 8) {
+  return queryOptions({
+    queryKey: ["discoveredRadioStations", limit],
+    queryFn: ({ signal }) => fetchDiscoveredRadioStations(limit, signal),
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
 export function findStation(id: string | undefined): RadioStation | undefined {
-  return RADIO_STATIONS.find((s) => s.id === id);
+  if (!id) return undefined;
+  return RADIO_STATIONS.find((s) => s.id === id) || DISCOVERED_STATIONS.get(id);
+}
+
+/**
+ * Returns a randomly shuffled copy of radio stations using the Fisher-Yates algorithm.
+ */
+export function sortRadioRandomly(stations: RadioStation[]): RadioStation[] {
+  const shuffled = [...stations];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = temp;
+  }
+  return shuffled;
 }
 
 // Recently played songs, refreshed every minute. Idle when no station is given
@@ -311,18 +456,29 @@ export function queryRadioPlays(station: RadioStation | undefined) {
 
 // A station plays as a 10-minute set in the queue, then playback moves on to what's next
 import { RADIO_SET_SECONDS } from "@/scripts/radioTimer";
+import { API_KEY } from "@/constants/api-key";
+import { getListenerUserIdSync } from "@/scripts/listenerIdentity";
 export { RADIO_SET_SECONDS };
 
 // The station's live broadcast as a player track. It has no Mirlo track id; the player
 // tells stations apart by stream URL. Empty headers keep the Mirlo API key off the
-// station's servers
+// station's servers unless authorized external federated streaming is required.
 export function liveTrack(station: RadioStation): RNTrack {
+  const isExternalStream = station.streamUrl.includes("/stream/external/");
+  const headers = station.headers ?? (isExternalStream
+    ? {
+        "mirlo-api-key": API_KEY,
+        "social-music-userid": getListenerUserIdSync(),
+      }
+    : {});
+
   return {
     title: station.liveName,
     artist: `Live from ${station.location}`,
+    artwork: station.artwork,
     url: station.streamUrl,
-    headers: {},
-    type: TrackType.Default,
+    headers,
+    type: "default" as TrackType,
     duration: RADIO_SET_SECONDS,
     liveStation: station.id,
   } as RNTrack;

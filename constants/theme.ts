@@ -1,4 +1,4 @@
-// Mirlo Blue - Nightwing Dark Mode Theme Tokens
+// MirloBlue - Nightwing Dark Mode Theme Tokens
 export const theme = {
   colors: {
     // Void Obsidian Backgrounds

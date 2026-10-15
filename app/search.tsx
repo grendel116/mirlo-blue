@@ -2,7 +2,6 @@ import { debounce } from "lodash";
 import SearchHeader from "@/components/SearchHeader";
 import {
   View,
-  FlatList,
   ActivityIndicator,
   StyleSheet,
   Text,
@@ -16,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryTags } from "@/queries/queries";
 import TagPill from "@/components/TagPill";
 import { optionDisplay } from "@/components/SearchOptionRenderer";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { theme } from "@/constants/theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -25,7 +24,6 @@ export default function SearchPage() {
     showSuggestions,
     setShowSuggestions,
     searchResults,
-    setSearchValue,
     setIsSearching,
     getOptions,
     setSearchResults,
@@ -37,7 +35,6 @@ export default function SearchPage() {
   );
   const { top, bottom } = useSafeAreaInsets();
   const router = useRouter();
-
   const tagPills = useMemo(() => {
     return tags?.results.map((tag, index) => (
       <TagPill key={index} tagName={tag.tag} />
@@ -110,22 +107,31 @@ export default function SearchPage() {
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : null}
-      {Boolean(searchValue && showSuggestions && !isSearching && searchResults.length < 1) ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="search" size={40} color={theme.colors.textMuted} />
-          <Text style={styles.emptyText}>
-            {`Couldn't find anything for "${searchValue}". Try another search!`}
-          </Text>
-        </View>
-      ) : null}
-      {Boolean(!isSearching && showSuggestions && searchResults.length > 0) ? (
-        <FlatList
+      {Boolean(searchValue && showSuggestions && !isSearching) ? (
+        <ScrollView
           style={styles.resultsList}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
-          data={searchResults}
-          renderItem={({ item, index }) => optionDisplay(item, index)}
-          keyExtractor={(item, index) => `${index}-${item.id || item.name}`}
-        />
+          contentContainerStyle={styles.resultsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {searchResults.length > 0 ? (
+            <View>
+              <Text style={styles.sectionHeader}>ON MIRLO</Text>
+              {searchResults.map((item, index) => (
+                <View key={`${index}-${item.id || item.name}`}>
+                  {optionDisplay(item, index)}
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {searchResults.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search" size={40} color={theme.colors.textMuted} />
+              <Text style={styles.emptyText}>
+                {`Couldn't find anything for "${searchValue}". Try another search!`}
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
       ) : null}
     </View>
   );
@@ -227,5 +233,9 @@ const styles = StyleSheet.create({
   resultsList: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  resultsContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
 });

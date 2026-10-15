@@ -3,9 +3,19 @@ import {
   isTrackOwned,
   isTrackOwnedOrPreview,
   resolveArtworkUrl,
+  isQualityArtwork,
+  resolveQualityArtworkSource,
+  htmlToMarkdown,
+  handleExternalPurchase,
 } from "@/scripts/utils";
+import { formatPurchaseButtonLabel } from "@/app/purchaseModal";
+import { openInBrowser } from "@/scripts/openInBrowser";
 import { createMockUser } from "@/__mocks__/mockUser";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
+
+jest.mock("@/scripts/openInBrowser", () => ({
+  openInBrowser: jest.fn(),
+}));
 
 describe("resolveArtworkUrl", () => {
   test("returns empty string for undefined or empty input", () => {
@@ -25,6 +35,61 @@ describe("resolveArtworkUrl", () => {
     const result = resolveArtworkUrl("/media/covers/album.jpg");
     expect(result).toMatch(/\/media\/covers\/album\.jpg$/);
     expect(result.startsWith("http")).toBe(true);
+  });
+});
+
+describe("isQualityArtwork", () => {
+  test("rejects undefined, empty, or non-string inputs", () => {
+    expect(isQualityArtwork(undefined)).toBe(false);
+    expect(isQualityArtwork("")).toBe(false);
+    expect(isQualityArtwork("   ")).toBe(false);
+    // @ts-expect-error test non-string
+    expect(isQualityArtwork(null)).toBe(false);
+    // @ts-expect-error test non-string
+    expect(isQualityArtwork(12345)).toBe(false);
+  });
+
+  test("rejects invalid schemes", () => {
+    expect(isQualityArtwork("javascript:alert(1)")).toBe(false);
+    expect(isQualityArtwork("ftp://example.com/art.png")).toBe(false);
+    expect(isQualityArtwork("relative/path/art.png")).toBe(false);
+  });
+
+  test("rejects desktop .ico and favicon URLs", () => {
+    expect(isQualityArtwork("https://example.com/favicon.ico")).toBe(false);
+    expect(isQualityArtwork("https://example.com/favicon.ico?v=2")).toBe(false);
+    expect(isQualityArtwork("http://radio.org/assets/logo.ico")).toBe(false);
+  });
+
+  test("rejects tiny thumbnails (16px and 32px indicators)", () => {
+    expect(isQualityArtwork("https://example.com/thumb_16x16.png")).toBe(false);
+    expect(isQualityArtwork("https://example.com/icon_32x32.jpg")).toBe(false);
+    expect(isQualityArtwork("https://example.com/cover.png?size=16")).toBe(false);
+    expect(isQualityArtwork("https://example.com/cover.png?w=32&h=32")).toBe(false);
+    expect(isQualityArtwork("https://example.com/cover.png?width=16")).toBe(false);
+  });
+
+  test("accepts valid high-resolution artwork URLs", () => {
+    expect(isQualityArtwork("https://example.com/cover.jpg")).toBe(true);
+    expect(isQualityArtwork("https://example.com/artwork_600x600.png")).toBe(true);
+    expect(isQualityArtwork("http://wfmu.org/images/wfmu_logo.png")).toBe(true);
+    expect(isQualityArtwork("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA")).toBe(true);
+    expect(isQualityArtwork("file:///local/storage/cover.jpg")).toBe(true);
+  });
+});
+
+describe("resolveQualityArtworkSource", () => {
+  test("returns no image source when artwork is missing or low quality", () => {
+    expect(resolveQualityArtworkSource(undefined)).toBeUndefined();
+    expect(resolveQualityArtworkSource("")).toBeUndefined();
+    expect(resolveQualityArtworkSource("https://example.com/favicon.ico")).toBeUndefined();
+    expect(resolveQualityArtworkSource("https://example.com/thumb_16x16.png")).toBeUndefined();
+  });
+
+  test("returns URI source object when artwork meets quality standards", () => {
+    expect(resolveQualityArtworkSource("https://example.com/album_art.jpg")).toEqual({
+      uri: "https://example.com/album_art.jpg",
+    });
   });
 });
 
@@ -78,6 +143,39 @@ describe("isTrackOwned", () => {
         ...createMockRNTrack().trackGroup,
         artistId: 999,
         userTrackGroupPurchases: [{ userId: 7 }],
+      },
+    });
+    expect(isTrackOwned(track, undefined, user)).toBe(true);
+  });
+
+  test("returns true when user has purchased the track group in user.userTrackGroupPurchases", () => {
+    const user = createMockUser({
+      id: 7,
+      userTrackGroupPurchases: [{ trackGroupId: 55 }],
+    });
+    const track = createMockRNTrack({
+      trackGroupId: 55,
+      trackGroup: {
+        ...createMockRNTrack().trackGroup,
+        id: 55,
+        artistId: 999,
+        userTrackGroupPurchases: [],
+      },
+    });
+    expect(isTrackOwned(track, undefined, user)).toBe(true);
+  });
+
+  test("returns true when user has individual track purchase in user.userTrackPurchases", () => {
+    const user = createMockUser({
+      id: 7,
+      userTrackPurchases: [{ trackId: 888 }],
+    });
+    const track = createMockRNTrack({
+      id: 888,
+      trackGroup: {
+        ...createMockRNTrack().trackGroup,
+        artistId: 999,
+        userTrackGroupPurchases: [],
       },
     });
     expect(isTrackOwned(track, undefined, user)).toBe(true);
@@ -142,5 +240,125 @@ describe("isTrackOwnedOrPreview", () => {
       releaseDate: past,
     };
     expect(isTrackOwnedOrPreview(track, null, trackGroup)).toBe(false);
+  });
+});
+
+describe("htmlToMarkdown", () => {
+  test("returns empty string for undefined or falsy input", () => {
+    expect(htmlToMarkdown(undefined)).toBe("");
+    expect(htmlToMarkdown("")).toBe("");
+  });
+
+  test("returns plain text unchanged if no HTML or entities present", () => {
+    expect(htmlToMarkdown("Simple album description")).toBe("Simple album description");
+  });
+
+  test("converts paragraphs and line breaks to markdown newlines", () => {
+    const html = "<p>First paragraph.</p><p>Second paragraph with<br/>a line break.</p>";
+    expect(htmlToMarkdown(html).trim()).toBe("First paragraph.\n\nSecond paragraph with\na line break.");
+  });
+
+  test("converts HTML anchors to markdown links", () => {
+    const html = '<p>Check out our <a href="https://mirlo.space/artist">Mirlo page</a> for more.</p>';
+    expect(htmlToMarkdown(html).trim()).toBe("Check out our [Mirlo page](https://mirlo.space/artist) for more.");
+  });
+
+  test("converts bold and italic markup", () => {
+    const html = "<p><strong>Bold</strong> text and <i>italic</i> notes.</p>";
+    expect(htmlToMarkdown(html).trim()).toBe("**Bold** text and *italic* notes.");
+  });
+
+  test("converts HTML character entities to clean text", () => {
+    const html = "It&rsquo;s &ldquo;Sockpuppet&rdquo; &amp; friends &mdash; enjoy!";
+    expect(htmlToMarkdown(html)).toBe("It's \"Sockpuppet\" & friends — enjoy!");
+  });
+});
+
+describe("formatPurchaseButtonLabel", () => {
+  test("formats store labels with 'Purchase on <Source>'", () => {
+    expect(formatPurchaseButtonLabel("Bandcamp")).toBe("Purchase on Bandcamp");
+    expect(formatPurchaseButtonLabel("Faircamp")).toBe("Purchase on Faircamp");
+    expect(formatPurchaseButtonLabel("Buy on Bandcamp")).toBe("Purchase on Bandcamp");
+  });
+
+  test("formats Mirlo store labels with 'Purchase on Mirlo'", () => {
+    expect(formatPurchaseButtonLabel("Mirlo")).toBe("Purchase on Mirlo");
+    expect(formatPurchaseButtonLabel("mirlo space")).toBe("Purchase on Mirlo");
+  });
+
+  test("formats subscriptions cleanly", () => {
+    expect(formatPurchaseButtonLabel("Mirlo Subscription")).toBe("Subscribe on Mirlo");
+    expect(formatPurchaseButtonLabel("Subscribe on Mirlo")).toBe("Subscribe on Mirlo");
+    expect(formatPurchaseButtonLabel("Subscription")).toBe("Subscribe on Mirlo");
+    expect(formatPurchaseButtonLabel("Subscription", "Bandcamp")).toBe("Subscribe on Bandcamp");
+  });
+
+  test("normalizes generic 'Album' and 'Release' labels to the source", () => {
+    expect(formatPurchaseButtonLabel("Buy Album")).toBe("Purchase on Mirlo");
+    expect(formatPurchaseButtonLabel("Purchase Album")).toBe("Purchase on Mirlo");
+    expect(formatPurchaseButtonLabel("Purchase Album", "Faircamp")).toBe("Purchase on Faircamp");
+  });
+
+  test("preserves custom support directives", () => {
+    expect(formatPurchaseButtonLabel("Support Artist")).toBe("Support Artist");
+  });
+
+  test("falls back to 'Purchase on <fallbackSource>' when label is missing", () => {
+    expect(formatPurchaseButtonLabel(undefined)).toBe("Purchase on Mirlo");
+    expect(formatPurchaseButtonLabel("")).toBe("Purchase on Mirlo");
+    expect(formatPurchaseButtonLabel(undefined, "Faircamp")).toBe("Purchase on Faircamp");
+  });
+});
+
+describe("handleExternalPurchase", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("opens specificUrl directly if provided", () => {
+    handleExternalPurchase({}, "https://artist.bandcamp.com");
+    expect(openInBrowser).toHaveBeenCalledWith("https://artist.bandcamp.com");
+  });
+
+  test("prioritizes mirlo.space link in purchaseLinks when present", () => {
+    handleExternalPurchase({
+      purchaseLinks: [
+        { label: "Bandcamp", url: "https://artist.bandcamp.com" },
+        { label: "Mirlo", url: "https://mirlo.space/artist/release/album" },
+      ],
+    });
+    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/artist/release/album");
+  });
+
+  test("opens first link if no mirlo.space link in purchaseLinks", () => {
+    handleExternalPurchase({
+      purchaseLinks: [
+        { label: "Faircamp", url: "https://artist.faircamp.net" },
+        { label: "Bandcamp", url: "https://artist.bandcamp.com" },
+      ],
+    });
+    expect(openInBrowser).toHaveBeenCalledWith("https://artist.faircamp.net");
+  });
+
+  test("opens sourceUrl if non-mirlo and no purchaseLinks", () => {
+    handleExternalPurchase({
+      sourceUrl: "https://artist.faircamp.net",
+    });
+    expect(openInBrowser).toHaveBeenCalledWith("https://artist.faircamp.net");
+  });
+
+  test("opens mirlo.space release page when artist and album slugs exist", () => {
+    handleExternalPurchase({
+      artist: { urlSlug: "my-artist" } as any,
+      urlSlug: "my-album",
+    });
+    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/my-artist/release/my-album");
+  });
+
+  test("opens mirlo.space artist page when only artist slug exists", () => {
+    handleExternalPurchase({
+      artist: { urlSlug: "my-artist" } as any,
+    });
+    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/my-artist");
   });
 });

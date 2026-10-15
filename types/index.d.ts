@@ -84,6 +84,9 @@ interface AlbumProps {
   tags?: string[];
   trackGroupId: number;
   minPrice?: number;
+  source?: string;
+  sourceUrl?: string;
+  purchaseLinks?: { label: string; url: string }[];
 }
 
 interface TrackProps {
@@ -98,6 +101,8 @@ interface TrackProps {
     url: string;
     duration: number | undefined;
   };
+  source?: string;
+  sourceUrl?: string;
 }
 
 interface RNTrack {
@@ -136,6 +141,9 @@ interface RNTrack {
         1500: string;
       };
     };
+    source?: string;
+    sourceUrl?: string;
+    purchaseLinks?: { label: string; url: string }[];
   };
   audio: {
     url: string;
@@ -145,6 +153,8 @@ interface RNTrack {
   order: number;
   headers: {};
   type?: import("react-native-track-player").TrackType;
+  source?: string;
+  sourceUrl?: string;
   // Length in seconds the lock screen shows; streams report their own
   duration?: number;
   // Added by autoplay after the chosen playlist ran out

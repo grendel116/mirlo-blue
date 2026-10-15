@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Mirlo Blue",
+    "name": "MirloBlue",
     "slug": "mirlo-blue",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
@@ -52,14 +52,14 @@
         "expo-secure-store",
         {
           "configureAndroidBackup": true,
-          "faceIDPermission": "Allow Mirlo Blue to access your Face ID biometric data."
+          "faceIDPermission": "Allow MirloBlue to access your Face ID biometric data."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Mirlo Blue to access your photos.",
-          "savePhotosPermission": "Allow Mirlo Blue to save music to your device.",
+          "photosPermission": "Allow MirloBlue to access your photos.",
+          "savePhotosPermission": "Allow MirloBlue to save music to your device.",
           "granularPermissions": ["audio"]
         }
       ],

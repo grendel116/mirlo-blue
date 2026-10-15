@@ -16,6 +16,10 @@ import { usePlayer } from "@/state/PlayerContext";
 import { Link, router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
+import {
+  isQualityArtwork,
+  resolveArtworkUrl,
+} from "@/scripts/utils";
 
 export default function Footer({ style }: ViewProps) {
   const progress = useProgress();
@@ -60,13 +64,14 @@ export default function Footer({ style }: ViewProps) {
             accessibilityRole="button"
             accessibilityLabel="Open now playing"
           >
-            {activeTrack.artwork ? (
-              <Image source={{ uri: activeTrack.artwork }} style={styles.miniArtwork} />
-            ) : (
-              <View style={[styles.miniArtwork, styles.artworkPlaceholder]}>
-                <Ionicons name="musical-notes" size={18} color={theme.colors.primary} />
-              </View>
-            )}
+            <Image
+              source={
+                isQualityArtwork(activeTrack.artwork)
+                  ? { uri: resolveArtworkUrl(activeTrack.artwork) }
+                  : undefined
+              }
+              style={styles.miniArtwork}
+            />
 
             <View style={styles.miniTrackInfo}>
               <Text style={styles.miniTitle} numberOfLines={1}>
@@ -358,4 +363,3 @@ const stackedBoxStyles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
 });
-

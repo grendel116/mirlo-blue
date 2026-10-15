@@ -10,8 +10,8 @@ export type DownloadedTrack = {
   artist: string;
   albumTitle?: string;
   artwork?: string;
-  url: string; // file:// uri of the saved audio
-  folder?: string; // file:// uri of the album folder it was unpacked into
+  url: string; // file:// uri of the saved audio; on Android, Mirlo downloads sit in the Music folder
+  folder?: string; // file:// uri of the album's app folder, which holds its cover
   duration?: number;
   bytes?: number;
   order?: number; // position within its album

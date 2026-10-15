@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mirlo Blue — Independent Music, Live Radio & Podcasts</title>
+    <title>MirloBlue — Music, Radio & Podcasts</title>
     <meta
       name="description"
-      content="A darker, bluer Android player for Mirlo, independent live radio, local libraries, and movement podcasts. Support artists directly with zero ads and zero tracking."
+      content="Listen to Mirlo music, independent radio, podcasts, and music from your device with MirloBlue."
     />
-    <meta property="og:title" content="Mirlo Blue — Independent Music, Live Radio & Podcasts" />
+    <meta property="og:title" content="MirloBlue — Music, Radio & Podcasts" />
     <meta
       property="og:description"
-      content="Find music, play it, buy it, keep it. Stream Mirlo, independent live radio, and podcasts with zero ads or tracking."
+      content="Listen to Mirlo music, independent radio, podcasts, and music from your device."
     />
     <meta property="og:url" content="https://grendel116.github.io/mirlo-blue/" />
     <meta
@@ -279,6 +279,46 @@
         color: var(--text-muted);
       }
 
+      .source-guide {
+        margin-top: 72px;
+      }
+
+      .source-guide h2 {
+        font-family: "Cubano", sans-serif;
+        font-size: clamp(26px, 4vw, 34px);
+        font-weight: 400;
+        margin-bottom: 12px;
+      }
+
+      .source-intro {
+        max-width: 760px;
+        margin-bottom: 24px;
+        color: var(--text-muted);
+      }
+
+      .source-guide > p {
+        max-width: 860px;
+        margin-top: 18px;
+        color: var(--text-muted);
+      }
+
+      .source-guide a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+
+      .source-guide a:hover {
+        text-decoration: underline;
+      }
+
+      .source-guide strong {
+        color: var(--text);
+      }
+
+      .source-guide .brand-name {
+        color: var(--gold);
+      }
+
       footer {
         border-top: 1px solid var(--border);
         padding: 24px;
@@ -313,7 +353,7 @@
     <header>
       <div class="nav-inner">
         <a href="./" class="brand">
-          <img src="logo.png" alt="Mirlo Blue logo" width="28" height="28" />
+          <img src="logo.png" alt="MirloBlue logo" width="28" height="28" />
           <span class="brand-text"
             >MIRLO<span class="brand-highlight">BLUE</span></span
           >
@@ -334,23 +374,21 @@
     <main>
       <section class="hero">
         <div>
-          <div class="badge">Open Source · Ad-Free · Artist-First</div>
+          <div class="badge">Open Source · No Ads · Artist Support</div>
           <h1>
             Find music, play it, buy it, <span>keep it.</span>
           </h1>
           <p class="lead">
-            A high-contrast dark Android player for
-            <strong>Mirlo</strong>—the worker-owned music cooperative—paired
-            with independent live radio, movement podcasts, and your own local
-            audio library.
+            An Android player for <strong>Mirlo</strong>, independent radio,
+            podcasts, and music on your device.
           </p>
           <div class="cta-row">
             <a
               id="download-btn"
-              href="https://github.com/grendel116/mirlo-blue/releases/latest/download/mirlo-blue-1.0.5.apk"
+              href="https://github.com/grendel116/mirlo-blue/releases/latest/download/mirlo-blue-1.0.6.apk"
               class="btn-primary"
             >
-              Download Android APK
+              Download for Android
             </a>
             <a
               href="https://github.com/grendel116/mirlo-blue"
@@ -358,19 +396,18 @@
               target="_blank"
               rel="noopener"
             >
-              Source &amp; Releases
+              Source code &amp; releases
             </a>
           </div>
           <p class="install-note" id="version-note">
-            Install once — future updates deliver automatically when you open the
-            app.
+            Updates install when you open the app.
           </p>
         </div>
 
         <div class="phone-wrap">
           <img
             src="preview-v2.png"
-            alt="Mirlo Blue Android app home screen"
+            alt="MirloBlue Android app home screen"
             class="phone-shot"
             width="310"
             height="689"
@@ -381,41 +418,39 @@
 
       <section class="features">
         <div class="card">
-          <h3>Direct Artist Support</h3>
+          <h3>Support Artists</h3>
           <p>
-            Stream and purchase releases from
-            <strong>mirlo.space</strong>. Payments go directly to artists and
-            cooperative workers, not corporate shareholders.
+            Listen to and buy music on <strong>mirlo</strong>. Purchases
+            support artists and cooperative workers.
           </p>
         </div>
         <div class="card">
           <h3>Independent Live Radio</h3>
           <p>
-            Stream KEXP, WFMU, NTS, SomaFM, Carbon Sound, and Refuge Worldwide
-            with live on-air tracklists and 10-minute queue sets.
+            Listen to curated stations and find more through Radio-Browser.
           </p>
         </div>
         <div class="card">
-          <h3>Discussion &amp; Podcasts</h3>
+          <h3>Podcasts</h3>
           <p>
-            Queue up independent movement podcasts right alongside your music
-            and radio sets.
+            Browse curated shows and podcasts from the Castopod Index.
           </p>
         </div>
         <div class="card">
-          <h3>True Local Ownership</h3>
+          <h3>Your Music, Offline</h3>
           <p>
-            Mix your own MP3, FLAC, M4A, Ogg, and Opus files with Mirlo
-            downloads, edit tags and covers, and listen completely offline.
+            Play your own music and Mirlo downloads. Edit tags and covers, then
+            listen offline.
           </p>
         </div>
       </section>
+
     </main>
 
     <footer>
-      Built on the open-source
+      Based on
       <a href="https://mirlo.space" target="_blank" rel="noopener">Mirlo</a>
-      ecosystem · Released under AGPL-3.0 on
+      · AGPL-3.0 ·
       <a
         href="https://github.com/grendel116/mirlo-blue"
         target="_blank"
@@ -437,7 +472,7 @@
           if (release.name) {
             const note = document.getElementById("version-note");
             if (note) {
-              note.textContent = `${release.name} · Install once — future updates deliver automatically when you open the app.`;
+              note.textContent = `${release.tag_name || release.name} · Updates install when you open the app.`;
             }
           }
         })

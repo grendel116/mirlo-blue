@@ -87,6 +87,8 @@ export default function Menu() {
             <Text style={styles.menuText}>Search & Discover</Text>
           </Pressable>
 
+
+
           <Pressable
             style={[styles.menuItem, styles.authMenuItem]}
             onPress={() => {

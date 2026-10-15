@@ -17,16 +17,34 @@ jest.mock("expo-web-browser", () => ({
 }));
 const openBrowserAsync = WebBrowser.openBrowserAsync as jest.Mock;
 
-// Only "arod" exists; everything else 404s like the real API
+// Mock queryClient to support both artist validation and track lookup
 jest
   .spyOn(queryClient, "fetchQuery")
-  .mockImplementation(async ({ queryKey }: any) =>
-    queryKey[1].artistSlug === "arod"
+  .mockImplementation(async ({ queryKey }: any) => {
+    if (queryKey[0] === "track") {
+      const trackId = queryKey[1];
+      if (trackId === "42") {
+        return {
+          result: {
+            id: 42,
+            trackGroup: {
+              artist: { urlSlug: "arod" },
+              urlSlug: "penaflor-single",
+            },
+          },
+        };
+      }
+      return Promise.reject(
+        new MirloFetchError({ status: 404 } as Response, "Track not found"),
+      );
+    }
+    const artistOpts = queryKey[1];
+    return artistOpts?.artistSlug === "arod"
       ? { id: 4 }
       : Promise.reject(
           new MirloFetchError({ status: 404 } as Response, "Artist not found"),
-        ),
-  );
+        );
+  });
 
 const redirect = (path: string) => redirectSystemPath({ path, initial: false });
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -46,7 +64,7 @@ describe("redirectSystemPath", () => {
       await redirect(
         "https://mirlo.space/arod/release/penaflor-single/tracks/12?x=1",
       ),
-    ).toBe("/artist/arod/album/penaflor-single/tracks/12");
+    ).toBe("/artist/arod/album/penaflor-single/album-tracks");
     expect(await redirect("https://mirlo.space/")).toBe("/");
   });
 
@@ -82,9 +100,61 @@ describe("redirectSystemPath", () => {
     Platform.OS = "ios";
   });
 
+  test("maps mirloblue: custom scheme to internal app routes", async () => {
+    expect(await redirect("mirloblue://station/wfmu")).toBe("/station/wfmu");
+    expect(await redirect("mirloblue://podcast/srsly-wrong")).toBe(
+      "/podcast/srsly-wrong",
+    );
+    expect(
+      await redirect("mirloblue://artist/arod/album/single/tracks/42"),
+    ).toBe("/artist/arod/album/single/album-tracks");
+    expect(
+      await redirect("mirloblue://artist/arod/album/single"),
+    ).toBe("/artist/arod/album/single/album-tracks");
+    expect(
+      await redirect("mirloblue://artist/arod"),
+    ).toBe("/artist/arod/artist-page");
+  });
+
+  test("extracts app route parameter from grendel116.github.io listen hub URL", async () => {
+    expect(
+      await redirect(
+        "https://grendel116.github.io/mirlo-blue/listen/?type=radio&app=%2Fstation%2Fwfmu",
+      ),
+    ).toBe("/station/wfmu");
+  });
+
+  test("resolves track short links (/t/:id) across share hubs and mirlo.space", async () => {
+    expect(
+      await redirect("https://mirlo-blue-share.mirloblue.workers.dev/t/42"),
+    ).toBe("/artist/arod/album/penaflor-single/album-tracks");
+    expect(
+      await redirect("https://mirlo-blue-share.mirloblue.workers.dev/listen/t/42"),
+    ).toBe("/artist/arod/album/penaflor-single/album-tracks");
+    expect(
+      await redirect("https://mirlo.space/t/42"),
+    ).toBe("/artist/arod/album/penaflor-single/album-tracks");
+  });
+
+  test("handles workers.dev short routes for stations and podcasts", async () => {
+    expect(
+      await redirect("https://mirlo-blue-share.mirloblue.workers.dev/r/wfmu"),
+    ).toBe("/station/wfmu");
+    expect(
+      await redirect(
+        "https://mirlo-blue-share.mirloblue.workers.dev/p/colonial-outcasts",
+      ),
+    ).toBe("/podcast/colonial-outcasts");
+    expect(
+      await redirect(
+        "https://mirlo-blue-share.mirloblue.workers.dev/?app=%2Fstation%2Fkexp",
+      ),
+    ).toBe("/station/kexp");
+  });
+
   test("leaves other URLs untouched", async () => {
-    expect(await redirect("mirlo:///artist/arod/artist-page")).toBe(
-      "mirlo:///artist/arod/artist-page",
+    expect(await redirect("other:///artist/arod/artist-page")).toBe(
+      "other:///artist/arod/artist-page",
     );
     expect(await redirect("not a url")).toBe("not a url");
   });

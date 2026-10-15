@@ -8,6 +8,43 @@ export function trackStreamPath(trackId: number | string): string {
   return `/v1/tracks/${trackId}/stream/playlist.m3u8`;
 }
 
+/**
+ * Validates that an artwork URL meets the lower quality threshold.
+ * Rejects empty strings, legacy desktop .ico files, and known microscopic dimensions (<= 32px).
+ */
+export function isQualityArtwork(rawUrl?: string): boolean {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  const trimmed = rawUrl.trim().toLowerCase();
+  if (
+    !trimmed.startsWith("http://") &&
+    !trimmed.startsWith("https://") &&
+    !trimmed.startsWith("data:") &&
+    !trimmed.startsWith("file://")
+  ) {
+    return false;
+  }
+  // Reject microscopic browser .ico files
+  if (trimmed.endsWith(".ico") || trimmed.includes("/favicon.ico") || trimmed.includes("favicon.ico?")) {
+    return false;
+  }
+  // Reject tiny thumbnail indicators in URL path or parameters (e.g. 16x16, 32x32)
+  if (/(?:^|[^a-z0-9])(?:16x16|32x32|16px|32px)(?:[^a-z0-9]|$)/i.test(trimmed)) {
+    return false;
+  }
+  if (/[?&](?:w|h|width|height|size)=(?:16|32)(?:&|$)/i.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolves an image source only when it meets the artwork quality standards.
+ */
+export function resolveQualityArtworkSource(rawUrl?: string): { uri: string } | undefined {
+  if (!isQualityArtwork(rawUrl)) return undefined;
+  return { uri: resolveArtworkUrl(rawUrl) };
+}
+
 export function resolveArtworkUrl(rawUrl?: string): string {
   if (!rawUrl || typeof rawUrl !== "string") return "";
   const trimmed = rawUrl.trim();
@@ -34,56 +71,117 @@ export function audioTrackType(url: string): TrackType {
   return "default" as TrackType;
 }
 
+export interface TrackEntitlementContext {
+  user?: LoggedInUser | null;
+  trackGroup?: AlbumProps;
+  playCount?: number;
+  disabledTrackIds?: Set<number>;
+}
+
+/**
+ * Evaluates whether a track can be played based on user ownership, release date,
+ * and preview play thresholds.
+ */
+export function isTrackPlayable(
+  track: RNTrack,
+  context?: TrackEntitlementContext,
+): boolean {
+  const user = context?.user;
+  const trackGroup = context?.trackGroup ?? track.trackGroup;
+
+  // 1. Preview tracks are playable unless explicitly disabled or play cap reached
+  if (track.isPreview) {
+    const isExhausted = Boolean(
+      (track.id && context?.disabledTrackIds?.has(track.id)) ||
+        (typeof trackGroup?.artist?.maxFreePlays === "number" &&
+          typeof context?.playCount === "number" &&
+          context.playCount >= trackGroup.artist.maxFreePlays),
+    );
+
+    if (!isExhausted) {
+      return true;
+    }
+  }
+
+  // 2. Unreleased releases cannot be streamed
+  if (trackGroup?.releaseDate && new Date(trackGroup.releaseDate) > new Date()) {
+    return false;
+  }
+
+  // 3. User must be logged in to own a non-preview or exhausted track
+  if (!user) {
+    return false;
+  }
+
+  // 4. Owned tracks (bought individually, album purchased, or user is artist) remain playable
+  return isTrackOwned(track, trackGroup, user);
+}
+
 export const isTrackOwnedOrPreview = (
   track: RNTrack,
   user?: LoggedInUser | null,
   trackGroup?: AlbumProps,
-): boolean => {
-  if (track.isPreview) {
-    return true;
-  }
-  if (
-    trackGroup?.releaseDate &&
-    new Date(trackGroup.releaseDate) > new Date()
-  ) {
-    return false;
-  }
-  if (!user) {
-    return false;
-  }
-  const lookInTrackGroup = trackGroup ?? track.trackGroup;
-  const ownsTrack = lookInTrackGroup.artistId === user.id;
-  const boughtTrack = !!lookInTrackGroup.userTrackGroupPurchases?.find(
-    (utgp) => utgp.userId === user.id,
-  );
-  return ownsTrack || boughtTrack;
-};
+  disabledTrackIds?: Set<number>,
+): boolean => isTrackPlayable(track, { user, trackGroup, disabledTrackIds });
 
 export const isTrackOwned = (
   track: RNTrack,
   trackGroup?: AlbumProps,
   user?: LoggedInUser | null,
 ) => {
-  if (!user) {
-    return false;
-  }
-  if (!track) {
+  if (!user || !track) {
     return false;
   }
   const lookInTrackGroup = trackGroup ?? track.trackGroup;
 
   // Checks if you are the owner/artist of the track
-  const ownsTrack = lookInTrackGroup.artistId === user.id;
+  const ownsTrack = Boolean(lookInTrackGroup && lookInTrackGroup.artistId === user.id);
   // Checks if you bought the track individually
-  const boughtTrack = !!user.userTrackPurchases?.find(
-    (utgp) => utgp.trackId === track.id,
+  const boughtTrack = Boolean(
+    user.userTrackPurchases?.some((utp) => utp.trackId === track.id),
   );
   // Checks if you bought the album that the track belongs to
-  const boughtTrackGroup = !!lookInTrackGroup.userTrackGroupPurchases?.find(
-    (utgp) => utgp.userId === user.id,
+  const albumId =
+    lookInTrackGroup?.id ??
+    (lookInTrackGroup as any)?.trackGroupId ??
+    track.trackGroupId;
+  const boughtTrackGroup = Boolean(
+    lookInTrackGroup?.userTrackGroupPurchases?.some((utgp) => utgp.userId === user.id) ||
+      (albumId && user.userTrackGroupPurchases?.some((utgp) => utgp.trackGroupId === albumId)),
   );
   return ownsTrack || boughtTrack || boughtTrackGroup;
 };
+
+/**
+ * Converts rich HTML formatting (e.g. from Faircamp/Chorus feeds) to clean Markdown.
+ */
+export function htmlToMarkdown(html?: string): string {
+  if (!html || typeof html !== "string") return "";
+  if (!html.includes("<") && !html.includes("&")) return html;
+
+  return html
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+    .replace(/<(strong|b)[^>]*>([\s\S]*?)<\/(strong|b)>/gi, "**$2**")
+    .replace(/<(em|i)[^>]*>([\s\S]*?)<\/(em|i)>/gi, "*$2*")
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "- $1\n")
+    .replace(/<\/?(ul|ol)[^>]*>/gi, "\n")
+    .replace(/&rsquo;|&lsquo;|&#8217;|&#8216;|&apos;|&#39;/g, "'")
+    .replace(/&ldquo;|&rdquo;|&#8220;|&#8221;|&quot;/g, '"')
+    .replace(/&hellip;|&#8230;/g, "...")
+    .replace(/&mdash;|&#8212;/g, "—")
+    .replace(/&ndash;|&#8211;/g, "–")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 export const linkifyUrls = (text: string) => {
   // Simple regex to find URLs that aren't already in markdown format
@@ -95,9 +193,36 @@ export const linkifyUrls = (text: string) => {
   });
 };
 
-export const handleExternalPurchase = (trackGroup: AlbumProps) => {
-  const purchaseUrl = `https://mirlo.space/${trackGroup.artist.urlSlug}/release/${trackGroup.urlSlug}`;
-  openInBrowser(purchaseUrl);
+export const handleExternalPurchase = (
+  trackGroup: Partial<AlbumProps> | AlbumProps,
+  specificUrl?: string,
+) => {
+  if (specificUrl) {
+    openInBrowser(specificUrl);
+    return;
+  }
+  if (trackGroup.purchaseLinks && trackGroup.purchaseLinks.length > 0) {
+    const mirloOption = trackGroup.purchaseLinks.find((l) => l.url.includes("mirlo.space"));
+    if (mirloOption) {
+      openInBrowser(mirloOption.url);
+      return;
+    }
+    openInBrowser(trackGroup.purchaseLinks[0].url);
+    return;
+  }
+  if (trackGroup.sourceUrl && !trackGroup.sourceUrl.includes("mirlo.space")) {
+    openInBrowser(trackGroup.sourceUrl);
+    return;
+  }
+  const artistSlug = trackGroup.artist?.urlSlug;
+  const albumSlug = trackGroup.urlSlug;
+  if (artistSlug && albumSlug) {
+    openInBrowser(`https://mirlo.space/${artistSlug}/release/${albumSlug}`);
+  } else if (artistSlug) {
+    openInBrowser(`https://mirlo.space/${artistSlug}`);
+  } else if (trackGroup.sourceUrl) {
+    openInBrowser(trackGroup.sourceUrl);
+  }
 };
 
 // The song's page on mirlo.space. Social apps and messages show it with the cover art

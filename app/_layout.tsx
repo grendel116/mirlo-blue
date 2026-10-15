@@ -184,6 +184,7 @@ export default function RootLayout() {
                     animationDuration: 200,
                   }}
                 />
+
                 <Stack.Screen
                   name="emailPurchaseInfoModal"
                   options={{
@@ -195,6 +196,15 @@ export default function RootLayout() {
                 />
                 <Stack.Screen
                   name="addFreeAlbumModal"
+                  options={{
+                    headerShown: false,
+                    presentation: "modal",
+                    animation: "slide_from_bottom",
+                    animationDuration: 200,
+                  }}
+                />
+                <Stack.Screen
+                  name="purchaseModal"
                   options={{
                     headerShown: false,
                     presentation: "modal",

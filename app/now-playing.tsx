@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Text,
   View,
@@ -23,10 +23,15 @@ import { findPodcastShow } from "@/queries/podcast";
 import { queryArtist } from "@/queries/queries";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
+import { showPurchaseModal } from "@/components/AddAlbumButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { savedAlbumHref } from "@/scripts/downloadManager";
 import { getRadioTimerElapsed, setRadioTimerElapsed } from "@/scripts/radioTimer";
+import {
+  isQualityArtwork,
+  resolveArtworkUrl,
+} from "@/scripts/utils";
 
 export default function NowPlaying() {
   const { activeTrack, looping, skipNext } = usePlayer();
@@ -46,7 +51,18 @@ export default function NowPlaying() {
   const hasSetTimer = isLive && looping !== "track";
   const { data: plays } = useQuery(queryRadioPlays(station));
   const onAir = plays?.[0];
-  const artworkUri = isLive ? onAir?.artwork : (activeTrack?.artwork || activeTrack?.trackGroup?.cover?.sizes?.[600]);
+  const [imgError, setImgError] = useState(false);
+  const artworkUri = isLive
+    ? (isQualityArtwork(onAir?.artwork) ? onAir?.artwork : station?.artwork)
+    : (activeTrack?.artwork || activeTrack?.trackGroup?.cover?.sizes?.[600]);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [artworkUri]);
+
+  const artworkSource = (!imgError && isQualityArtwork(artworkUri))
+    ? { uri: resolveArtworkUrl(artworkUri) }
+    : undefined;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,17 +74,12 @@ export default function NowPlaying() {
       >
         {/* Glossy Album Art Container */}
         <View style={[styles.artworkContainer, { width: albumArtSize, height: albumArtSize }]}>
-          {artworkUri ? (
-            <Image
-              source={{ uri: artworkUri }}
-              style={styles.artworkImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.artworkImage, styles.artworkPlaceholder]}>
-              <Text style={styles.placeholderText}>{station?.name ?? "Mirlo"}</Text>
-            </View>
-          )}
+          <Image
+            source={artworkSource}
+            style={styles.artworkImage}
+            resizeMode="cover"
+            onError={() => setImgError(true)}
+          />
         </View>
 
         {/* Track & Artist Info */}
@@ -87,16 +98,19 @@ export default function NowPlaying() {
                 </Text>
               </ScrollView>
               <View style={styles.titleActions}>
-                {activeTrack ? (
-                  <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-                ) : null}
-                {activeTrack ? (
-                  <ShareTrackButton
-                    track={activeTrack}
-                    overrideTitle={onAir?.song}
-                    overrideArtist={onAir?.artist}
-                  />
-                ) : null}
+                <View style={styles.actionIconGroup}>
+                  {activeTrack ? (
+                    <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+                  ) : null}
+                  {activeTrack ? (
+                    <ShareTrackButton
+                      track={activeTrack}
+                      overrideTitle={onAir?.song}
+                      overrideArtist={onAir?.artist}
+                      overrideArtwork={onAir?.artwork}
+                    />
+                  ) : null}
+                </View>
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
                   <Text style={styles.liveText}>LIVE</Text>
@@ -146,10 +160,12 @@ export default function NowPlaying() {
               </Text>
             </ScrollView>
             <View style={styles.titleActions}>
-              {activeTrack && activeTrack.id > 0 ? (
-                <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-              ) : null}
-              {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+              <View style={styles.actionIconGroup}>
+                {activeTrack ? (
+                  <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+                ) : null}
+                {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+              </View>
             </View>
           </View>
 
@@ -304,32 +320,90 @@ export default function NowPlaying() {
   );
 }
 
-// Artists with paid subscription tiers get supporters through their support page; every
-// other artist is supported by buying the release this song is from
+// Artists with paid subscription tiers, album sales, or federated store links
+// can be supported directly via the slide-up purchase & support modal.
 function SupportArtistButton({ track }: { track: RNTrack }) {
+  const router = useRouter();
   const artistId = track.trackGroup?.artistId;
-  const { data: artist, isPending } = useQuery(queryArtist({ artistSlug: artistId ? String(artistId) : "" }));
+  const { data: artist } = useQuery(
+    queryArtist({ artistSlug: artistId ? String(artistId) : "" }),
+  );
 
+  const artistName =
+    artist?.name ?? track.trackGroup?.artist?.name ?? track.artist;
   const artistSlug = artist?.urlSlug ?? track.trackGroup?.artist?.urlSlug;
   const albumSlug = track.trackGroup?.urlSlug;
-  if (isPending || !artistSlug || !albumSlug) return null;
+  const takesSubscribers = Boolean(
+    artist?.subscriptionTiers?.some((tier) => !tier.isDefaultTier),
+  );
 
-  const takesSubscribers = Boolean(artist?.subscriptionTiers?.some((tier) => !tier.isDefaultTier));
-  const url = takesSubscribers
-    ? `https://mirlo.space/${artistSlug}/support`
-    : `https://mirlo.space/${artistSlug}/release/${albumSlug}`;
-  const name = artist?.name ?? track.artist;
+  // Build purchase / support options
+  const purchaseLinks: { label: string; url: string }[] = [];
+
+  if (takesSubscribers && artistSlug) {
+    purchaseLinks.push({
+      label: "Subscribe on Mirlo",
+      url: `https://mirlo.space/${artistSlug}/support`,
+    });
+  }
+
+  if (artistSlug && albumSlug) {
+    purchaseLinks.push({
+      label: "Purchase on Mirlo",
+      url: `https://mirlo.space/${artistSlug}/release/${albumSlug}`,
+    });
+  }
+
+  // Include any syndication / federated purchase links (e.g. Bandcamp, Faircamp, Chorus)
+  if (track.trackGroup?.purchaseLinks) {
+    for (const link of track.trackGroup.purchaseLinks) {
+      if (!purchaseLinks.some((p) => p.url === link.url)) {
+        purchaseLinks.push(link);
+      }
+    }
+  }
+
+  const sourceUrl = track.trackGroup?.sourceUrl || track.sourceUrl;
+  if (purchaseLinks.length === 0 && sourceUrl) {
+    purchaseLinks.push({
+      label: track.source || track.trackGroup?.source || "Store",
+      url: sourceUrl,
+    });
+  }
+
+  if (purchaseLinks.length === 0 && !artistSlug && !albumSlug && !sourceUrl) {
+    return null;
+  }
+
+  const handlePress = () => {
+    const trackGroup: Partial<AlbumProps> = {
+      id: track.trackGroup?.id || track.trackGroupId || 0,
+      title: track.trackGroup?.title || track.title,
+      artistId: track.trackGroup?.artistId ?? artist?.id,
+      artist: {
+        id: track.trackGroup?.artistId ?? artist?.id ?? 0,
+        name: artistName,
+        urlSlug: artistSlug || "",
+      } as any,
+      urlSlug: albumSlug || "",
+      source: track.source || track.trackGroup?.source,
+      sourceUrl,
+      purchaseLinks: purchaseLinks.length > 0 ? purchaseLinks : undefined,
+    };
+
+    showPurchaseModal(router, trackGroup);
+  };
 
   return (
     <Pressable
-      onPress={() => openInBrowser(url)}
+      onPress={handlePress}
       style={styles.donateButton}
       accessibilityRole="button"
-      accessibilityLabel={`Support ${name}`}
+      accessibilityLabel={`Support ${artistName}`}
     >
       <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
       <Text style={styles.donateText} numberOfLines={1}>
-        Support {name}
+        Support {artistName}
       </Text>
     </Pressable>
   );
@@ -464,7 +538,12 @@ const styles = StyleSheet.create({
   titleActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
+  },
+  actionIconGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   liveBadge: {
     flexDirection: "row",

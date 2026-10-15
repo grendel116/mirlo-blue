@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   ActivityIndicator,
   View,
@@ -14,6 +14,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import { queryTrackGroups, queryTopSold } from "@/queries/queries";
+import {
+  distributeFairChorusAlbums,
+  queryFederatedChorusAlbums,
+} from "@/queries/chorus";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
@@ -23,15 +27,24 @@ import {
   RADIO_STATIONS,
   RadioStation,
   queryRadioPlays,
+  queryDiscoveredRadioStations,
 } from "@/queries/radio";
 import {
   PODCAST_SHOWS,
   PodcastShow,
   queryPodcastEpisodes,
+  queryDiscussionLatestDates,
+  sortDiscussionsByLastUpdate,
+  queryDiscoveredPodcasts,
 } from "@/queries/podcast";
 import OfflineNotice from "@/components/OfflineNotice";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
+import {
+  isQualityArtwork,
+  resolveArtworkUrl,
+  resolveQualityArtworkSource,
+} from "@/scripts/utils";
 
 export default function Index() {
   const router = useRouter();
@@ -69,12 +82,116 @@ export default function Index() {
     }),
   );
 
+  // Query releases from the configured Mirlo Chorus catalog
+  const {
+    data: chorusAlbums,
+    refetch: refetchChorus,
+  } = useQuery({
+    ...queryFederatedChorusAlbums({ take: 40 }),
+    retry: false,
+  });
+
+  // Query discovered autonomous community and pirate radio stations
+  const {
+    data: discoveredRadio = [],
+    refetch: refetchDiscoveredRadio,
+  } = useQuery(queryDiscoveredRadioStations(8));
+
+  // Discover podcast feeds through the open Castopod Index catalog
+  const {
+    data: discoveredPodcasts = [],
+    refetch: refetchDiscoveredPodcasts,
+  } = useQuery(queryDiscoveredPodcasts(6));
+
   const retry = () => {
     refetchRecent();
     refetchTopSold();
+    refetchChorus();
+    refetchDiscoveredRadio();
+    refetchDiscoveredPodcasts();
   };
 
-  const recentReleases = recentData?.results || [];
+  // Weave Chorus releases into Recent Releases, prioritizing genuine recency and fair artist representation
+  const recentReleases = useMemo(() => {
+    const direct = recentData?.results || [];
+    if (!chorusAlbums || chorusAlbums.length === 0) return direct;
+
+    // Apply fair representation cap per artist across Chorus releases
+    const fairChorus = distributeFairChorusAlbums(chorusAlbums, 2);
+
+    // Sort Chorus albums by releaseDate descending so the newest releases lead
+    const sortedChorus = [...fairChorus].sort((a, b) => {
+      const da = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+      const db = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+      return db - da;
+    });
+
+    const seenIds = new Set<number>();
+    const seenSlugs = new Set<string>();
+    const artistCounts = new Map<string, number>();
+    const blended: AlbumProps[] = [];
+
+    const canIncludeArtist = (album: AlbumProps) => {
+      const key = (album.artist?.name || String(album.artistId || "")).toLowerCase().trim();
+      const count = artistCounts.get(key) || 0;
+      return count < 2;
+    };
+
+    const recordArtist = (album: AlbumProps) => {
+      const key = (album.artist?.name || String(album.artistId || "")).toLowerCase().trim();
+      artistCounts.set(key, (artistCounts.get(key) || 0) + 1);
+    };
+
+    let dIdx = 0;
+    let cIdx = 0;
+
+    while (dIdx < direct.length || cIdx < sortedChorus.length) {
+      for (let i = 0; i < 2 && dIdx < direct.length; i++, dIdx++) {
+        const item = direct[dIdx];
+        if (!seenIds.has(item.id) && (!item.urlSlug || !seenSlugs.has(item.urlSlug)) && canIncludeArtist(item)) {
+          seenIds.add(item.id);
+          if (item.urlSlug) seenSlugs.add(item.urlSlug);
+          recordArtist(item);
+          blended.push(item);
+        }
+      }
+
+      if (cIdx < sortedChorus.length) {
+        const item = sortedChorus[cIdx++];
+        if (!seenIds.has(item.id) && (!item.urlSlug || !seenSlugs.has(item.urlSlug)) && canIncludeArtist(item)) {
+          seenIds.add(item.id);
+          if (item.urlSlug) seenSlugs.add(item.urlSlug);
+          recordArtist(item);
+          blended.push(item);
+        }
+      }
+    }
+
+    return blended;
+  }, [recentData?.results, chorusAlbums]);
+
+  // Keep curated stations first, followed by discovered stations ranked by recent clicks
+  const radioStations = useMemo(() => {
+    const combined = [...RADIO_STATIONS, ...discoveredRadio].filter((station) =>
+      isQualityArtwork(station.artwork),
+    );
+    return combined;
+  }, [discoveredRadio]);
+
+  // Curated and Castopod-indexed discussion shows, ordered by latest episode
+  const { data: latestDates } = useQuery(queryDiscussionLatestDates(PODCAST_SHOWS));
+
+  const podcastShows = useMemo(() => {
+    const combined = [...PODCAST_SHOWS, ...discoveredPodcasts].filter((show) =>
+      isQualityArtwork(show.artwork),
+    );
+    const withLiveDates = combined.map((show) => {
+      const liveDate = latestDates?.[show.id];
+      return liveDate ? { ...show, lastUpdated: liveDate } : show;
+    });
+    return sortDiscussionsByLastUpdate(withLiveDates);
+  }, [latestDates, discoveredPodcasts]);
+
   const popularPurchases = topSoldData?.results || [];
 
   // The splash screen stays up until Home has its first content (or an error to show)
@@ -103,9 +220,14 @@ export default function Index() {
   const hasFocused = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (hasFocused.current) refetchRecent();
+      if (hasFocused.current) {
+        refetchRecent();
+        refetchChorus();
+        refetchDiscoveredRadio();
+        refetchDiscoveredPodcasts();
+      }
       hasFocused.current = true;
-    }, [refetchRecent]),
+    }, [refetchRecent, refetchChorus, refetchDiscoveredRadio, refetchDiscoveredPodcasts]),
   );
 
   // Top 6 items for the "Viewing History" 2-column grid
@@ -183,13 +305,10 @@ export default function Index() {
                         }
                         style={styles.historyCard}
                       >
-                        {item.coverUri ? (
-                          <Image source={{ uri: item.coverUri }} style={styles.historyThumb} />
-                        ) : (
-                          <View style={[styles.historyThumb, styles.thumbPlaceholder]}>
-                            <Ionicons name="musical-notes" size={16} color={theme.colors.primary} />
-                          </View>
-                        )}
+                        <Image
+                          source={resolveQualityArtworkSource(item.coverUri)}
+                          style={styles.historyThumb}
+                        />
                         <View style={styles.historyTextContainer}>
                           <Text style={styles.historyTitle} numberOfLines={1}>
                             {item.title}
@@ -232,7 +351,7 @@ export default function Index() {
                           router.push({
                             pathname: "/artist/[id]/album/[slug]/album-tracks",
                             params: {
-                              id: String(item.artistId),
+                              id: String(item.artist?.urlSlug || item.artistId),
                               slug: String(item.urlSlug),
                             },
                           })
@@ -240,17 +359,11 @@ export default function Index() {
                         style={[styles.albumCard, { width: cardWidth }]}
                       >
                         <View style={styles.cardImageContainer}>
-                          {coverUri ? (
-                            <Image
-                              source={{ uri: coverUri }}
-                              style={styles.cardCoverImage}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-                              <Ionicons name="musical-notes" size={36} color={theme.colors.primary} />
-                            </View>
-                          )}
+                          <Image
+                            source={resolveQualityArtworkSource(coverUri)}
+                            style={styles.cardCoverImage}
+                            resizeMode="cover"
+                          />
                           <View style={styles.glassSheen} />
                         </View>
                         <Text style={styles.cardTitle} numberOfLines={1}>
@@ -301,17 +414,11 @@ export default function Index() {
                         style={[styles.albumCard, { width: cardWidth }]}
                       >
                         <View style={styles.cardImageContainer}>
-                          {coverUri ? (
-                            <Image
-                              source={{ uri: coverUri }}
-                              style={styles.cardCoverImage}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-                              <Ionicons name="flame" size={36} color={theme.colors.primary} />
-                            </View>
-                          )}
+                          <Image
+                            source={resolveQualityArtworkSource(coverUri)}
+                            style={styles.cardCoverImage}
+                            resizeMode="cover"
+                          />
                           <View style={styles.glassSheen} />
                         </View>
                         <Text style={styles.cardTitle} numberOfLines={1}>
@@ -334,7 +441,7 @@ export default function Index() {
               </View>
               <FlatList
                 horizontal
-                data={RADIO_STATIONS}
+                data={radioStations}
                 keyExtractor={(station) => station.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
@@ -349,7 +456,7 @@ export default function Index() {
               </View>
               <FlatList
                 horizontal
-                data={PODCAST_SHOWS}
+                data={podcastShows}
                 keyExtractor={(show) => show.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
@@ -369,6 +476,11 @@ function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth:
   const router = useRouter();
   const { data: plays } = useQuery(queryRadioPlays(station));
   const onAir = plays?.[0];
+  const [failedArtwork, setFailedArtwork] = useState<string>();
+  const onAirArtwork = onAir?.artwork;
+  const rawImage = isQualityArtwork(onAirArtwork) ? onAirArtwork : station.artwork;
+
+  if (!isQualityArtwork(rawImage) || failedArtwork === rawImage) return null;
 
   return (
     <Pressable
@@ -377,13 +489,12 @@ function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth:
       style={[styles.albumCard, { width: cardWidth }]}
     >
       <View style={styles.cardImageContainer}>
-        {onAir?.artwork ? (
-          <Image source={{ uri: onAir.artwork }} style={styles.cardCoverImage} resizeMode="cover" />
-        ) : (
-          <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-            <Ionicons name="radio" size={36} color={theme.colors.primary} />
-          </View>
-        )}
+        <Image
+          source={{ uri: resolveArtworkUrl(rawImage) }}
+          style={styles.cardCoverImage}
+          resizeMode="cover"
+          onError={() => setFailedArtwork(rawImage)}
+        />
         <View style={styles.glassSheen} />
         <Text style={styles.airtimeBadge}>LIVE</Text>
       </View>
@@ -391,7 +502,7 @@ function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth:
         {station.name}
       </Text>
       <Text style={styles.cardArtist} numberOfLines={1}>
-        {onAir ? `${onAir.song} Â· ${onAir.artist}` : station.location}
+        {onAir ? `${onAir.song} · ${onAir.artist}` : station.location}
       </Text>
     </Pressable>
   );
@@ -403,6 +514,9 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
   const router = useRouter();
   const { data: episodes } = useQuery(queryPodcastEpisodes(show));
   const latest = episodes?.[0];
+  const [failedArtwork, setFailedArtwork] = useState<string>();
+
+  if (!isQualityArtwork(show.artwork) || failedArtwork === show.artwork) return null;
 
   return (
     <Pressable
@@ -411,13 +525,12 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
       style={[styles.albumCard, { width: cardWidth }]}
     >
       <View style={styles.cardImageContainer}>
-        {show.artwork ? (
-          <Image source={{ uri: show.artwork }} style={styles.cardCoverImage} resizeMode="cover" />
-        ) : (
-          <View style={[styles.cardCoverImage, styles.thumbPlaceholder]}>
-            <Ionicons name="mic" size={36} color={theme.colors.primary} />
-          </View>
-        )}
+        <Image
+          source={{ uri: resolveArtworkUrl(show.artwork) }}
+          style={styles.cardCoverImage}
+          resizeMode="cover"
+          onError={() => setFailedArtwork(show.artwork)}
+        />
         <View style={styles.glassSheen} />
         <Text style={styles.airtimeBadge}>TALK</Text>
       </View>

@@ -1,14 +1,13 @@
 import { useAuthContext } from "@/state/AuthContext";
-import { Router, useRouter, Href } from "expo-router";
-import { Pressable, ViewStyle, Modal } from "react-native";
+import { Router, useRouter } from "expo-router";
+import { Pressable, ViewStyle, Platform } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback } from "react";
 import { getLocales } from "expo-localization";
-import * as Linking from "expo-linking";
 
 type AddAlbumButtonProps = {
   trackGroup: AlbumProps;
-  setModalVisible: (modalVisible: boolean) => void;
+  setModalVisible?: (modalVisible: boolean) => void;
   style?: ViewStyle;
   size?: number;
 };
@@ -17,20 +16,34 @@ const getAppStoreRegion = () => {
   return getLocales()[0].regionCode;
 };
 
-const showModal = (
+export const showModal = (
   modalPath: string,
   router: Router,
-  trackGroup: AlbumProps,
+  trackGroup: Partial<AlbumProps> | AlbumProps,
 ) => {
   router.push({
     pathname: modalPath as any,
     params: {
       trackGroupTitle: trackGroup.title,
       trackGroupId: trackGroup.id,
-      artistId: trackGroup.artistId ?? trackGroup.artist.id,
-      artist: trackGroup.artist.name,
+      artistId: trackGroup.artistId ?? trackGroup.artist?.id,
+      artist: trackGroup.artist?.name,
+      source: trackGroup.source,
+      sourceUrl: trackGroup.sourceUrl,
+      purchaseLinks: trackGroup.purchaseLinks
+        ? JSON.stringify(trackGroup.purchaseLinks)
+        : undefined,
+      urlSlug: trackGroup.urlSlug,
+      artistUrlSlug: trackGroup.artist?.urlSlug,
     },
   });
+};
+
+export const showPurchaseModal = (
+  router: Router,
+  trackGroup: Partial<AlbumProps> | AlbumProps,
+) => {
+  showModal("/purchaseModal", router, trackGroup);
 };
 
 export default function AddAlbumButton({
@@ -55,18 +68,18 @@ export default function AddAlbumButton({
       return;
     }
 
-    // If in US, we can go directly to mirlo in a browser per Apple guidelines
-    if (region === "US") {
-      setModalVisible(true);
+    // Direct purchase modal (slides up from bottom like addFreeAlbumModal)
+    if (Platform.OS === "android" || region === "US" || trackGroup.source) {
+      showModal("/purchaseModal", router, trackGroup);
     } else {
-      // If not in US, we need to follow the email flow to keep within Apple guidelines
+      // If not in US on iOS, follow email flow to stay within App Store guidelines
       if (!user) {
         showModal("/emailVerificationModal", router, trackGroup);
       } else {
         showModal("/emailPurchaseInfoModal", router, trackGroup);
       }
     }
-  }, [setModalVisible, user, trackGroup, router]);
+  }, [user, trackGroup, router]);
   return ids && ids.includes(trackGroup.id) ? null : (
     <Pressable
       onPress={onPress}

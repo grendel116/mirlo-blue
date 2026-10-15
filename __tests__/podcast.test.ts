@@ -7,6 +7,8 @@ import {
   COLONIAL_OUTCASTS,
   PODCAST_SHOWS,
   PodcastEpisode,
+  castopodPodcastToShow,
+  fetchDiscoveredPodcasts,
 } from "@/queries/podcast";
 
 describe("decodeXml", () => {
@@ -100,9 +102,12 @@ describe("parsePodcastRss", () => {
 describe("findPodcastShow", () => {
   test("finds shows by ID and verifies list contains ongoing curated shows", () => {
     expect(PODCAST_SHOWS.map((s) => s.id)).toEqual([
+      "upstream",
+      "everything-coop",
+      "millennials-killing-capitalism",
+      "srsly-wrong",
       "colonial-outcasts",
       "black-autonomy",
-      "everything-coop",
     ]);
 
     const colonial = findPodcastShow("colonial-outcasts");
@@ -128,7 +133,58 @@ describe("findPodcastShow", () => {
 
   test("returns undefined for unknown ID", () => {
     expect(findPodcastShow("unknown-show")).toBeUndefined();
+    expect(findPodcastShow("pod-987654")).toBeUndefined();
     expect(findPodcastShow(undefined)).toBeUndefined();
+  });
+});
+
+describe("Castopod Index discovery", () => {
+  test("maps publisher feed metadata to a stable show ID", () => {
+    const show = castopodPodcastToShow({
+      id: 123,
+      podcastGuid: "4578d9aa-3698-4528-a09a-ed656d8d7194",
+      title: "The AssCast",
+      author: "NodeZ3r0",
+      description: "Independent anti-capitalist audio.",
+      artwork: "https://asscast.org/media/podcasts/asscast/cover_feed.png",
+      feedUrl: "https://asscast.org/@asscast/feed.xml",
+      webUrl: "https://asscast.org/@asscast",
+      lastUpdated: "2026-10-12T19:33:30.000Z",
+    });
+
+    expect(show.id).toBe("pod-4578d9aa-3698-4528-a09a-ed656d8d7194");
+    expect(show.feedUrl).toBe("https://asscast.org/@asscast/feed.xml");
+    expect(findPodcastShow(show.id)?.name).toBe("The AssCast");
+  });
+
+  test("fetches filtered podcast metadata from the share Worker", async () => {
+    const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        podcasts: [
+          {
+            id: 123,
+            podcastGuid: "castopod-test-guid",
+            title: "Independent Podcast",
+            author: "Independent Publisher",
+            description: "A test podcast",
+            artwork: "https://example.com/podcast.png",
+            feedUrl: "https://example.com/feed.xml",
+            webUrl: "https://example.com/",
+            lastUpdated: "2026-10-12T19:33:30.000Z",
+          },
+        ],
+      }),
+    } as Response);
+
+    try {
+      const shows = await fetchDiscoveredPodcasts(6);
+      expect(fetchSpy.mock.calls[0][0]).toContain("/api/podcasts?limit=6");
+      expect(shows.map((show) => show.id)).toEqual(["pod-castopod-test-guid"]);
+      expect(shows[0].feedUrl).toBe("https://example.com/feed.xml");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 
@@ -169,5 +225,46 @@ describe("episodeTrack", () => {
 
     const track = episodeTrack(episode, COLONIAL_OUTCASTS, 1);
     expect(track.artwork).toBe(COLONIAL_OUTCASTS.artwork);
+  });
+});
+
+describe("sortDiscussionsByLastUpdate", () => {
+  const { parseDateTimestamp, sortDiscussionsByLastUpdate } = require("@/queries/podcast");
+
+  test("parses ISO 8601, RFC 2822, and handles invalid dates", () => {
+    expect(parseDateTimestamp("2026-03-28T14:00:00Z")).toBe(
+      new Date("2026-03-28T14:00:00Z").getTime(),
+    );
+    expect(parseDateTimestamp("Tue, 06 Oct 2026 18:00:00 GMT")).toBe(
+      new Date("Tue, 06 Oct 2026 18:00:00 GMT").getTime(),
+    );
+    expect(parseDateTimestamp(undefined)).toBe(0);
+    expect(parseDateTimestamp("invalid-date-string")).toBe(0);
+  });
+
+  test("sorts podcast shows descending by lastUpdated (newest first)", () => {
+    const shows = [
+      { id: "old", name: "Old Show", lastUpdated: "2026-01-01T00:00:00Z" },
+      { id: "newest", name: "Newest Show", lastUpdated: "2026-04-10T12:00:00Z" },
+      { id: "middle", name: "Middle Show", lastUpdated: "2026-03-15T08:00:00Z" },
+      { id: "undated", name: "Undated Show" },
+    ];
+
+    const sorted = sortDiscussionsByLastUpdate(shows as any);
+    expect(sorted.map((s: { id: string }) => s.id)).toEqual(["newest", "middle", "old", "undated"]);
+  });
+});
+
+describe("queryDiscussionLatestDates", () => {
+  const { queryDiscussionLatestDates } = require("@/queries/podcast");
+
+  test("generates query options for list of shows", () => {
+    const shows = [
+      { id: "show-a", feedUrl: "https://example.com/feed-a.xml" },
+      { id: "show-b", feedUrl: "https://example.com/feed-b.xml" },
+    ];
+    const options = queryDiscussionLatestDates(shows as any);
+    expect(options.queryKey).toEqual(["discussionLatestDates", "show-a,show-b"]);
+    expect(options.enabled).toBe(true);
   });
 });

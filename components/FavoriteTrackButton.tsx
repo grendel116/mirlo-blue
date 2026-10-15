@@ -6,6 +6,7 @@ import { useAuthContext } from "@/state/AuthContext";
 import { queryAuthProfile } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
 import { toggleStationLike, useStationLikes } from "@/scripts/stationLikes";
+import { togglePodcastEpisodeLike, usePodcastEpisodeLikes } from "@/scripts/podcastLikes";
 import * as api from "../queries/fetch/fetchWrapper";
 import { ViewStyle } from "react-native";
 
@@ -14,6 +15,13 @@ type FavoriteTrackButton = {
     id?: number;
     trackGroupId?: number;
     liveStation?: string;
+    podcastId?: string;
+    podcastEpisodeId?: string;
+    title?: string;
+    artist?: string;
+    url?: string;
+    artwork?: string;
+    duration?: number;
   };
   style?: ViewStyle;
   size?: number;
@@ -38,10 +46,13 @@ function Heart({ liked, onPress, style, size }: HeartProps) {
   );
 }
 
-// Songs are liked on the Mirlo account; radio stations are liked on the phone
+// Songs are liked on the Mirlo account; radio stations and podcast episodes are liked on the phone
 export default function FavoriteTrackButton({ track, style, size }: FavoriteTrackButton) {
   if (track.liveStation) {
     return <StationHeart stationId={track.liveStation} style={style} size={size} />;
+  }
+  if (track.podcastEpisodeId) {
+    return <PodcastEpisodeHeart track={track} style={style} size={size} />;
   }
   if (!track.id || track.id <= 0) return null;
   return (
@@ -66,6 +77,27 @@ function StationHeart({
   const liked = likes.some((like) => like.stationId === stationId);
   return (
     <Heart liked={liked} onPress={() => toggleStationLike(stationId)} style={style} size={size} />
+  );
+}
+
+function PodcastEpisodeHeart({
+  track,
+  style,
+  size,
+}: {
+  track: any;
+  style?: ViewStyle;
+  size?: number;
+}) {
+  const likes = usePodcastEpisodeLikes();
+  const liked = likes.some((like) => like.episodeId === track.podcastEpisodeId);
+  return (
+    <Heart
+      liked={liked}
+      onPress={() => togglePodcastEpisodeLike(track)}
+      style={style}
+      size={size}
+    />
   );
 }
 

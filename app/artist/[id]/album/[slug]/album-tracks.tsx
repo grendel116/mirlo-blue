@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Pressable,
   useWindowDimensions,
-  Modal} from "react-native";
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   useLocalSearchParams,
@@ -16,10 +16,11 @@ import {
   useFocusEffect,
 } from "expo-router";
 import { usePlayer } from "@/state/PlayerContext";
-import { audioTrackType, handleExternalPurchase, isTrackOwnedOrPreview } from "@/scripts/utils";
+import { audioTrackType, isTrackOwnedOrPreview, linkifyUrls, htmlToMarkdown } from "@/scripts/utils";
 import { useAuthContext } from "@/state/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { queryAlbum } from "@/queries/queries";
+import { resolveFeedSourceName } from "@/queries/chorus";
 import React, { useCallback, useState } from "react";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
@@ -28,7 +29,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import PlayPauseWrapper from "@/components/PlayPauseWrapper";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-native-markdown-display";
-import { linkifyUrls } from "@/scripts/utils";
 import WishlistButton from "@/components/WishlistButton";
 import ErrorNotification from "@/components/ErrorNotification";
 import AddAlbumButton from "@/components/AddAlbumButton";
@@ -90,8 +90,7 @@ function AlbumPlayButton() {
 
 const MemoizedAlbumPlayButton = React.memo(AlbumPlayButton);
 
-function formatUTCDate(utcDate: string | undefined) {
-  const { t } = useTranslation("translation");
+function formatUTCDate(utcDate: string | undefined, t: (key: string) => string) {
   if (!utcDate) return undefined;
   const date = new Date(utcDate);
 
@@ -125,7 +124,6 @@ export default function AlbumTracks() {
   const { t } = useTranslation("translation");
   const { width } = useWindowDimensions();
   const [showError, setShowError] = useState<boolean>(true);
-  const [modalVisible, setModalVisible] = useState<boolean>(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -147,13 +145,28 @@ export default function AlbumTracks() {
             data.result.cover?.sizes?.[120],
         });
 
+        const fallbackAlbumSource =
+          data.result.source ||
+          resolveFeedSourceName(data.result.tracks?.[0]?.url || data.result.tracks?.[0]?.audio?.url);
+        data.result.source = fallbackAlbumSource;
+
         if (data.result.tracks) {
           data.result.tracks.forEach((track) => {
+            const rawAudioUrl = track.audio?.url || track.url || "";
+            const streamUrl = rawAudioUrl.startsWith("http")
+              ? rawAudioUrl
+              : `${API_ROOT}${rawAudioUrl.startsWith("/") ? "" : "/"}${rawAudioUrl}`;
+            const trackSource =
+              track.source ||
+              data.result.source ||
+              (streamUrl.startsWith("http") ? resolveFeedSourceName(streamUrl) : "Mirlo Space");
+            const trackSourceUrl = track.sourceUrl || data.result.sourceUrl;
+
             const newTrack: RNTrack = {
               title: track.title,
               artist: data.result.artist.name,
               artwork: data.result.cover.sizes[600],
-              url: `${API_ROOT}${track.audio.url}`,
+              url: streamUrl,
               allowIndividualSale: track.allowIndividualSale,
               id: track.id,
               trackArtists: track.trackArtists,
@@ -169,17 +182,21 @@ export default function AlbumTracks() {
                 id: data.result.id,
                 releaseDate: data.result.releaseDate,
                 trackGroupId: data.result.trackGroupId,
+                source: trackSource,
+                sourceUrl: trackSourceUrl,
               },
               audio: {
-                url: track.audio.url,
-                duration: track.audio.duration,
+                url: streamUrl,
+                duration: track.audio?.duration ?? track.duration,
               },
               isPreview: track.isPreview,
               order: track.order,
-              headers: {
+              headers: track.headers || {
                 "mirlo-api-key": API_KEY,
               },
-              type: audioTrackType(track.audio.url),
+              type: audioTrackType(streamUrl),
+              source: trackSource,
+              sourceUrl: trackSourceUrl,
             };
 
             allTracks.push(newTrack);
@@ -216,6 +233,10 @@ export default function AlbumTracks() {
   }
 
   const selectedAlbum = data.result;
+  const albumSource =
+    selectedAlbum?.source ||
+    (selectedAlbum?.tracks?.[0]?.source) ||
+    resolveFeedSourceName(selectedAlbum?.tracks?.[0]?.url || selectedAlbum?.tracks?.[0]?.audio?.url);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -285,12 +306,23 @@ export default function AlbumTracks() {
                       </Text>
                     </Pressable>
                   </View>
+                  {albumSource ? (
+                    <View style={styles.sourceTagRow}>
+                      <Ionicons
+                        name="globe-outline"
+                        size={12}
+                        color={theme.colors.textCyan}
+                      />
+                      <Text style={styles.sourceTagText}>
+                        {albumSource}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={styles.albumActions}>
                   <AddAlbumButton
                     trackGroup={selectedAlbum}
                     size={36}
-                    setModalVisible={setModalVisible}
                   />
                   <DownloadAlbumButton album={selectedAlbum} size={36} />
                   <WishlistButton
@@ -310,8 +342,20 @@ export default function AlbumTracks() {
                 {t("trackGroupDetails.about")}
               </Text>
               <Text style={styles.releaseDateText}>
-                {formatUTCDate(selectedAlbum?.releaseDate)}
+                {formatUTCDate(selectedAlbum?.releaseDate, t)}
               </Text>
+              {albumSource ? (
+                <View style={styles.footerSourceRow}>
+                  <Ionicons
+                    name="globe-outline"
+                    size={12}
+                    color={theme.colors.textMuted}
+                  />
+                  <Text style={styles.footerSourceText}>
+                    {albumSource}
+                  </Text>
+                </View>
+              ) : null}
 
               {selectedAlbum?.about ? (
                 <View style={styles.aboutBody}>
@@ -322,7 +366,7 @@ export default function AlbumTracks() {
                     }}
                   >
                     {linkifyUrls(
-                      selectedAlbum.about.replace(/([^\n])\n([^\n])/g, "$1 $2"),
+                      htmlToMarkdown(selectedAlbum.about).replace(/([^\n])\n([^\n])/g, "$1 $2"),
                     )}
                   </Markdown>
                 </View>
@@ -336,30 +380,6 @@ export default function AlbumTracks() {
             </View>
           )}
         />
-        <Modal
-          visible={modalVisible}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setModalVisible(!modalVisible)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <Pressable
-                style={styles.purchaseBtn}
-                onPress={() => handleExternalPurchase(selectedAlbum)}
-              >
-                <Text style={styles.purchaseBtnText}>Purchase Info</Text>
-                <Ionicons name="open-outline" color="#070b14" size={18} />
-              </Pressable>
-              <Pressable
-                style={styles.modalCloseBtn}
-                onPress={() => setModalVisible(!modalVisible)}
-              >
-                <Text style={styles.modalCloseText}>Close</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -447,6 +467,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  sourceTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  sourceTagText: {
+    color: theme.colors.textCyan,
+    fontSize: 12,
+    fontWeight: "500",
+  },
   albumActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -479,7 +510,17 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 13,
     fontStyle: "italic",
+    marginBottom: 6,
+  },
+  footerSourceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     marginBottom: 14,
+  },
+  footerSourceText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
   },
   aboutBody: {
     marginBottom: 16,
@@ -488,42 +529,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     marginTop: 8,
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-  },
-  modalCard: {
-    width: "85%",
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.radius.lg,
-    padding: 24,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceGlassBorder,
-  },
-  purchaseBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: theme.radius.md,
-    gap: 8,
-  },
-  purchaseBtnText: {
-    color: "#070b14",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  modalCloseBtn: {
-    marginTop: 20,
-    padding: 8,
-  },
-  modalCloseText: {
-    color: theme.colors.textSecondary,
-    fontSize: 15,
   },
 });

@@ -1,6 +1,8 @@
 import { useAuthContext } from "@/state/AuthContext";
+import { usePlayer } from "@/state/PlayerContext";
 import { View, StyleSheet, Text, Image } from "react-native";
 import { isTrackOwnedOrPreview } from "@/scripts/utils";
+import { resolveFeedSourceName } from "@/queries/chorus";
 import FavoriteTrackButton from "./FavoriteTrackButton";
 import AddToQueueButton from "./AddToQueueButton";
 import DownloadTrackButton from "./DownloadTrackButton";
@@ -31,8 +33,15 @@ export const TrackItem = ({
   onTrackScreen,
 }: TrackItemComponentProps) => {
   const { user } = useAuthContext();
+  const { disabledTrackIds } = usePlayer();
 
-  const canPlayTrack = isTrackOwnedOrPreview(track, user, album);
+  const canPlayTrack = isTrackOwnedOrPreview(track, user, album, disabledTrackIds);
+
+  const trackSource =
+    track.source ||
+    album?.source ||
+    track.trackGroup?.source ||
+    (track.url ? resolveFeedSourceName(track.url) : "Mirlo Space");
 
   let contributors = "";
 
@@ -45,6 +54,13 @@ export const TrackItem = ({
       }
     }
   }
+
+  const hasContributor = Boolean(
+    track.trackArtists &&
+    contributors &&
+    track.trackArtists.length &&
+    track.trackArtists[0].artistName !== track.artist,
+  );
 
   const textColor = canPlayTrack
     ? thisSongSelected
@@ -93,18 +109,26 @@ export const TrackItem = ({
           >
             {track.title}
           </Text>
-          {track.trackArtists &&
-          contributors &&
-          track.trackArtists.length &&
-          track.trackArtists[0].artistName !== track.artist ? (
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              style={styles.contributorText}
-            >
-              {contributors}
-            </Text>
-          ) : null}
+          <View style={styles.subtitleRow}>
+            {hasContributor ? (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={styles.contributorText}
+              >
+                {contributors}
+              </Text>
+            ) : null}
+            {trackSource ? (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={styles.sourceText}
+              >
+                {hasContributor ? ` • ${trackSource}` : trackSource}
+              </Text>
+            ) : null}
+          </View>
         </View>
       </View>
       <View style={styles.actionRow}>
@@ -167,10 +191,19 @@ const styles = StyleSheet.create({
   titleText: {
     fontSize: 15,
   },
+  subtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+    flexWrap: "nowrap",
+  },
   contributorText: {
     color: theme.colors.textMuted,
     fontSize: 12,
-    marginTop: 2,
+  },
+  sourceText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
   },
   actionRow: {
     flexDirection: "row",

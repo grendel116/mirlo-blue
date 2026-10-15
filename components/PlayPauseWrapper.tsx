@@ -13,10 +13,10 @@ export default function PlayPauseWrapper({
   selectedAlbum,
   onTrackScreen,
 }: PlayPauseWrapperPropsWithChildren) {
-  const { activeTrack, playTrack, playableTracks } = usePlayer();
+  const { activeTrack, playTrack, playableTracks, disabledTrackIds } = usePlayer();
   const { user } = useAuthContext();
 
-  const canPlayTrack = isTrackOwnedOrPreview(trackObject, user, selectedAlbum);
+  const canPlayTrack = isTrackOwnedOrPreview(trackObject, user, selectedAlbum, disabledTrackIds);
   const thisSongSelected = Boolean(activeTrack?.url && activeTrack.url === trackObject?.url);
 
   return (

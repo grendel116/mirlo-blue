@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import * as api from "./fetch/fetchWrapper";
 import { MirloFetchError } from "./fetch/MirloFetchError";
+import { findChorusAlbum } from "./chorus";
 
 type UserPurchase = UserTrackPurchase | UserTrackGroupPurchase;
 
@@ -140,7 +141,41 @@ const fetchAlbum: QueryFunction<
   const safeSlug = Array.isArray(slug) ? slug[0] : slug;
   const safeId = Array.isArray(id) ? id[0] : id;
 
-  return api.get(`/v1/trackGroups/${safeSlug}/?artistId=${safeId}`, { signal });
+  const attachMirloSource = (res: { result: AlbumProps }) => {
+    if (res?.result) {
+      res.result.source = res.result.source || "Mirlo Space";
+      res.result.sourceUrl = res.result.sourceUrl || "https://mirlo.space";
+      if (res.result.tracks) {
+        res.result.tracks.forEach((track) => {
+          track.source = track.source || "Mirlo Space";
+          track.sourceUrl = track.sourceUrl || "https://mirlo.space";
+        });
+      }
+    }
+    return res;
+  };
+
+  if (/^\d+$/.test(safeSlug)) {
+    return api.get<{ result: AlbumProps }>(`/v1/trackGroups/${safeSlug}`, { signal }).then(attachMirloSource);
+  }
+
+  return api
+    .get<{ result: AlbumProps }>(`/v1/trackGroups/${safeSlug}/?artistId=${safeId}`, { signal })
+    .then(attachMirloSource)
+    .catch(async (err) => {
+      if (/^\d+$/.test(safeId)) {
+        try {
+          return await api.get<{ result: AlbumProps }>(`/v1/trackGroups/${safeId}`, { signal }).then(attachMirloSource);
+        } catch {
+          // fall through to Chorus
+        }
+      }
+      const federated = await findChorusAlbum(safeSlug, safeId);
+      if (federated) {
+        return { result: federated };
+      }
+      throw err;
+    });
 };
 
 export function queryAlbum(opts: {

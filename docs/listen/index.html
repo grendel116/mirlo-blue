@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title id="page-title">MIRLOBLUE</title>
+    <meta
+      name="description"
+      id="page-desc"
+      content="Listen to independent music, live radio, and movement podcasts on MIRLOBLUE with zero ads and zero tracking."
+    />
+
+    <!-- Default OpenGraph / Social tags -->
+    <meta property="og:title" id="og-title" content="MIRLOBLUE" />
+    <meta
+      property="og:description"
+      id="og-desc"
+      content="Independent music, live community radio & podcasts with zero ads or tracking."
+    />
+    <meta property="og:type" content="music.song" />
+    <meta
+      property="og:image"
+      id="og-image"
+      content="https://grendel116.github.io/mirlo-blue/preview-v2.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:image"
+      id="twitter-image"
+      content="https://grendel116.github.io/mirlo-blue/preview-v2.png"
+    />
+
+    <link rel="icon" type="image/png" href="https://grendel116.github.io/mirlo-blue/logo.png" />
+
+    <style>
+      @font-face {
+        font-family: "Cubano";
+        src: url("https://grendel116.github.io/mirlo-blue/cubano-sharp.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      :root {
+        --bg: #070b14;
+        --surface: #0d1424;
+        --surface-card: #131c31;
+        --surface-accent: #192540;
+        --border: rgba(56, 189, 248, 0.18);
+        --border-hover: rgba(0, 210, 255, 0.45);
+        --primary: #00d2ff;
+        --primary-hover: #38e0ff;
+        --primary-glow: rgba(0, 210, 255, 0.25);
+        --gold: #facc15;
+        --text: #f8fafc;
+        --text-muted: #94a3b8;
+        --danger: #f87171;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg);
+        background-image: radial-gradient(
+            circle at 50% 0%,
+            rgba(0, 210, 255, 0.14) 0%,
+            transparent 65%
+          ),
+          radial-gradient(
+            circle at 80% 80%,
+            rgba(56, 189, 248, 0.06) 0%,
+            transparent 50%
+          );
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      header {
+        width: 100%;
+        border-bottom: 1px solid var(--border);
+        background: rgba(13, 20, 36, 0.85);
+        backdrop-filter: blur(12px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .nav-inner {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--text);
+      }
+
+      .brand img {
+        width: 26px;
+        height: 26px;
+        filter: brightness(0) saturate(100%) invert(83%) sepia(47%)
+          saturate(1098%) hue-rotate(357%) brightness(102%) contrast(97%);
+      }
+
+      .brand-text {
+        font-family: "Cubano", sans-serif;
+        font-size: 20px;
+        font-weight: 400;
+        letter-spacing: 0.5px;
+      }
+
+      .brand-highlight {
+        color: var(--primary);
+      }
+
+      .nav-cta {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary);
+        text-decoration: none;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+
+      .nav-cta:hover {
+        background: rgba(0, 210, 255, 0.1);
+        border-color: var(--primary);
+      }
+
+      main {
+        width: 100%;
+        max-width: 520px;
+        padding: 32px 20px 48px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .card {
+        width: 100%;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 28px 24px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55),
+          0 0 30px rgba(0, 210, 255, 0.06);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .artwork-wrap {
+        width: 220px;
+        height: 220px;
+        border-radius: 20px;
+        margin-bottom: 22px;
+        position: relative;
+        background: var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6),
+          0 0 24px var(--primary-glow);
+        overflow: hidden;
+      }
+
+      .artwork-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .artwork-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #132235 0%, #060b13 100%);
+      }
+
+      .artwork-placeholder svg {
+        width: 64px;
+        height: 64px;
+        fill: var(--primary);
+        opacity: 0.85;
+      }
+
+      .track-title {
+        font-family: "Cubano", sans-serif;
+        font-size: 24px;
+        line-height: 1.15;
+        color: var(--text);
+        margin-bottom: 6px;
+        word-break: break-word;
+      }
+
+      .track-artist {
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.25;
+        color: var(--primary);
+        margin-bottom: 20px;
+      }
+
+      .track-meta {
+        font-size: 13px;
+        color: var(--text-muted);
+        margin-top: -12px;
+        margin-bottom: 20px;
+      }
+
+      /* Audio Preview Player: sleek play button and full-width bar */
+      .player-box {
+        width: 100%;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 4px;
+      }
+
+      .play-btn {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--primary);
+        color: #041019;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: transform 0.15s ease, background 0.15s ease,
+          box-shadow 0.15s ease;
+        box-shadow: 0 4px 16px var(--primary-glow);
+      }
+
+      .play-btn:hover {
+        background: var(--primary-hover);
+        transform: scale(1.06);
+      }
+
+      .play-btn:active {
+        transform: scale(0.96);
+      }
+
+      .play-btn svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+      }
+
+      .player-progress-wrap {
+        flex: 1;
+        display: flex;
+        align-items: center;
+      }
+
+      .progress-hit-area {
+        width: 100%;
+        padding: 14px 0;
+        cursor: pointer;
+        touch-action: none;
+        user-select: none;
+      }
+
+      .progress-bar-container {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .progress-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--primary), var(--gold));
+        border-radius: 999px;
+        pointer-events: none;
+      }
+
+      /* Action Buttons */
+      .actions {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .btn {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 13px 20px;
+        border-radius: 999px;
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.15s ease, background 0.15s ease,
+          border-color 0.15s ease, color 0.15s ease;
+      }
+
+      .btn-app {
+        background: var(--primary);
+        color: #041019;
+        box-shadow: 0 6px 20px rgba(0, 210, 255, 0.28);
+        border: none;
+      }
+
+      .btn-app:hover {
+        background: var(--primary-hover);
+        transform: translateY(-1px);
+      }
+
+      .btn-web {
+        background: var(--surface-card);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+
+      .btn-web:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+
+      footer {
+        width: 100%;
+        text-align: center;
+        padding: 24px 20px;
+        border-top: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 13px;
+        margin-top: auto;
+      }
+
+      footer a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        text-decoration: underline;
+      }
+
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="nav-inner">
+        <a href="https://grendel116.github.io/mirlo-blue/" class="brand" title="MIRLOBLUE Home">
+          <img src="https://grendel116.github.io/mirlo-blue/logo.png" alt="MIRLOBLUE Logo" />
+          <span class="brand-text">MIRLO<span class="brand-highlight">BLUE</span></span>
+        </a>
+        <a href="https://grendel116.github.io/mirlo-blue/" class="nav-cta">About App</a>
+      </div>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="artwork-wrap" id="artwork-wrap">
+          <img
+            id="cover-img"
+            class="artwork-img"
+            src=""
+            alt="Artwork"
+            style="display: none;"
+          />
+          <div id="cover-placeholder" class="artwork-placeholder">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+            </svg>
+          </div>
+        </div>
+
+        <h1 class="track-title" id="track-title">Loading track...</h1>
+        <div class="track-artist" id="track-artist">Artist</div>
+        <div class="track-meta" id="track-meta" style="display: none;"></div>
+
+        <!-- Audio Preview Player: play button and seek bar only -->
+        <div class="player-box" id="player-container">
+          <button
+            class="play-btn"
+            id="play-button"
+            type="button"
+            aria-label="Play audio preview"
+            title="Play preview"
+          >
+            <!-- Play Icon SVG -->
+            <svg id="play-icon" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <!-- Pause Icon SVG -->
+            <svg id="pause-icon" viewBox="0 0 24 24" style="display: none;">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+            </svg>
+          </button>
+
+          <div class="player-progress-wrap">
+            <div class="progress-hit-area" id="progress-hit-area">
+              <div class="progress-bar-container" id="progress-container">
+                <div class="progress-bar-fill" id="progress-fill"></div>
+              </div>
+            </div>
+          </div>
+
+          <audio id="audio-player" preload="none"></audio>
+        </div>
+
+        <!-- Call to Action Buttons -->
+        <div class="actions">
+          <button class="btn btn-app" id="btn-open-app" type="button">
+            <span>Open in App</span>
+          </button>
+
+          <a
+            class="btn btn-web"
+            id="btn-open-web"
+            href="https://mirlo.space"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span id="btn-web-label">Listen on Mirlo</span>
+          </a>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>
+        <a href="https://grendel116.github.io/mirlo-blue/">MIRLOBLUE</a> — Free &amp; open source music player.
+      </p>
+    </footer>
+
+    <!-- HLS.js for universal HLS audio playback across Chrome, Firefox, Edge and Android -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+
+        const type = (params.get("type") || "track").toLowerCase();
+        const title = params.get("title") || "Featured Music";
+        const artist = params.get("artist") || "MIRLOBLUE";
+        const album = params.get("album") || "";
+        const trackId = params.get("id") || "";
+        const artwork = params.get("art") || "";
+        const audioUrl = params.get("audio") || "";
+        const appRoute = params.get("app") || "/";
+        let webUrl = params.get("web");
+        if (!webUrl && appRoute && appRoute !== "/") {
+          webUrl = "https://mirlo.space" + appRoute;
+        }
+        if (!webUrl) {
+          webUrl = "https://mirlo.space";
+        }
+
+        // DOM elements
+        const titleEl = document.getElementById("track-title");
+        const artistEl = document.getElementById("track-artist");
+        const metaEl = document.getElementById("track-meta");
+        const coverEl = document.getElementById("cover-img");
+        const placeholderEl = document.getElementById("cover-placeholder");
+        const pageTitleEl = document.getElementById("page-title");
+        const pageDescEl = document.getElementById("page-desc");
+        const ogTitleEl = document.getElementById("og-title");
+        const ogDescEl = document.getElementById("og-desc");
+        const ogImageEl = document.getElementById("og-image");
+        const twitterImageEl = document.getElementById("twitter-image");
+
+        const btnOpenApp = document.getElementById("btn-open-app");
+        const btnOpenWeb = document.getElementById("btn-open-web");
+        const btnWebLabel = document.getElementById("btn-web-label");
+
+        const audioPlayer = document.getElementById("audio-player");
+        const playBtn = document.getElementById("play-button");
+        const playIcon = document.getElementById("play-icon");
+        const pauseIcon = document.getElementById("pause-icon");
+        const progressFill = document.getElementById("progress-fill");
+        const progressHitArea = document.getElementById("progress-hit-area");
+        const progressContainer = document.getElementById("progress-container");
+        const playerContainer = document.getElementById("player-container");
+
+        // Set Text Content
+        titleEl.textContent = title;
+        artistEl.textContent = artist;
+
+        if (album) {
+          metaEl.textContent = album;
+          metaEl.style.display = "block";
+        } else {
+          metaEl.style.display = "none";
+        }
+
+        // Web Action Button Label
+        if (type === "radio") {
+          btnWebLabel.textContent = "Station Website";
+        } else if (type === "podcast") {
+          btnWebLabel.textContent = "Episode Page";
+        } else {
+          btnWebLabel.textContent = "Listen & Buy on Mirlo";
+        }
+
+        // Set Cover Art & Fallback Handling
+        coverEl.onerror = function () {
+          coverEl.style.display = "none";
+          placeholderEl.style.display = "flex";
+        };
+
+        if (artwork) {
+          coverEl.src = artwork;
+          coverEl.style.display = "block";
+          placeholderEl.style.display = "none";
+          ogImageEl.content = artwork;
+          twitterImageEl.content = artwork;
+        } else if (trackId && type === "track") {
+          // If no artwork was passed in URL, fetch directly from Mirlo track API
+          fetch(`https://mirlo.space/v1/tracks/${trackId}`)
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+              const cover = data?.track?.trackGroup?.cover;
+              const fetchedArt =
+                cover?.sizes?.[600] ||
+                cover?.sizes?.[300] ||
+                cover?.sizes?.[120] ||
+                (typeof cover === "string" ? cover : "");
+              if (fetchedArt) {
+                coverEl.src = fetchedArt;
+                coverEl.style.display = "block";
+                placeholderEl.style.display = "none";
+                ogImageEl.content = fetchedArt;
+                twitterImageEl.content = fetchedArt;
+              }
+              if (data?.track?.title && titleEl.textContent === "Featured Music") {
+                titleEl.textContent = data.track.title;
+              }
+              if (data?.track?.trackGroup?.artist?.name && artistEl.textContent === "MIRLOBLUE") {
+                artistEl.textContent = data.track.trackGroup.artist.name;
+              }
+            })
+            .catch(function () {});
+        }
+
+        // Update Page Titles
+        const formattedLabel = artist ? `${artist} - ${title}` : title;
+        pageTitleEl.textContent = `${formattedLabel} | MIRLOBLUE`;
+        pageDescEl.content = `Listen to ${formattedLabel} on MIRLOBLUE.`;
+        ogTitleEl.content = `${formattedLabel} | MIRLOBLUE`;
+        ogDescEl.content = `Listen to ${formattedLabel} on MIRLOBLUE. Direct artist support with zero ads.`;
+
+        // Configure Web Button
+        btnOpenWeb.href = webUrl;
+
+        // Configure Deep Link Action
+        btnOpenApp.addEventListener("click", function () {
+          const cleanRoute = appRoute.startsWith("/") ? appRoute.slice(1) : appRoute;
+          const mirloScheme = `mirloblue://${cleanRoute}`;
+
+          const start = Date.now();
+          window.location.href = mirloScheme;
+
+          // If app isn't installed, automatically transition directly to the download page
+          setTimeout(function () {
+            if (document.hidden || document.webkitHidden) return;
+            if (Date.now() - start < 2500) {
+              window.location.href = "https://grendel116.github.io/mirlo-blue/";
+            }
+          }, 1500);
+        });
+
+        // 10-Second Audio Player Logic
+        const SAMPLE_LIMIT_SECONDS = 10;
+        let isPlaying = false;
+        let isScrubbing = false;
+        let playStartOffset = 0;
+        let animFrameId = null;
+
+        let resolvedAudio = audioUrl;
+        if (!resolvedAudio && trackId && type === "track") {
+          resolvedAudio = `https://mirlo.space/v1/tracks/${trackId}/stream/playlist.m3u8`;
+        }
+
+        // Route Mirlo HLS streams through our Cloudflare Worker to attach CORS headers
+        if (resolvedAudio && resolvedAudio.includes("mirlo.space/v1/tracks/")) {
+          const match = resolvedAudio.match(/\/v1\/tracks\/(.+)$/);
+          if (match) {
+            resolvedAudio = `https://mirlo-blue-share.mirloblue.workers.dev/stream/${match[1]}`;
+          }
+        }
+
+        function initAudioSource(src) {
+          if (!src) {
+            playerContainer.style.display = "none";
+            return;
+          }
+          playerContainer.style.display = "flex";
+          if (src.includes(".m3u8")) {
+            if (audioPlayer.canPlayType("application/vnd.apple.mpegurl")) {
+              audioPlayer.src = src;
+            } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
+              const hls = new Hls({ maxBufferLength: 15, enableWorker: true });
+              hls.loadSource(src);
+              hls.attachMedia(audioPlayer);
+              hls.on(Hls.Events.ERROR, function (event, data) {
+                console.warn("HLS error:", data);
+              });
+            } else {
+              audioPlayer.src = src;
+            }
+          } else {
+            audioPlayer.src = src;
+          }
+        }
+
+        initAudioSource(resolvedAudio);
+
+        function updateProgress() {
+          if (!isPlaying) return;
+          if (!isScrubbing) {
+            const current = audioPlayer.currentTime || 0;
+            const elapsed = Math.max(0, current - playStartOffset);
+            if (elapsed >= SAMPLE_LIMIT_SECONDS) {
+              stopSample(true);
+              return;
+            }
+            const pct = Math.min(100, (elapsed / SAMPLE_LIMIT_SECONDS) * 100);
+            progressFill.style.width = pct + "%";
+          }
+          animFrameId = requestAnimationFrame(updateProgress);
+        }
+
+        function setPlayingState(playing) {
+          isPlaying = playing;
+          if (playing) {
+            playIcon.style.display = "none";
+            pauseIcon.style.display = "block";
+            cancelAnimationFrame(animFrameId);
+            animFrameId = requestAnimationFrame(updateProgress);
+          } else {
+            playIcon.style.display = "block";
+            pauseIcon.style.display = "none";
+            cancelAnimationFrame(animFrameId);
+          }
+        }
+
+        function stopSample(completed) {
+          audioPlayer.pause();
+          setPlayingState(false);
+          if (completed) {
+            progressFill.style.width = "100%";
+            audioPlayer.currentTime = 0;
+            playStartOffset = 0;
+          }
+        }
+
+        function togglePlay() {
+          if (!resolvedAudio) return;
+
+          if (isPlaying) {
+            audioPlayer.pause();
+            setPlayingState(false);
+          } else {
+            // If at the end of the sample, restart from beginning
+            if (progressFill.style.width === "100%") {
+              audioPlayer.currentTime = 0;
+              playStartOffset = 0;
+              progressFill.style.width = "0%";
+            } else {
+              playStartOffset = audioPlayer.currentTime || 0;
+            }
+
+            audioPlayer
+              .play()
+              .then(function () {
+                setPlayingState(true);
+              })
+              .catch(function (err) {
+                console.warn("Audio play prevented:", err);
+                setPlayingState(false);
+              });
+          }
+        }
+
+        playBtn.addEventListener("click", togglePlay);
+
+        function seekToClientX(clientX) {
+          const rect = progressContainer.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+          const targetSampleSec = ratio * SAMPLE_LIMIT_SECONDS;
+
+          playStartOffset = 0;
+          audioPlayer.currentTime = targetSampleSec;
+          progressFill.style.width = (ratio * 100) + "%";
+        }
+
+        progressHitArea.addEventListener("pointerdown", function (e) {
+          if (!resolvedAudio) return;
+          isScrubbing = true;
+          try {
+            progressHitArea.setPointerCapture(e.pointerId);
+          } catch {}
+          seekToClientX(e.clientX);
+        });
+
+        progressHitArea.addEventListener("pointermove", function (e) {
+          if (isScrubbing) {
+            seekToClientX(e.clientX);
+          }
+        });
+
+        function endScrub(e) {
+          if (!isScrubbing) return;
+          isScrubbing = false;
+          try {
+            progressHitArea.releasePointerCapture(e.pointerId);
+          } catch {}
+          if (!isPlaying) {
+            togglePlay();
+          }
+        }
+
+        progressHitArea.addEventListener("pointerup", endScrub);
+        progressHitArea.addEventListener("pointercancel", endScrub);
+
+        audioPlayer.addEventListener("ended", function () {
+          stopSample(true);
+        });
+
+        audioPlayer.addEventListener("error", function () {
+          setPlayingState(false);
+        });
+      })();
+    </script>
+  </body>
+</html>

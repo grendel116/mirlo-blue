@@ -14,12 +14,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useMemo } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { usePlayer } from "@/state/PlayerContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import {
   queryUserCollection,
   queryWishlist,
   queryTrackGroups,
   queryTopSold,
+  queryAlbum,
 } from "@/queries/queries";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -33,7 +34,9 @@ import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
+import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { findStation, liveTrack } from "@/queries/radio";
+import { hashString } from "@/queries/podcast";
 
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
@@ -105,6 +108,311 @@ function resolveAudioStreamUrl(rawUrl?: string): string {
   return `${API_ROOT}/${trimmed}`;
 }
 
+export interface BuildCombinedLibraryTracksParams {
+  user?: LoggedInUser | null;
+  purchases: any[];
+  wishlist: any[];
+  fullAlbums: AlbumProps[];
+  purchaseDateByAlbumId: Map<number | string, string>;
+  catalogData?: { results: AlbumProps[] };
+  topSoldData?: { results: AlbumProps[] };
+  historyItems: HistoryItem[];
+  downloadedTracks: any[];
+  stationLikes: { stationId: string; likedAt: number }[];
+  podcastEpisodeLikes?: PodcastEpisodeLike[];
+}
+
+export function buildCombinedLibraryTracks({
+  user,
+  purchases,
+  wishlist,
+  fullAlbums,
+  purchaseDateByAlbumId,
+  catalogData,
+  topSoldData,
+  historyItems,
+  downloadedTracks,
+  stationLikes,
+  podcastEpisodeLikes,
+}: BuildCombinedLibraryTracksParams): RNTrack[] {
+  const trackMap = new Map<number | string, RNTrack>();
+  // When each track joined the library; a track found in several places keeps the latest date
+  const addedAt = new Map<number | string, number>();
+  const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
+  const markAdded = (id: number | string, time: number) => {
+    addedAt.set(id, Math.max(addedAt.get(id) || 0, time));
+  };
+
+  // Build album lookup map (by id, trackGroupId, slug, title) from all available sources
+  const albumLookup = new Map<
+    number | string,
+    { artwork: string; artist: string; trackGroup: any }
+  >();
+
+  const indexAlbum = (tg: any) => {
+    if (!tg) return;
+    const artwork = resolveArtwork(tg);
+    const artist = resolveArtist(tg);
+    const entry = { artwork, artist, trackGroup: tg };
+    if (tg.id !== undefined) {
+      albumLookup.set(tg.id, entry);
+      albumLookup.set(String(tg.id), entry);
+    }
+    if (tg.trackGroupId !== undefined) {
+      albumLookup.set(tg.trackGroupId, entry);
+      albumLookup.set(String(tg.trackGroupId), entry);
+    }
+    if (tg.urlSlug) {
+      albumLookup.set(tg.urlSlug, entry);
+    }
+    if (tg.title) {
+      albumLookup.set(tg.title.toLowerCase().trim(), entry);
+    }
+  };
+
+  purchases.forEach((p: any) => indexAlbum(p?.trackGroup || p));
+  wishlist.forEach((w: any) => indexAlbum(w?.trackGroup || w));
+  fullAlbums.forEach(indexAlbum);
+  (catalogData?.results || []).forEach(indexAlbum);
+  (topSoldData?.results || []).forEach(indexAlbum);
+
+  historyItems.forEach((h: HistoryItem) => {
+    if (h && h.downloadAlbum === undefined) {
+      const art = resolveArtworkUrl(h.coverUri);
+      const entry = {
+        artwork: art,
+        artist: h.artistName || "",
+        trackGroup: {
+          id: Number(h.id) || 0,
+          trackGroupId: Number(h.id) || 0,
+          title: h.title,
+          artist: { name: h.artistName } as any,
+          artistId: Number(h.artistId) || 0,
+          urlSlug: h.urlSlug,
+          cover: { sizes: { 300: art, 600: art, 120: art } as any },
+        },
+      };
+      albumLookup.set(h.id, entry);
+      albumLookup.set(String(h.id), entry);
+      if (h.urlSlug) albumLookup.set(h.urlSlug, entry);
+      if (h.title) albumLookup.set(h.title.toLowerCase().trim(), entry);
+    }
+  });
+
+  const matchAlbum = (t: any, fav?: any) => {
+    const candidateIds = [
+      t?.trackGroupId,
+      t?.trackGroup?.id,
+      t?.trackGroup?.trackGroupId,
+      t?.albumId,
+      t?.album?.id,
+      fav?.trackGroupId,
+      fav?.albumId,
+    ].filter((v: any) => v !== undefined && v !== null);
+
+    for (const id of candidateIds) {
+      if (albumLookup.has(id)) return albumLookup.get(id);
+      if (albumLookup.has(String(id))) return albumLookup.get(String(id));
+    }
+
+    const candidateSlugs = [t?.trackGroup?.urlSlug, t?.album?.urlSlug, fav?.urlSlug].filter(
+      Boolean,
+    );
+
+    for (const slug of candidateSlugs) {
+      if (albumLookup.has(slug)) return albumLookup.get(slug);
+    }
+
+    const candidateTitles = [
+      t?.trackGroup?.title,
+      t?.album?.title,
+      fav?.trackGroup?.title,
+      fav?.albumTitle,
+    ]
+      .filter(Boolean)
+      .map((s: string) => s.toLowerCase().trim());
+
+    for (const title of candidateTitles) {
+      if (albumLookup.has(title)) return albumLookup.get(title);
+    }
+
+    return undefined;
+  };
+
+  const addTrackToMap = (
+    t: any,
+    fav?: any,
+    albumFallback?: { artwork: string; artist: string; trackGroup: any },
+    added = 0,
+  ) => {
+    if (!t) return;
+    const trackId = t.id ?? fav?.trackId ?? t.trackId;
+    if (!trackId) return;
+    markAdded(trackId, added);
+
+    const matched = matchAlbum(t, fav) || albumFallback;
+    const rawAudio = t.audio?.url || t.url || trackStreamPath(trackId);
+    const streamUrl = resolveAudioStreamUrl(rawAudio);
+
+    const artwork =
+      resolveArtwork(t) ||
+      resolveArtwork(t.trackGroup) ||
+      resolveArtwork(t.album) ||
+      resolveArtwork(fav) ||
+      matched?.artwork ||
+      "";
+
+    const artist =
+      resolveArtist(t) ||
+      resolveArtist(t.trackGroup) ||
+      resolveArtist(t.album) ||
+      resolveArtist(fav) ||
+      matched?.artist ||
+      "";
+
+    const existing = trackMap.get(trackId);
+    if (existing) {
+      if (!existing.artwork && artwork) existing.artwork = artwork;
+      if (!existing.artist && artist) existing.artist = artist;
+      if (!existing.url && streamUrl) existing.url = streamUrl;
+      return;
+    }
+
+    const trackGroup = t.trackGroup ||
+      t.album ||
+      matched?.trackGroup || {
+        id: t.trackGroupId || 0,
+        releaseDate: "",
+        trackGroupId: t.trackGroupId || 0,
+        title: t.title || "Track",
+        artist: { name: artist } as any,
+        artistId: 0,
+        urlSlug: "",
+        cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
+      };
+
+    trackMap.set(trackId, {
+      ...t,
+      id: trackId,
+      title: t.title || fav?.title || "Unknown Track",
+      artist,
+      artwork,
+      url: streamUrl,
+      headers: t.headers || { "mirlo-api-key": API_KEY },
+      type: t.type || audioTrackType(streamUrl),
+      queueIndex: 0,
+      trackGroupId: t.trackGroupId || trackGroup.id || 0,
+      trackGroup,
+      audio: {
+        url: rawAudio,
+        duration: t.audio?.duration || t.duration,
+      },
+      isPreview: Boolean(t.isPreview),
+      order: t.order || 1,
+      allowIndividualSale: Boolean(t.allowIndividualSale),
+      source: t.source || trackGroup?.source || "Mirlo Space",
+      sourceUrl: t.sourceUrl || trackGroup?.sourceUrl || "https://mirlo.space",
+    });
+  };
+
+  // 1. Add tracks from full purchased albums
+  fullAlbums.forEach((album) => {
+    if (!album.tracks || !Array.isArray(album.tracks)) return;
+    const albumFallback = {
+      artwork: resolveArtwork(album),
+      artist: resolveArtist(album),
+      trackGroup: album,
+    };
+    const purchaseDate =
+      purchaseDateByAlbumId.get(album.id) ??
+      purchaseDateByAlbumId.get(album.trackGroupId) ??
+      purchaseDateByAlbumId.get(album.urlSlug);
+    const added = timeOf(purchaseDate || album.releaseDate);
+
+    album.tracks.forEach((t: RNTrack) => {
+      addTrackToMap({ ...t, trackGroup: album }, undefined, albumFallback, added);
+    });
+  });
+
+  // 2. Add individual track purchases or any purchases where tracks were already attached
+  purchases.forEach((p: any) => {
+    const tg = p?.trackGroup || p;
+    const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
+    const added = timeOf(p?.datePurchased);
+    if (tg?.tracks && Array.isArray(tg.tracks)) {
+      tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
+    } else if (p.track) {
+      addTrackToMap(p.track, p, albumFallback, added);
+    }
+  });
+
+  // 3. Add tracks from user's explicit track favorites
+  if (user?.trackFavorites) {
+    user.trackFavorites.forEach((fav: any) => {
+      addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
+    });
+  }
+
+  // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
+  downloadedTracks.forEach((dl) => {
+    markAdded(dl.id, dl.downloadedAt);
+    if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
+  });
+
+  // 5. Add liked radio stations, kept on the phone
+  stationLikes.forEach(({ stationId, likedAt }) => {
+    const station = findStation(stationId);
+    if (!station) return;
+    const key = `station:${stationId}`;
+    markAdded(key, likedAt);
+    trackMap.set(key, liveTrack(station));
+  });
+
+  // 6. Add liked podcast episodes, kept on the phone
+  podcastEpisodeLikes?.forEach((ep) => {
+    const key = `episode:${ep.episodeId}`;
+    markAdded(key, ep.likedAt);
+    trackMap.set(key, {
+      id: -(Math.abs(hashString(`ep-${ep.episodeId}`)) || 600000),
+      title: ep.title,
+      artist: ep.artist,
+      artwork: ep.artwork || "",
+      url: ep.url,
+      type: "default",
+      duration: ep.duration,
+      order: 1,
+      queueIndex: 0,
+      allowIndividualSale: false,
+      isPreview: false,
+      audio: {
+        url: ep.url,
+        duration: ep.duration,
+      },
+      trackGroupId: 0,
+      podcastId: ep.showId,
+      podcastEpisodeId: ep.episodeId,
+    } as RNTrack);
+  });
+
+  // Newest additions first; tracks added together keep their album order
+  const keyOf = (t: RNTrack) =>
+    t.liveStation
+      ? `station:${t.liveStation}`
+      : t.podcastEpisodeId
+        ? `episode:${t.podcastEpisodeId}`
+        : t.id;
+  return Array.from(trackMap.values()).sort((a, b) => {
+    const timeDiff = (addedAt.get(keyOf(b)) || 0) - (addedAt.get(keyOf(a)) || 0);
+    if (timeDiff !== 0) return timeDiff;
+    const aAlbumId = a.trackGroupId || a.trackGroup?.id;
+    const bAlbumId = b.trackGroupId || b.trackGroup?.id;
+    if (aAlbumId && bAlbumId && aAlbumId === bAlbumId) {
+      return (a.order || 0) - (b.order || 0);
+    }
+    return 0;
+  });
+}
+
 export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
@@ -119,6 +427,7 @@ export default function LibraryScreen() {
   }, [params.tab, params.album]);
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();
+  const podcastEpisodeLikes = usePodcastEpisodeLikes();
   const [librarySearch, setLibrarySearch] = useState("");
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
@@ -144,234 +453,104 @@ export default function LibraryScreen() {
   const purchases = collectionData?.results || [];
   const wishlist = wishlistData?.results || [];
 
-  // Combined tracks (sans duplicates) across purchased albums and favorited tracks
-  const combinedTracks = useMemo(() => {
-    const trackMap = new Map<number | string, RNTrack>();
-    // When each track joined the library; a track found in several places keeps the latest date
-    const addedAt = new Map<number | string, number>();
-    const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
-    const markAdded = (id: number | string, time: number) => {
-      addedAt.set(id, Math.max(addedAt.get(id) || 0, time));
-    };
-
-    // Build album lookup map (by id, trackGroupId, slug, title) from all available sources
-    const albumLookup = new Map<
+  // Unique album descriptors for purchased albums that need their full tracks fetched
+  const purchasedAlbumDescriptors = useMemo(() => {
+    const map = new Map<
       number | string,
-      { artwork: string; artist: string; trackGroup: any }
+      { slug: string; id: string; albumId: number | string; datePurchased?: string }
     >();
 
-    const indexAlbum = (tg: any) => {
-      if (!tg) return;
-      const artwork = resolveArtwork(tg);
-      const artist = resolveArtist(tg);
-      const entry = { artwork, artist, trackGroup: tg };
-      if (tg.id !== undefined) {
-        albumLookup.set(tg.id, entry);
-        albumLookup.set(String(tg.id), entry);
-      }
-      if (tg.trackGroupId !== undefined) {
-        albumLookup.set(tg.trackGroupId, entry);
-        albumLookup.set(String(tg.trackGroupId), entry);
-      }
-      if (tg.urlSlug) {
-        albumLookup.set(tg.urlSlug, entry);
-      }
-      if (tg.title) {
-        albumLookup.set(tg.title.toLowerCase().trim(), entry);
-      }
-    };
-
-    purchases.forEach((p: any) => indexAlbum(p?.trackGroup || p));
-    wishlist.forEach((w: any) => indexAlbum(w?.trackGroup || w));
-    (catalogData?.results || []).forEach(indexAlbum);
-    (topSoldData?.results || []).forEach(indexAlbum);
-
-    historyItems.forEach((h: HistoryItem) => {
-      if (h && h.downloadAlbum === undefined) {
-        const art = resolveArtworkUrl(h.coverUri);
-        const entry = {
-          artwork: art,
-          artist: h.artistName || "",
-          trackGroup: {
-            id: Number(h.id) || 0,
-            trackGroupId: Number(h.id) || 0,
-            title: h.title,
-            artist: { name: h.artistName } as any,
-            artistId: Number(h.artistId) || 0,
-            urlSlug: h.urlSlug,
-            cover: { sizes: { 300: art, 600: art, 120: art } as any },
-          },
-        };
-        albumLookup.set(h.id, entry);
-        albumLookup.set(String(h.id), entry);
-        if (h.urlSlug) albumLookup.set(h.urlSlug, entry);
-        if (h.title) albumLookup.set(h.title.toLowerCase().trim(), entry);
-      }
-    });
-
-    const matchAlbum = (t: any, fav?: any) => {
-      const candidateIds = [
-        t?.trackGroupId,
-        t?.trackGroup?.id,
-        t?.trackGroup?.trackGroupId,
-        t?.albumId,
-        t?.album?.id,
-        fav?.trackGroupId,
-        fav?.albumId,
-      ].filter((v: any) => v !== undefined && v !== null);
-
-      for (const id of candidateIds) {
-        if (albumLookup.has(id)) return albumLookup.get(id);
-        if (albumLookup.has(String(id))) return albumLookup.get(String(id));
-      }
-
-      const candidateSlugs = [t?.trackGroup?.urlSlug, t?.album?.urlSlug, fav?.urlSlug].filter(
-        Boolean,
-      );
-
-      for (const slug of candidateSlugs) {
-        if (albumLookup.has(slug)) return albumLookup.get(slug);
-      }
-
-      const candidateTitles = [
-        t?.trackGroup?.title,
-        t?.album?.title,
-        fav?.trackGroup?.title,
-        fav?.albumTitle,
-      ]
-        .filter(Boolean)
-        .map((s: string) => s.toLowerCase().trim());
-
-      for (const title of candidateTitles) {
-        if (albumLookup.has(title)) return albumLookup.get(title);
-      }
-
-      return undefined;
-    };
-
-    const addTrackToMap = (
-      t: any,
-      fav?: any,
-      albumFallback?: { artwork: string; artist: string; trackGroup: any },
-      added = 0,
-    ) => {
-      if (!t) return;
-      const trackId = t.id ?? fav?.trackId ?? t.trackId;
-      if (!trackId) return;
-      markAdded(trackId, added);
-
-      const matched = matchAlbum(t, fav) || albumFallback;
-      const rawAudio = t.audio?.url || trackStreamPath(trackId);
-      const streamUrl = resolveAudioStreamUrl(rawAudio);
-
-      const artwork =
-        resolveArtwork(t) ||
-        resolveArtwork(t.trackGroup) ||
-        resolveArtwork(t.album) ||
-        resolveArtwork(fav) ||
-        matched?.artwork ||
-        "";
-
-      const artist =
-        resolveArtist(t) ||
-        resolveArtist(t.trackGroup) ||
-        resolveArtist(t.album) ||
-        resolveArtist(fav) ||
-        matched?.artist ||
-        "";
-
-      const existing = trackMap.get(trackId);
-      if (existing) {
-        if (!existing.artwork && artwork) existing.artwork = artwork;
-        if (!existing.artist && artist) existing.artist = artist;
-        if (!existing.url && streamUrl) existing.url = streamUrl;
-        return;
-      }
-
-      const trackGroup = t.trackGroup ||
-        t.album ||
-        matched?.trackGroup || {
-          id: t.trackGroupId || 0,
-          releaseDate: "",
-          trackGroupId: t.trackGroupId || 0,
-          title: t.title || "Track",
-          artist: { name: artist } as any,
-          artistId: 0,
-          urlSlug: "",
-          cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
-        };
-
-      trackMap.set(trackId, {
-        ...t,
-        id: trackId,
-        title: t.title || fav?.title || "Unknown Track",
-        artist,
-        artwork,
-        url: streamUrl,
-        headers: t.headers || { "mirlo-api-key": API_KEY },
-        type: t.type || audioTrackType(streamUrl),
-        queueIndex: 0,
-        trackGroupId: t.trackGroupId || trackGroup.id || 0,
-        trackGroup,
-        audio: {
-          url: rawAudio,
-          duration: t.audio?.duration || t.duration,
-        },
-        isPreview: Boolean(t.isPreview),
-        order: t.order || 1,
-        allowIndividualSale: Boolean(t.allowIndividualSale),
-      });
-    };
-
-    // 1. Add tracks from purchased albums
     purchases.forEach((p: any) => {
       const tg = p?.trackGroup || p;
-      const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
-      const added = timeOf(p?.datePurchased);
-      if (tg?.tracks && Array.isArray(tg.tracks)) {
-        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
-      } else if (p.track) {
-        addTrackToMap(p.track, p, albumFallback, added);
+      const rawId = tg?.id ?? tg?.trackGroupId ?? p?.trackGroupId;
+      if (!rawId) return;
+      const albumKey = String(rawId);
+      const slug = tg?.urlSlug ? String(tg.urlSlug) : albumKey;
+      const id = tg?.artistId ? String(tg.artistId) : albumKey;
+      if (!map.has(albumKey)) {
+        map.set(albumKey, { slug, id, albumId: rawId, datePurchased: p?.datePurchased });
       }
     });
 
-    // 2. Add tracks from user's explicit track favorites
-    if (user?.trackFavorites) {
-      user.trackFavorites.forEach((fav: any) => {
-        addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
+    if (user?.userTrackGroupPurchases) {
+      user.userTrackGroupPurchases.forEach((utgp: any) => {
+        const rawId = utgp?.trackGroupId;
+        if (!rawId) return;
+        const albumKey = String(rawId);
+        if (!map.has(albumKey)) {
+          map.set(albumKey, { slug: albumKey, id: albumKey, albumId: rawId });
+        }
       });
     }
 
-    // 3. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
-    downloadedTracks.forEach((dl) => {
-      markAdded(dl.id, dl.downloadedAt);
-      if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
-    });
+    return Array.from(map.values());
+  }, [purchases, user?.userTrackGroupPurchases]);
 
-    // 4. Add liked radio stations, kept on the phone
-    stationLikes.forEach(({ stationId, likedAt }) => {
-      const station = findStation(stationId);
-      if (!station) return;
-      const key = `station:${stationId}`;
-      markAdded(key, likedAt);
-      trackMap.set(key, liveTrack(station));
-    });
+  // Fetch full album details (including track list) for all purchased albums
+  const albumQueries = useQueries({
+    queries: purchasedAlbumDescriptors.map((desc) =>
+      queryAlbum({ slug: desc.slug, id: desc.id }),
+    ),
+  });
 
-    // Newest additions first; tracks added together keep their album order
-    const keyOf = (t: RNTrack) => (t.liveStation ? `station:${t.liveStation}` : t.id);
-    return Array.from(trackMap.values()).sort(
-      (a, b) => (addedAt.get(keyOf(b)) || 0) - (addedAt.get(keyOf(a)) || 0),
-    );
-  }, [
-    user,
-    purchases,
-    wishlist,
-    catalogData,
-    topSoldData,
-    historyItems,
-    downloadedTracks,
-    stationLikes,
-  ]);
+  const fullAlbums = useMemo(() => {
+    const list: AlbumProps[] = [];
+    albumQueries.forEach((q) => {
+      if (q.data?.result) {
+        list.push(q.data.result);
+      }
+    });
+    return list;
+  }, [albumQueries]);
+
+  const purchaseDateByAlbumId = useMemo(() => {
+    const map = new Map<number | string, string>();
+    purchasedAlbumDescriptors.forEach((desc) => {
+      if (desc.datePurchased) {
+        map.set(desc.albumId, desc.datePurchased);
+        map.set(String(desc.albumId), desc.datePurchased);
+        map.set(desc.slug, desc.datePurchased);
+      }
+    });
+    return map;
+  }, [purchasedAlbumDescriptors]);
+
+  // Combined tracks (sans duplicates) across purchased albums and favorited tracks
+  const combinedTracks = useMemo(
+    () =>
+      buildCombinedLibraryTracks({
+        user,
+        purchases,
+        wishlist,
+        fullAlbums,
+        purchaseDateByAlbumId,
+        catalogData,
+        topSoldData,
+        historyItems,
+        downloadedTracks,
+        stationLikes,
+        podcastEpisodeLikes,
+      }),
+    [
+      user,
+      purchases,
+      wishlist,
+      fullAlbums,
+      purchaseDateByAlbumId,
+      catalogData,
+      topSoldData,
+      historyItems,
+      downloadedTracks,
+      stationLikes,
+      podcastEpisodeLikes,
+    ],
+  );
+
+  const isPurchasedAlbumsPending = albumQueries.some((q) => q.isPending);
+  const isLibraryLoading =
+    Boolean(userId) &&
+    (isCollectionPending || (purchasedAlbumDescriptors.length > 0 && isPurchasedAlbumsPending)) &&
+    combinedTracks.length === 0;
 
   // All Tracks as shown: matching the search, in the chosen order
   const visibleTracks = useMemo(() => {
@@ -421,7 +600,7 @@ export default function LibraryScreen() {
               }
             />
             <Text style={[styles.toggleText, activeTab === "library" && styles.toggleTextActive]}>
-              All Tracks ({combinedTracks.length})
+              Tracks ({combinedTracks.length})
             </Text>
           </TouchableOpacity>
 
@@ -442,7 +621,7 @@ export default function LibraryScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Section 3: Likes & Wishlist */}
+          {/* Section 3: Wishlist */}
           <TouchableOpacity
             onPress={() => setActiveTab("wishlist")}
             style={[styles.togglePill, activeTab === "wishlist" && styles.togglePillActive]}
@@ -455,7 +634,7 @@ export default function LibraryScreen() {
               }
             />
             <Text style={[styles.toggleText, activeTab === "wishlist" && styles.toggleTextActive]}>
-              Likes & Wishlist ({wishlist.length})
+              Wishlist ({wishlist.length})
             </Text>
           </TouchableOpacity>
 
@@ -493,7 +672,9 @@ export default function LibraryScreen() {
           </TouchableOpacity>
         </View>
       ) : activeTab === "library" ? (
-        combinedTracks.length === 0 ? (
+        isLibraryLoading ? (
+          <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
+        ) : combinedTracks.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="musical-notes-outline" size={48} color={theme.colors.textMuted} />
             <Text style={styles.emptyTitle}>Your library is empty</Text>
@@ -539,7 +720,9 @@ export default function LibraryScreen() {
             </View>
             <FlatList
               data={visibleTracks}
-              keyExtractor={(item, index) => `track-${item.liveStation ?? item.id}-${index}`}
+              keyExtractor={(item, index) =>
+                `track-${item.liveStation ?? item.podcastEpisodeId ?? item.id}-${index}`
+              }
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
@@ -761,7 +944,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginHorizontal: 12,
-    marginTop: 4,
+    marginVertical: 10,
     paddingHorizontal: 12,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surfaceElevated,
@@ -778,7 +961,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     paddingHorizontal: 12,
-    paddingTop: 10,
   },
   card: {
     flexDirection: "row",

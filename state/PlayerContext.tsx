@@ -1,4 +1,11 @@
-import { incrementPlayCount, reachedMaxPlays } from "@/scripts/trackPlayUtils";
+import {
+  incrementPlayCount,
+  reachedMaxPlays,
+  getDisabledTrackIds,
+  markTrackDisabled,
+  subscribeDisabledTracks,
+  isTrackDisabledSync,
+} from "@/scripts/trackPlayUtils";
 import {
   createContext,
   useState,
@@ -221,6 +228,8 @@ export interface PlayerContextType {
   skipNext: () => Promise<void>;
   skipPrevious: () => Promise<void>;
   seekTo: (position: number) => Promise<void>;
+  disabledTrackIds: Set<number>;
+  isTrackDisabled: (trackId?: number) => boolean;
 }
 
 export const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -238,8 +247,25 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const [playerState, setPlayerState] = useState<State | undefined>(undefined);
   const playBackState = usePlaybackState();
   const { user } = useAuthContext();
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
   const router = useRouter();
   const incrementedRef = useRef(false);
+  const [disabledTrackIds, setDisabledTrackIds] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    getDisabledTrackIds().then((ids) => setDisabledTrackIds(new Set(ids)));
+    return subscribeDisabledTracks((ids) => setDisabledTrackIds(new Set(ids)));
+  }, []);
+
+  const isTrackDisabled = useCallback(
+    (trackId?: number) =>
+      typeof trackId === "number" &&
+      (disabledTrackIds.has(trackId) || isTrackDisabledSync(trackId)),
+    [disabledTrackIds],
+  );
 
   const activeTrackOwnedRef = useRef<boolean>(false);
   const activeTrackIdRef = useRef<number | null>(null);
@@ -348,7 +374,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       if (playlistOrderRef.current.length === 0) playlistOrderRef.current = queue;
       if (track) {
         setActiveTrack(track);
-        activeTrackOwnedRef.current = isTrackOwned(track);
+        activeTrackOwnedRef.current = isTrackOwned(track, track.trackGroup, userRef.current);
         activeTrackIdRef.current = track.id ?? null;
       }
       setLooping(REPEAT_CYCLE.find((setting) => REPEAT_MODES[setting] === mode) ?? "none");
@@ -402,9 +428,19 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (event) => {
       if (
         event.type === Event.PlaybackError &&
-        event.message?.includes("Track play limit exceeded")
+        (event.message?.includes("Track play limit exceeded") ||
+          event.message?.includes("402") ||
+          event.message?.toLowerCase().includes("payment required") ||
+          (event as any).code === "402" ||
+          (event as any).code === 402)
       ) {
-        router.push("/maxPlaysReached");
+        await TrackPlayer.pause();
+        const currentTrack = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+        const targetId = activeTrackIdRef.current ?? currentTrack?.id;
+        if (typeof targetId === "number" && targetId > 0) {
+          await markTrackDisabled(targetId);
+          setDisabledTrackIds((prev) => new Set(prev).add(targetId));
+        }
         return;
       }
 
@@ -423,7 +459,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         if (track) {
           setActiveTrack(track);
           setActiveIndex(event.index ?? -1);
-          activeTrackOwnedRef.current = isTrackOwned(track);
+          activeTrackOwnedRef.current = isTrackOwned(track, track.trackGroup, userRef.current);
           activeTrackIdRef.current = track.id ?? null;
           incrementedRef.current = false;
         }
@@ -447,7 +483,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           // Issue #67 fix: Strictly guard track ID to ensure it is a valid integer before telemetry
           if (typeof targetId === "number" && Number.isInteger(targetId) && targetId > 0) {
             if (!user && currentTrack?.trackGroup?.artist?.maxFreePlays !== undefined) {
-              incrementPlayCount(targetId);
+              incrementPlayCount(targetId, currentTrack.trackGroup.artist.maxFreePlays);
             }
             try {
               await api.get(`/v1/tracks/${targetId}/trackPlay`, {});
@@ -478,6 +514,13 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (track: RNTrack, albumTracks?: RNTrack[], source?: string) => {
       try {
         await ensureTrackPlayerInitialized();
+
+        // Pause and disable guard: Do not stream tracks whose preview limits or HTTP 402 were reached
+        if (track.id && isTrackDisabled(track.id) && !isTrackOwned(track, track.trackGroup, user)) {
+          await TrackPlayer.pause();
+          return;
+        }
+
         const currentActive = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
 
         // Tapping the song already loaded from this same playlist toggles play/pause. From a
@@ -578,7 +621,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [togglePlayPause, shuffled, jumpTo, queueSource],
+    [togglePlayPause, shuffled, jumpTo, queueSource, isTrackDisabled, user],
   );
 
   const playFromUserQueue = useCallback(
@@ -837,6 +880,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       skipNext,
       skipPrevious,
       seekTo,
+      disabledTrackIds,
+      isTrackDisabled,
     }),
     [
       playBackState,
@@ -862,6 +907,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       skipNext,
       skipPrevious,
       seekTo,
+      disabledTrackIds,
+      isTrackDisabled,
     ],
   );
 

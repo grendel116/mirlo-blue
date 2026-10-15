@@ -1,6 +1,8 @@
 import { Platform } from "react-native";
 import { queryOptions } from "@tanstack/react-query";
 import type { TrackType } from "react-native-track-player";
+import { isQualityArtwork } from "@/scripts/utils";
+import { SHARE_HUB_URL } from "@/queries/shareHub";
 
 // Podcast and talk shows shown under Discussion on Home. Episodes are parsed from
 // standard open podcast RSS feeds with direct audio enclosures.
@@ -24,6 +26,7 @@ export type PodcastShow = {
   feedUrl: string;
   webUrl: string;
   supportUrl?: string;
+  lastUpdated?: string;
   fetchEpisodes: (signal?: AbortSignal) => Promise<PodcastEpisode[]>;
 };
 
@@ -142,10 +145,17 @@ export async function fetchFeedEpisodes(
 }
 
 function createPodcastShow(data: Omit<PodcastShow, "fetchEpisodes">): PodcastShow {
-  return {
+  const show: PodcastShow = {
     ...data,
-    fetchEpisodes: (signal) => fetchFeedEpisodes(data.feedUrl, signal),
+    fetchEpisodes: async (signal) => {
+      const episodes = await fetchFeedEpisodes(data.feedUrl, signal);
+      if (episodes.length > 0 && episodes[0].pubDate) {
+        show.lastUpdated = episodes[0].pubDate;
+      }
+      return episodes;
+    },
   };
+  return show;
 }
 
 export const COLONIAL_OUTCASTS: PodcastShow = createPodcastShow({
@@ -159,6 +169,7 @@ export const COLONIAL_OUTCASTS: PodcastShow = createPodcastShow({
   feedUrl: "https://www.rfemedia.com/feed?section=colonial-outcasts",
   webUrl: "https://www.rfemedia.com/s/colonial-outcasts",
   supportUrl: "https://www.rfemedia.com/subscribe",
+  lastUpdated: "2026-10-12T19:33:30Z",
 });
 
 export const BLACK_AUTONOMY: PodcastShow = createPodcastShow({
@@ -172,6 +183,7 @@ export const BLACK_AUTONOMY: PodcastShow = createPodcastShow({
   feedUrl: "https://blackautonomy.libsyn.com/rss",
   webUrl: "https://blackautonomy.libsyn.com",
   supportUrl: "https://www.patreon.com/blackautonomy",
+  lastUpdated: "2026-06-07T23:52:00Z",
 });
 
 export const EVERYTHING_COOP: PodcastShow = createPodcastShow({
@@ -180,21 +192,155 @@ export const EVERYTHING_COOP: PodcastShow = createPodcastShow({
   author: "Vernon Oakes",
   description:
     "Weekly conversations exploring the cooperative movement, worker-owned businesses, and community wealth building through an economic democracy lens.",
-  artwork:
-    "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/18/65/f3/1865f3cb-1370-282c-a5d3-d2f021b6e66b/mza_12938009896173436902.jpg/600x600bb.jpg",
+  artwork: "https://i1.sndcdn.com/avatars-MBD0zlDPR5XKKza6-lLoRig-original.jpg",
   feedUrl: "https://feeds.soundcloud.com/users/soundcloud:users:381264350/sounds.rss",
   webUrl: "https://everything.coop",
   supportUrl: "https://everything.coop",
+  lastUpdated: "2026-10-08T06:17:21Z",
+});
+
+export const UPSTREAM: PodcastShow = createPodcastShow({
+  id: "upstream",
+  name: "Upstream Podcast",
+  author: "Della Z. Duncan & Robert R. Raymond",
+  description:
+    "Challenging traditional economic assumptions through documentary and conversation, exploring worker cooperatives, degrowth, solidarity economics, and democratic alternatives.",
+  artwork:
+    "https://static.libsyn.com/p/assets/c/7/e/1/c7e178673bac87a2d959afa2a1bf1c87/avatars-000421042564-bh1xd1-original.jpg",
+  feedUrl: "https://rss.libsyn.com/shows/435210/destinations/3632352.xml",
+  webUrl: "https://www.upstreampodcast.org",
+  supportUrl: "https://www.patreon.com/upstreampodcast",
+  lastUpdated: "2026-10-12T15:00:00Z",
+});
+
+export const MAKC: PodcastShow = createPodcastShow({
+  id: "millennials-killing-capitalism",
+  name: "Millennials Are Killing Capitalism",
+  author: "MAKC Collective",
+  description:
+    "Conversations on radical movement building, abolition, anti-colonialism, revolutionary theory, and working-class liberation.",
+  artwork:
+    "https://static.libsyn.com/p/assets/3/7/e/4/37e4287a44a8f68116c3140a3186d450/MAKC-New-3.png",
+  feedUrl: "https://millennialsarekillingcapitalism.libsyn.com/rss",
+  webUrl: "https://millennialsarekillingcapitalism.com",
+  supportUrl: "https://www.patreon.com/millennialsarekillingcapitalism",
+  lastUpdated: "2026-10-13T14:03:00Z",
+});
+
+export const SRSLY_WRONG: PodcastShow = createPodcastShow({
+  id: "srsly-wrong",
+  name: "Srsly Wrong",
+  author: "Shawn Vulliez & Aaron Moritz",
+  description:
+    "Utopian comedy and educational podcast exploring Library Socialism, social ecology, anti-capitalism, and building a post-scarcity, free society.",
+  artwork:
+    "https://srslywrong.com/wp-content/uploads/2026/08/369-groceries-scaled.png",
+  feedUrl: "https://srslywrong.com/feed/",
+  webUrl: "https://srslywrong.com",
+  supportUrl: "https://www.patreon.com/srslywrong",
+  lastUpdated: "2026-08-22T19:09:14Z",
 });
 
 export const PODCAST_SHOWS: PodcastShow[] = [
+  UPSTREAM,
+  EVERYTHING_COOP,
+  MAKC,
+  SRSLY_WRONG,
   COLONIAL_OUTCASTS,
   BLACK_AUTONOMY,
-  EVERYTHING_COOP,
 ];
 
+type CastopodPodcast = {
+  id: string | number;
+  podcastGuid?: string;
+  title: string;
+  author?: string;
+  description?: string;
+  artwork: string;
+  feedUrl: string;
+  webUrl?: string;
+  lastUpdated?: string;
+};
+
+const DISCOVERED_PODCASTS = new Map<string, PodcastShow>();
+
+export function castopodPodcastToShow(item: CastopodPodcast): PodcastShow {
+  const stableId = item.podcastGuid || String(item.id);
+  const show = createPodcastShow({
+    id: `pod-${stableId}`,
+    name: item.title,
+    author: item.author || item.title,
+    description: item.description || "",
+    artwork: item.artwork,
+    feedUrl: item.feedUrl,
+    webUrl: item.webUrl || item.feedUrl,
+    lastUpdated: item.lastUpdated,
+  });
+  DISCOVERED_PODCASTS.set(show.id, show);
+  return show;
+}
+
+export async function fetchDiscoveredPodcasts(
+  limit: number = 6,
+  signal?: AbortSignal,
+): Promise<PodcastShow[]> {
+  const endpoint = new URL("/api/podcasts", SHARE_HUB_URL);
+  endpoint.searchParams.set("limit", String(limit));
+  const response = await fetch(endpoint.toString(), { signal });
+  if (!response.ok) {
+    throw new Error(`Castopod Index discovery failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  if (!payload || !Array.isArray(payload.podcasts)) {
+    throw new Error("Castopod Index returned an invalid podcast catalog.");
+  }
+
+  return payload.podcasts
+    .filter(
+      (item: CastopodPodcast) =>
+        item &&
+        typeof item.title === "string" &&
+        Boolean(item.podcastGuid || item.id) &&
+        typeof item.feedUrl === "string" &&
+        /^https?:\/\//i.test(item.feedUrl) &&
+        isQualityArtwork(item.artwork),
+    )
+    .map(castopodPodcastToShow);
+}
+
+export function queryDiscoveredPodcasts(limit: number = 6) {
+  return queryOptions({
+    queryKey: ["castopodPodcasts", limit],
+    queryFn: ({ signal }) => fetchDiscoveredPodcasts(limit, signal),
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+}
+
 export function findPodcastShow(id: string | undefined): PodcastShow | undefined {
-  return PODCAST_SHOWS.find((show) => show.id === id);
+  if (!id) return undefined;
+  return PODCAST_SHOWS.find((show) => show.id === id) || DISCOVERED_PODCASTS.get(id);
+}
+
+/**
+ * Safely parses a date string into an epoch timestamp in milliseconds.
+ */
+export function parseDateTimestamp(dateStr: string | undefined): number {
+  if (!dateStr || typeof dateStr !== "string") return 0;
+  const time = new Date(dateStr).getTime();
+  return isNaN(time) ? 0 : time;
+}
+
+/**
+ * Sorts podcast and discussion shows by their last update date (newest first).
+ */
+export function sortDiscussionsByLastUpdate(shows: PodcastShow[]): PodcastShow[] {
+  return [...shows].sort((a, b) => {
+    const timeA = parseDateTimestamp(a.lastUpdated);
+    const timeB = parseDateTimestamp(b.lastUpdated);
+    return timeB - timeA;
+  });
 }
 
 export function queryPodcastEpisodes(show: PodcastShow | undefined) {
@@ -206,19 +352,65 @@ export function queryPodcastEpisodes(show: PodcastShow | undefined) {
   });
 }
 
+/**
+ * Fetches the latest published date from each podcast RSS feed in the background.
+ */
+export function queryDiscussionLatestDates(shows: PodcastShow[]) {
+  const showKey = shows.map((s) => s.id).join(",");
+  return queryOptions({
+    queryKey: ["discussionLatestDates", showKey],
+    queryFn: async ({ signal }) => {
+      const dates: Record<string, string> = {};
+      await Promise.allSettled(
+        shows.map(async (show) => {
+          try {
+            const url = resolveFeedUrl(show.feedUrl);
+            const res = await fetch(url, { signal });
+            if (!res.ok) return;
+            const xml = await res.text();
+            const firstItem = xml.match(/<item>([\s\S]*?)<\/item>/i);
+            if (firstItem) {
+              const pubDate = firstItem[1].match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+              if (pubDate) {
+                dates[show.id] = decodeXml(pubDate[1]);
+              }
+            }
+          } catch {
+            // Keep seed timestamp if feed fetch fails
+          }
+        }),
+      );
+      return dates;
+    },
+    enabled: shows.length > 0,
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
+import { API_KEY } from "@/constants/api-key";
+import { getListenerUserIdSync } from "@/scripts/listenerIdentity";
+
 export function episodeTrack(
   episode: PodcastEpisode,
   show: PodcastShow,
   index: number = 0,
 ): RNTrack {
   const artwork = episode.artwork || show.artwork;
+  const isExternalStream = episode.audioUrl.includes("/stream/external/");
+  const headers = isExternalStream
+    ? {
+        "mirlo-api-key": API_KEY,
+        "social-music-userid": getListenerUserIdSync(),
+      }
+    : {};
+
   return {
     id: -(Math.abs(hashString(episode.id)) || 100000 + index),
     title: episode.title,
     artist: show.author,
     artwork,
     url: episode.audioUrl,
-    headers: {},
+    headers,
     type: "default" as TrackType,
     duration: episode.duration,
     order: index + 1,
@@ -255,5 +447,52 @@ export function episodeTrack(
     },
     podcastId: show.id,
     podcastEpisodeId: episode.id,
+  } as RNTrack;
+}
+
+export function podcastShowTrack(show: PodcastShow): RNTrack {
+  const artwork = show.artwork;
+  return {
+    id: -(Math.abs(hashString(`show-${show.id}`)) || 500000),
+    title: show.name,
+    artist: show.author,
+    artwork,
+    url: "",
+    headers: {},
+    type: "default" as TrackType,
+    duration: 0,
+    order: 1,
+    queueIndex: 0,
+    allowIndividualSale: false,
+    isPreview: false,
+    audio: {
+      url: "",
+      duration: 0,
+    },
+    trackGroupId: 0,
+    trackGroup: {
+      id: 0,
+      trackGroupId: 0,
+      title: show.name,
+      artistId: 0,
+      urlSlug: show.id,
+      releaseDate: show.lastUpdated || "",
+      artist: {
+        name: show.author,
+        bio: show.description,
+      },
+      cover: {
+        sizes: {
+          60: artwork,
+          120: artwork,
+          300: artwork,
+          600: artwork,
+          960: artwork,
+          1200: artwork,
+          1500: artwork,
+        },
+      },
+    },
+    podcastId: show.id,
   } as RNTrack;
 }

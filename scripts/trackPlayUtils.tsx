@@ -1,70 +1,169 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-async function getPlays(trackId: number): Promise<number | undefined> {
+const PLAY_COUNTS_KEY = "mirlo_blue_play_counts_v1";
+
+// In-memory cache for synchronous entitlement evaluations
+let playCountsCache: Record<number, number> | null = null;
+type PlayCountsListener = (counts: Record<number, number>) => void;
+const listeners = new Set<PlayCountsListener>();
+
+/**
+ * Loads the consolidated dictionary of track play counts from storage.
+ */
+export async function getTrackPlayCounts(): Promise<Record<number, number>> {
+  if (playCountsCache !== null) return playCountsCache;
   try {
-    const id = String(trackId);
-    const plays = await AsyncStorage.getItem(id);
-
-    if (plays !== null) {
-      return Number(plays);
+    const raw = await AsyncStorage.getItem(PLAY_COUNTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        playCountsCache = parsed;
+        return parsed;
+      }
     }
-
-    return 0;
   } catch (err) {
-    console.error(err);
+    console.error("Failed to load play counts:", err);
   }
+  const emptyCounts: Record<number, number> = {};
+  playCountsCache = emptyCounts;
+  return emptyCounts;
+}
+
+/**
+ * Synchronous check for current play count of a track from memory cache.
+ */
+export function getTrackPlaysSync(trackId: number): number {
+  return playCountsCache?.[trackId] ?? 0;
+}
+
+/**
+ * Persists the consolidated play counts dictionary.
+ */
+async function persistPlayCounts(next: Record<number, number>): Promise<void> {
+  playCountsCache = next;
+  try {
+    await AsyncStorage.setItem(PLAY_COUNTS_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.error("Failed to persist play counts:", err);
+  }
+  listeners.forEach((listener) => {
+    try {
+      listener(next);
+    } catch (e) {
+      console.error("Play counts listener error:", e);
+    }
+  });
+}
+
+/**
+ * Retrieves the play count for an individual track.
+ */
+export async function getTrackPlays(trackId: number): Promise<number> {
+  const counts = await getTrackPlayCounts();
+  return counts[trackId] ?? 0;
+}
+
+/**
+ * Records a played track, incrementing its play count in persistent storage.
+ */
+export async function recordTrackPlay(trackId: number, maxFreePlays?: number): Promise<number> {
+  const counts = await getTrackPlayCounts();
+  const current = counts[trackId] ?? 0;
+  const updated = current + 1;
+  const isExhausted = maxFreePlays !== undefined && maxFreePlays !== null && updated >= maxFreePlays;
+  const next = { ...counts, [trackId]: isExhausted ? Number.MAX_SAFE_INTEGER : updated };
+  await persistPlayCounts(next);
+  return updated;
+}
+
+/**
+ * Explicitly marks a track's preview plays as exhausted (e.g. on HTTP 402 Payment Required).
+ */
+export async function markTrackExhausted(trackId: number): Promise<void> {
+  const counts = await getTrackPlayCounts();
+  const next = { ...counts, [trackId]: Number.MAX_SAFE_INTEGER };
+  await persistPlayCounts(next);
+}
+
+/**
+ * Determines whether a track has reached its free preview threshold.
+ */
+export async function isPlaybackLimitReached(
+  trackId: number,
+  maxFreePlays?: number,
+): Promise<boolean> {
+  if (isTrackDisabledSync(trackId)) return true;
+  if (maxFreePlays === undefined || maxFreePlays === null) {
+    return false;
+  }
+  const plays = await getTrackPlays(trackId);
+  const reached = plays >= maxFreePlays;
+  if (reached) {
+    await markTrackExhausted(trackId);
+  }
+  return reached;
+}
+
+/**
+ * Clears all recorded play counts and limits.
+ */
+export async function clearPlayCounts(): Promise<void> {
+  await persistPlayCounts({});
+  try {
+    await AsyncStorage.removeItem(PLAY_COUNTS_KEY);
+  } catch (err) {
+    console.error("Failed to clear play counts:", err);
+  }
+}
+
+/**
+ * Subscribes to updates in play counts.
+ */
+export function subscribePlayCounts(listener: PlayCountsListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+// Backward-compatible adapters
+export async function getDisabledTrackIds(): Promise<Set<number>> {
+  const counts = await getTrackPlayCounts();
+  const disabled = new Set<number>();
+  for (const [id, count] of Object.entries(counts)) {
+    if (count >= Number.MAX_SAFE_INTEGER) {
+      disabled.add(Number(id));
+    }
+  }
+  return disabled;
+}
+
+export function isTrackDisabledSync(trackId: number): boolean {
+  return (playCountsCache?.[trackId] ?? 0) >= Number.MAX_SAFE_INTEGER;
+}
+
+export async function markTrackDisabled(trackId: number): Promise<void> {
+  await markTrackExhausted(trackId);
+}
+
+export async function clearDisabledTracks(): Promise<void> {
+  await clearPlayCounts();
+}
+
+export function subscribeDisabledTracks(listener: (disabled: Set<number>) => void): () => void {
+  return subscribePlayCounts(async () => {
+    const set = await getDisabledTrackIds();
+    listener(set);
+  });
 }
 
 export async function reachedMaxPlays(
   trackId: number,
   maxFreePlays?: number,
 ): Promise<boolean | undefined> {
-  try {
-    // If no limit is set, no need to check anything
-    if (maxFreePlays == null) {
-      console.log("No maxFreePlays set");
-      return false; // No limit means limit not reached
-    }
-
-    const plays: number | undefined = await getPlays(trackId);
-    if (plays === undefined) {
-      console.error(
-        "Issue getting number of plays: 'number of plays undefined'",
-      );
-      return undefined; // Can't determine, something went wrong
-    }
-
-    console.log(maxFreePlays);
-    return plays >= maxFreePlays;
-  } catch (err) {
-    console.error(err);
-    return undefined;
-  }
+  return isPlaybackLimitReached(trackId, maxFreePlays);
 }
-export async function incrementPlayCount(trackId: number) {
-  try {
-    const numPlays = await getPlays(trackId);
 
-    if (numPlays === undefined) {
-      console.error(
-        "Issue getting number of plays: 'number of plays undefined'",
-      );
-      return;
-    }
-
-    if (numPlays === 0) {
-      await AsyncStorage.setItem(String(trackId), "1");
-      const updated = await AsyncStorage.getItem(String(trackId));
-      console.log("trackId: " + String(trackId) + ", plays: " + updated);
-      return;
-    } else {
-      const updatedPlays = numPlays + 1;
-      await AsyncStorage.setItem(String(trackId), String(updatedPlays));
-      const updated = await AsyncStorage.getItem(String(trackId));
-      console.log("trackId: " + String(trackId) + ", plays: " + updated);
-      return;
-    }
-  } catch (err) {
-    console.error(err);
-  }
+export async function incrementPlayCount(trackId: number, maxFreePlays?: number): Promise<void> {
+  await recordTrackPlay(trackId, maxFreePlays);
 }

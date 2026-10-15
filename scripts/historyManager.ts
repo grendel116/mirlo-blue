@@ -86,6 +86,23 @@ export function subscribeHistory(listener: HistoryListener): () => void {
   };
 }
 
+export async function removeHistoryItems(predicate: (item: HistoryItem) => boolean): Promise<void> {
+  try {
+    const current = await getHistory();
+    const updated = current.filter((item) => !predicate(item));
+    await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    listeners.forEach((listener) => {
+      try {
+        listener(updated);
+      } catch (e) {
+        console.error("History listener error:", e);
+      }
+    });
+  } catch (err) {
+    console.error("Failed to remove history items:", err);
+  }
+}
+
 export async function clearHistory(): Promise<void> {
   try {
     await AsyncStorage.removeItem(HISTORY_STORAGE_KEY);

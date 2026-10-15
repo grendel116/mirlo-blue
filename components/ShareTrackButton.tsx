@@ -3,44 +3,171 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { theme } from "@/constants/theme";
 import { songPageUrl } from "@/scripts/utils";
+import { findStation } from "@/queries/radio";
+import { findPodcastShow } from "@/queries/podcast";
 
-const MIRLO_BLUE_URL = "https://grendel116.github.io/mirlo-blue/";
+/**
+ * Resolves the primary web page URL for the track (Mirlo song page, station site, or podcast site).
+ */
+export function resolveTrackSourceUrl(track: RNTrack): string {
+  if (track.podcastId) {
+    const show = findPodcastShow(track.podcastId);
+    if (show?.webUrl) return show.webUrl;
+    if (show?.feedUrl) return show.feedUrl;
+  }
 
-// Shares the current track and Mirlo Blue link through the phone's share sheet.
+  if (track.liveStation) {
+    const station = findStation(track.liveStation);
+    if (station?.playlistPage) return station.playlistPage;
+    if (station?.streamUrl) return station.streamUrl;
+  }
+
+  if (track.sourceUrl && !track.sourceUrl.includes("mirlo.space")) {
+    return track.sourceUrl;
+  }
+
+  const songUrl = songPageUrl(track);
+  if (songUrl) return songUrl;
+
+  const artistSlug = track.trackGroup?.artist?.urlSlug;
+  const albumSlug = track.trackGroup?.urlSlug;
+  if (artistSlug && albumSlug) {
+    return `https://mirlo.space/${artistSlug}/release/${albumSlug}`;
+  }
+  if (artistSlug) {
+    return `https://mirlo.space/${artistSlug}`;
+  }
+
+  return "https://mirlo.space";
+}
+
+export const MIRLO_BLUE_LISTEN_HUB =
+  process.env.EXPO_PUBLIC_SHARE_HUB_URL ||
+  "https://mirlo-blue-share.mirloblue.workers.dev";
+
+/**
+ * Builds the ultra-short share URL for tracks, radio stations, and podcasts.
+ */
+export function buildShareUrl(
+  track: RNTrack,
+  overrideTitle?: string,
+  overrideArtist?: string,
+  overrideArtwork?: string,
+): string {
+  const hubUrl = new URL(MIRLO_BLUE_LISTEN_HUB);
+  const origin = hubUrl.origin;
+
+  if (track.liveStation) {
+    return `${origin}/r/${track.liveStation}`;
+  }
+
+  if (track.podcastId) {
+    return `${origin}/p/${track.podcastId}`;
+  }
+
+  const isExternalTrack = Boolean(
+    track.source && track.source !== "Mirlo Space" && !track.sourceUrl?.includes("mirlo.space"),
+  );
+
+  if (track.id && !isExternalTrack) {
+    return `${origin}/t/${track.id}`;
+  }
+
+  const basePath = track.id ? `${origin}/t/${track.id}` : `${origin}/`;
+  const url = new URL(basePath);
+
+  const title = (overrideTitle || track.title || "").trim();
+  const rawArtist = (overrideArtist || track.artist || "").trim();
+  if (title) url.searchParams.set("title", title);
+  if (rawArtist) url.searchParams.set("artist", rawArtist);
+  if (track.trackGroup?.title) url.searchParams.set("album", track.trackGroup.title);
+
+  const artistSlug = track.trackGroup?.artist?.urlSlug;
+  const albumSlug = track.trackGroup?.urlSlug;
+  if (artistSlug && albumSlug) {
+    url.searchParams.set("app", `/artist/${artistSlug}/album/${albumSlug}/album-tracks`);
+  }
+
+  const web = resolveTrackSourceUrl(track);
+  if (web) url.searchParams.set("web", web);
+
+  const artwork =
+    (overrideArtwork && !overrideArtwork.startsWith("file://") ? overrideArtwork : "") ||
+    (track.artwork && !track.artwork.startsWith("file://") ? track.artwork : "") ||
+    track.trackGroup?.cover?.sizes?.[600] ||
+    track.trackGroup?.cover?.sizes?.[300] ||
+    track.trackGroup?.cover?.sizes?.[120] ||
+    (typeof track.trackGroup?.cover === "string" ? track.trackGroup?.cover : "") ||
+    "";
+  if (artwork && !artwork.startsWith("file://")) {
+    url.searchParams.set("art", artwork);
+  }
+
+  const audio = track.audio?.url || track.url;
+  if (audio && audio.startsWith("http")) {
+    url.searchParams.set("audio", audio);
+  }
+
+  return url.toString();
+}
+
+/**
+ * Formats the share message cleanly putting the artist first:
+ * Returns the track label for native sheet titles, and strictly the share URL for fullText.
+ */
+export function buildShareMessage(
+  track: RNTrack,
+  overrideTitle?: string,
+  overrideArtist?: string,
+  overrideArtwork?: string,
+): { headline: string; fullText: string; shareUrl: string } {
+  const title = (overrideTitle || track.title || "").trim();
+  const rawArtist = (overrideArtist || track.artist || "").trim();
+
+  // For live stations when no song is on air, track.artist is "Live from Location"
+  const isGenericLiveLocation = Boolean(
+    track.liveStation && !overrideTitle && rawArtist.toLowerCase().startsWith("live from"),
+  );
+  const artist = isGenericLiveLocation ? "" : rawArtist;
+
+  const shareUrl = buildShareUrl(track, overrideTitle, overrideArtist, overrideArtwork);
+  const label = artist ? `${artist} - ${title}` : title;
+
+  return { headline: label, fullText: shareUrl, shareUrl };
+}
+
+// Shares the current track and source link through the phone's share sheet.
 // Browsers without a share sheet copy the text instead.
 export default function ShareTrackButton({
   track,
   size = 22,
   overrideTitle,
   overrideArtist,
+  overrideArtwork,
 }: {
   track: RNTrack;
   size?: number;
   overrideTitle?: string;
   overrideArtist?: string;
+  overrideArtwork?: string;
 }) {
-  const url = songPageUrl(track);
   const title = overrideTitle || track.title;
-  const artist = overrideArtist || track.artist;
   if (!title) return null;
 
-  const trackLabel =
-    track.liveStation && overrideTitle
-      ? `${title}${artist ? ` by ${artist}` : ""} (${track.title})`
-      : artist
-        ? `${title} by ${artist}`
-        : title;
+  const { headline, shareUrl } = buildShareMessage(
+    track,
+    overrideTitle,
+    overrideArtist,
+    overrideArtwork,
+  );
 
   const share = async () => {
-    const headline = `Listening to ${trackLabel} on Mirlo Blue - ${MIRLO_BLUE_URL}`;
-    const fullText = url ? `${headline}\n${url}` : headline;
-
     if (Platform.OS === "web" && typeof navigator !== "undefined" && !navigator.share) {
-      await Clipboard.setStringAsync(fullText);
+      await Clipboard.setStringAsync(shareUrl);
       return;
     }
     try {
-      await Share.share({ message: fullText, title: headline });
+      await Share.share({ message: shareUrl, title: headline });
     } catch {}
   };
 
@@ -62,4 +189,3 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
-

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Text,
   View,
@@ -20,7 +21,12 @@ import {
   PodcastEpisode,
 } from "@/queries/podcast";
 import AddToQueueButton from "@/components/AddToQueueButton";
+import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import { theme } from "@/constants/theme";
+import {
+  isQualityArtwork,
+  resolveArtworkUrl,
+} from "@/scripts/utils";
 
 function formatPubDate(raw: string): string {
   try {
@@ -57,8 +63,9 @@ export default function PodcastScreen() {
   const router = useRouter();
   const { data: episodes = [], isPending, isError, refetch } = useQuery(queryPodcastEpisodes(show));
   const { activeTrack, isPlaying, playTrack, togglePlayPause } = usePlayer();
+  const [imgError, setImgError] = useState(false);
 
-  if (!show) {
+  if (!show || !isQualityArtwork(show.artwork)) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topNav}>
@@ -131,12 +138,13 @@ export default function PodcastScreen() {
         ListHeaderComponent={
           <View style={styles.headerSection}>
             <View style={styles.coverWrapper}>
-              {show.artwork ? (
-                <Image source={{ uri: show.artwork }} style={styles.coverImage} resizeMode="cover" />
-              ) : (
-                <View style={[styles.coverImage, styles.coverPlaceholder]}>
-                  <Ionicons name="mic" size={72} color={theme.colors.primary} />
-                </View>
+              {!imgError && isQualityArtwork(show.artwork) && (
+                <Image
+                  source={{ uri: resolveArtworkUrl(show.artwork) }}
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                  onError={() => setImgError(true)}
+                />
               )}
             </View>
 
@@ -215,9 +223,13 @@ function EpisodeRow({
   isCurrent: boolean;
   onPress: () => void;
 }) {
+  const [imgError, setImgError] = useState(false);
   const durationText = formatEpisodeDuration(episode.duration);
   const dateText = formatPubDate(episode.pubDate);
-  const artworkUri = episode.artwork || track.artwork;
+  const artworkUri = isQualityArtwork(episode.artwork) ? episode.artwork : track.artwork;
+  const thumbSource = (!imgError && isQualityArtwork(artworkUri))
+    ? { uri: resolveArtworkUrl(artworkUri) }
+    : undefined;
 
   return (
     <View style={[styles.listItem, isCurrent && styles.selectedListItem]}>
@@ -227,13 +239,12 @@ function EpisodeRow({
         accessibilityRole="button"
         accessibilityLabel={`Play ${episode.title}`}
       >
-        {artworkUri ? (
-          <Image source={{ uri: artworkUri }} style={styles.trackThumb} resizeMode="cover" />
-        ) : (
-          <View style={[styles.trackThumb, styles.coverPlaceholder]}>
-            <Ionicons name="mic" size={16} color={theme.colors.primary} />
-          </View>
-        )}
+        <Image
+          source={thumbSource}
+          style={styles.trackThumb}
+          resizeMode="cover"
+          onError={() => setImgError(true)}
+        />
         <View style={styles.titleContainer}>
           <Text
             style={[
@@ -258,6 +269,7 @@ function EpisodeRow({
 
       <View style={styles.actionRow}>
         <AddToQueueButton track={track} size={17} />
+        <FavoriteTrackButton track={track} size={17} />
         {durationText ? (
           <Text
             style={[

@@ -27,15 +27,23 @@ import AddToQueueButton from "@/components/AddToQueueButton";
 import ErrorNotification from "@/components/ErrorNotification";
 import LoadingScreen from "@/components/LoadingScreen";
 
+import { theme } from "@/constants/theme";
+
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
 export default function TrackView() {
   const { slug, id, trackId } = useLocalSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (id && slug) {
+      router.replace(`/artist/${id}/album/${slug}/album-tracks`);
+    }
+  }, [id, slug, router]);
 
   const { data, isPending, isError, error } = useQuery(
     queryAlbum({ slug: slug, id: id }),
   );
-  const router = useRouter();
   const { playableTracks, setPlayableTracks } = usePlayer();
   const [album, setAlbum] = useState<RNTrack[]>();
   const { t } = useTranslation();
@@ -224,7 +232,7 @@ export default function TrackView() {
                 {t("trackGroupDetails.about")}
               </Text>
               <Text style={{ fontStyle: "italic", marginBottom: 20 }}>
-                {formatUTCDate(data.result?.releaseDate)}
+                {formatUTCDate(data.result?.releaseDate, t)}
               </Text>
               <Text style={{ marginBottom: 20 }}>{data.result?.about}</Text>
             </View>
@@ -282,8 +290,7 @@ function TrackPlayButton() {
   );
 }
 
-function formatUTCDate(utcDate: string | undefined) {
-  const { t } = useTranslation();
+function formatUTCDate(utcDate: string | undefined, t: (key: string) => string) {
   if (!utcDate) return undefined;
   const date = new Date(utcDate);
 
@@ -308,12 +315,12 @@ function formatUTCDate(utcDate: string | undefined) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: theme.colors.background,
     alignItems: "flex-start",
     justifyContent: "space-evenly",
   },
   listContainer: {
-    backgroundColor: "white",
+    backgroundColor: theme.colors.background,
     paddingHorizontal: "5%",
   },
   listItem: {

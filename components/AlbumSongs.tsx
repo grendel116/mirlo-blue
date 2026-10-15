@@ -17,7 +17,7 @@ import {
   updateAlbum,
   updateTrackTitle,
 } from "@/scripts/downloadManager";
-import { chooseAlbumCover, exportAlbumToMusic, removeDownloads } from "@/scripts/offlineFiles";
+import { chooseAlbumCover, removeDownloads } from "@/scripts/offlineFiles";
 import { showError } from "@/scripts/showError";
 
 // An open album's songs. Tapping a song plays it; Edit reveals renaming, reordering, and delete
@@ -67,19 +67,6 @@ export default function AlbumSongs({
         },
       ],
     );
-  };
-
-  const handleSaveToMusic = async () => {
-    try {
-      const ok = await exportAlbumToMusic(album);
-      if (ok) {
-        Alert.alert("Saved to Music", `"${album.title}" was saved to your device's Music folder.`);
-      } else {
-        Alert.alert("Notice", "Could not save to Music folder. Check media permissions.");
-      }
-    } catch (err) {
-      showError("Couldn't save to Music folder")(err);
-    }
   };
 
   const saveIfChanged = (current: string, save: (value: string) => void) => (e: {
@@ -196,10 +183,6 @@ export default function AlbumSongs({
           >
             <Ionicons name="image-outline" size={14} color={theme.colors.textCyan} />
             <Text style={styles.footerText}>Change cover</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleSaveToMusic} style={styles.footerButton}>
-            <Ionicons name="musical-notes-outline" size={14} color={theme.colors.textCyan} />
-            <Text style={styles.footerText}>Save to Music</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={confirmDeleteAlbum} style={styles.footerButton}>
             <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
