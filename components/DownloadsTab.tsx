@@ -1,14 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Image,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -27,6 +25,7 @@ import {
   OFFLINE_SUPPORTED,
   chooseAlbumCover,
   importFiles,
+  importFolder,
 } from "@/scripts/offlineFiles";
 
 export function formatBytes(bytes: number): string {
@@ -35,38 +34,42 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
-// Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more
-export default function DownloadsTab() {
+// Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more.
+// `openAlbum` is an album key to show expanded, as when History links here
+export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
   const { playTrack, activeTrack } = usePlayer();
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [naming, setNaming] = useState(false);
-  const [albumTitle, setAlbumTitle] = useState("");
-  const [artistName, setArtistName] = useState("");
+  const [expandedKey, setExpandedKey] = useState<string | null>(openAlbum ?? null);
+  useEffect(() => {
+    if (openAlbum) setExpandedKey(openAlbum);
+  }, [openAlbum]);
+  const [importing, setImporting] = useState<"files" | "folder" | null>(null);
 
   const playAlbum = (album: DownloadedAlbum, start = album.tracks[0]) =>
     playTrack(downloadToTrack(start), album.tracks.map(downloadToTrack), album.title);
 
-  const closeNaming = () => {
-    setNaming(false);
-    setAlbumTitle("");
-    setArtistName("");
-  };
-
-  const importAlbum = async () => {
-    const title = albumTitle.trim();
-    const artist = artistName.trim();
-    closeNaming();
-    setImporting(true);
+  const handleImportFiles = async () => {
+    setImporting("files");
     try {
-      const key = await importFiles(title, artist);
+      const key = await importFiles();
       if (key) setExpandedKey(key);
     } catch (err) {
       showError("Couldn't add files")(err);
     } finally {
-      setImporting(false);
+      setImporting(null);
+    }
+  };
+
+  const handleImportFolder = async () => {
+    setImporting("folder");
+    try {
+      const key = await importFolder();
+      if (key) setExpandedKey(key);
+    } catch (err) {
+      showError("Couldn't add folder")(err);
+    } finally {
+      setImporting(null);
     }
   };
 
@@ -81,19 +84,34 @@ export default function DownloadsTab() {
             : ""}
         </Text>
         {OFFLINE_SUPPORTED && (
-          <TouchableOpacity
-            onPress={() => setNaming(true)}
-            disabled={importing}
-            style={styles.addButton}
-            accessibilityLabel="Add album from this phone"
-          >
-            {importing ? (
-              <ActivityIndicator size="small" color={theme.colors.playButtonIcon} />
-            ) : (
-              <Ionicons name="add" size={15} color={theme.colors.playButtonIcon} />
-            )}
-            <Text style={styles.addButtonText}>Add album</Text>
-          </TouchableOpacity>
+          <View style={styles.barActions}>
+            <TouchableOpacity
+              onPress={handleImportFiles}
+              disabled={importing !== null}
+              style={styles.addButton}
+              accessibilityLabel="Add audio or zip files from this phone"
+            >
+              {importing === "files" ? (
+                <ActivityIndicator size="small" color={theme.colors.playButtonIcon} />
+              ) : (
+                <Ionicons name="add" size={15} color={theme.colors.playButtonIcon} />
+              )}
+              <Text style={styles.addButtonText}>Add files</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleImportFolder}
+              disabled={importing !== null}
+              style={styles.folderButton}
+              accessibilityLabel="Add folder from this phone"
+            >
+              {importing === "folder" ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
+              )}
+              <Text style={styles.folderButtonText}>Add folder</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -103,7 +121,7 @@ export default function DownloadsTab() {
           <Text style={styles.emptyTitle}>No downloads yet</Text>
           <Text style={styles.emptyText}>
             {OFFLINE_SUPPORTED
-              ? "Tap the download arrow on an album you own, or add music from your phone."
+              ? "Tap the download arrow on an album you own, or add files and folders from your phone."
               : "Downloads work in the Android app."}
           </Text>
         </View>
@@ -180,45 +198,6 @@ export default function DownloadsTab() {
           }}
         />
       )}
-
-      <Modal visible={naming} transparent animationType="fade" onRequestClose={closeNaming}>
-        <View style={styles.overlay}>
-          <View style={styles.dialog}>
-            <Text style={styles.dialogTitle}>Import album</Text>
-            <Text style={styles.dialogText}>
-              Pick audio files from your phone. Names and covers come from each file's tags; fill these in to override them.
-            </Text>
-
-            <Text style={styles.label}>Album title (optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Read from the files"
-              placeholderTextColor={theme.colors.textMuted}
-              value={albumTitle}
-              onChangeText={setAlbumTitle}
-            />
-
-            <Text style={styles.label}>Artist (optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Various artists"
-              placeholderTextColor={theme.colors.textMuted}
-              value={artistName}
-              onChangeText={setArtistName}
-            />
-
-            <View style={styles.dialogActions}>
-              <TouchableOpacity onPress={closeNaming} style={styles.cancelButton}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={importAlbum} style={styles.addButton}>
-                <Ionicons name="folder-open-outline" size={16} color={theme.colors.playButtonIcon} />
-                <Text style={styles.addButtonText}>Choose files</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -233,16 +212,33 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   total: { color: theme.colors.textSecondary, fontSize: 12 },
+  barActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   addButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
+    gap: 5,
+    paddingHorizontal: 13,
     paddingVertical: 8,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.primary,
   },
   addButtonText: { color: theme.colors.playButtonIcon, fontSize: 12, fontWeight: "700" },
+  folderButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  folderButtonText: { color: theme.colors.primary, fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 10 },
   emptyTitle: { color: theme.colors.textPrimary, fontSize: 16, fontWeight: "700" },
   emptyText: { color: theme.colors.textSecondary, fontSize: 13, textAlign: "center" },
@@ -284,59 +280,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   chevron: { padding: 6 },
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.75)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  dialog: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceCardBorder,
-  },
-  dialogTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: theme.colors.textPrimary,
-    marginBottom: 4,
-  },
-  dialogText: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    marginBottom: 16,
-    lineHeight: 16,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: theme.colors.textSecondary,
-    marginBottom: 6,
-    marginTop: 4,
-  },
-  input: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceCardBorder,
-    color: theme.colors.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  dialogActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 8,
-  },
-  cancelButton: { paddingVertical: 10, paddingHorizontal: 16 },
-  cancelText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
 });
+

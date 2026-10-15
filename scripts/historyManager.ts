@@ -1,14 +1,29 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export type HistoryItem = {
+// An album on Mirlo, opened by its artist and slug
+type MirloAlbumEntry = {
   id: string | number;
   artistId: string | number;
   urlSlug: string;
   title: string;
   artistName: string;
   coverUri?: string;
-  viewedAt: number;
+  downloadAlbum?: undefined;
 };
+
+// An album saved on this phone, opened in Library > Downloads by its album key
+type SavedAlbumEntry = {
+  downloadAlbum: string;
+  title: string;
+  artistName: string;
+  coverUri?: string;
+  id?: undefined;
+  artistId?: undefined;
+  urlSlug?: undefined;
+};
+
+export type HistoryEntry = MirloAlbumEntry | SavedAlbumEntry;
+export type HistoryItem = HistoryEntry & { viewedAt: number };
 
 const HISTORY_STORAGE_KEY = "mirlo_blue_viewing_history_v1";
 const MAX_HISTORY_ITEMS = 20;
@@ -17,12 +32,22 @@ const MAX_HISTORY_ITEMS = 20;
 type HistoryListener = (items: HistoryItem[]) => void;
 const listeners = new Set<HistoryListener>();
 
+// The same album seen again replaces its earlier entry
+function entryKey(entry: HistoryEntry): string {
+  return entry.downloadAlbum ? `saved:${entry.downloadAlbum}` : `mirlo:${entry.id}`;
+}
+
+// Every entry opens something: a Mirlo album page or a saved album
+function opensAlbum(entry: HistoryEntry): boolean {
+  return Boolean(entry.downloadAlbum || entry.urlSlug);
+}
+
 export async function getHistory(): Promise<HistoryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) return parsed.filter(opensAlbum);
     return [];
   } catch (err) {
     console.error("Failed to load viewing history:", err);
@@ -30,35 +55,14 @@ export async function getHistory(): Promise<HistoryItem[]> {
   }
 }
 
-export async function recordHistoryItem(item: {
-  id: string | number;
-  artistId: string | number;
-  urlSlug: string;
-  title: string;
-  artistName: string;
-  coverUri?: string;
-}): Promise<void> {
+export async function recordHistoryItem(entry: HistoryEntry): Promise<void> {
   try {
     const current = await getHistory();
-
-    // Remove any existing entry for the same album slug or ID to prevent duplicates
-    const filtered = current.filter(
-      (entry) =>
-        String(entry.urlSlug) !== String(item.urlSlug) &&
-        String(entry.id) !== String(item.id),
-    );
-
-    const newItem: HistoryItem = {
-      id: item.id,
-      artistId: item.artistId,
-      urlSlug: item.urlSlug,
-      title: item.title,
-      artistName: item.artistName,
-      coverUri: item.coverUri,
-      viewedAt: Date.now(),
-    };
+    const key = entryKey(entry);
+    const filtered = current.filter((item) => entryKey(item) !== key);
 
     // Prepend latest viewed item
+    const newItem = { ...entry, viewedAt: Date.now() } as HistoryItem;
     const updated = [newItem, ...filtered].slice(0, MAX_HISTORY_ITEMS);
     await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
 

@@ -43,6 +43,37 @@ config.server = {
       : metroMiddleware;
 
     return (req, res, next) => {
+      if (req.url && req.url.startsWith("/feed-proxy")) {
+        const parsed = new URL(req.url, "http://localhost:8081");
+        const targetUrlStr = parsed.searchParams.get("url");
+        if (!targetUrlStr) {
+          res.statusCode = 400;
+          res.end("Missing url parameter");
+          return;
+        }
+
+        fetch(targetUrlStr, {
+          headers: {
+            "User-Agent": "MirloBlue/1.0",
+            Accept: "application/rss+xml, application/xml, text/xml, */*",
+          },
+        })
+          .then(async (targetRes) => {
+            const xml = await targetRes.text();
+            res.writeHead(targetRes.status, {
+              "Content-Type": "application/xml; charset=utf-8",
+              "Access-Control-Allow-Origin": "*",
+            });
+            res.end(xml);
+          })
+          .catch((err) => {
+            console.error("Feed proxy error:", err);
+            res.statusCode = 502;
+            res.end("Failed to fetch feed");
+          });
+        return;
+      }
+
       if (req.url && req.url.startsWith("/api/")) {
         const targetPath = req.url.replace(/^\/api/, "");
         const targetUrl = new URL(targetPath, "https://mirlo.space");

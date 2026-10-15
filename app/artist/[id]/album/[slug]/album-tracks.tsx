@@ -295,6 +295,7 @@ export default function AlbumTracks() {
                   <DownloadAlbumButton album={selectedAlbum} size={36} />
                   <WishlistButton
                     trackGroup={selectedAlbum}
+                    displayedTracks={album}
                     size={36}
                     style={{ marginHorizontal: 8 }}
                   />

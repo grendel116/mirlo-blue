@@ -88,6 +88,23 @@ describe("History Manager", () => {
     unsubscribe();
   });
 
+  test("keeps saved albums apart and leaves out entries that open nothing", async () => {
+    await AsyncStorage.setItem(
+      "mirlo_blue_viewing_history_v1",
+      JSON.stringify([
+        { id: 0, artistId: 0, urlSlug: "", title: "Old saved song", artistName: "", viewedAt: 1 },
+      ]),
+    );
+
+    await recordHistoryItem({ downloadAlbum: "album:first", title: "First", artistName: "A" });
+    await recordHistoryItem({ downloadAlbum: "album:second", title: "Second", artistName: "B" });
+    await recordHistoryItem({ downloadAlbum: "album:first", title: "First", artistName: "A" });
+
+    const history = await getHistory();
+    expect(history.map((h) => h.title)).toEqual(["First", "Second"]);
+    expect(history[0].downloadAlbum).toBe("album:first");
+  });
+
   test("clears history cleanly", async () => {
     await recordHistoryItem({
       id: "album-1",

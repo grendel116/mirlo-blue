@@ -4,22 +4,43 @@ import * as Clipboard from "expo-clipboard";
 import { theme } from "@/constants/theme";
 import { songPageUrl } from "@/scripts/utils";
 
-// Shares the song's Mirlo page through the phone's share sheet. Browsers without a share
-// sheet copy the link instead
-export default function ShareTrackButton({ track, size = 22 }: { track: RNTrack; size?: number }) {
+const MIRLO_BLUE_URL = "https://grendel116.github.io/mirlo-blue/";
+
+// Shares the current track and Mirlo Blue link through the phone's share sheet.
+// Browsers without a share sheet copy the text instead.
+export default function ShareTrackButton({
+  track,
+  size = 22,
+  overrideTitle,
+  overrideArtist,
+}: {
+  track: RNTrack;
+  size?: number;
+  overrideTitle?: string;
+  overrideArtist?: string;
+}) {
   const url = songPageUrl(track);
-  if (!url) return null;
+  const title = overrideTitle || track.title;
+  const artist = overrideArtist || track.artist;
+  if (!title) return null;
+
+  const trackLabel =
+    track.liveStation && overrideTitle
+      ? `${title}${artist ? ` by ${artist}` : ""} (${track.title})`
+      : artist
+        ? `${title} by ${artist}`
+        : title;
 
   const share = async () => {
-    const message = `${track.title} by ${track.artist} on Mirlo`;
+    const headline = `Listening to ${trackLabel} on Mirlo Blue - ${MIRLO_BLUE_URL}`;
+    const fullText = url ? `${headline}\n${url}` : headline;
+
     if (Platform.OS === "web" && typeof navigator !== "undefined" && !navigator.share) {
-      await Clipboard.setStringAsync(url);
+      await Clipboard.setStringAsync(fullText);
       return;
     }
     try {
-      await Share.share(
-        Platform.OS === "ios" ? { message, url } : { message: `${message}\n${url}`, title: message },
-      );
+      await Share.share({ message: fullText, title: headline });
     } catch {}
   };
 
@@ -29,7 +50,7 @@ export default function ShareTrackButton({ track, size = 22 }: { track: RNTrack;
       style={styles.button}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel={`Share ${track.title}`}
+      accessibilityLabel={`Share ${title}`}
     >
       <Ionicons name="share-social-outline" size={size} color={theme.colors.textCyan} />
     </Pressable>
@@ -41,3 +62,4 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
+

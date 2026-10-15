@@ -13,9 +13,9 @@ export default function CollectionPurchase({
     <View style={styles.listItem}>
       <Image
         source={
-          trackGroup.cover?.sizes
-            ? { uri: trackGroup.cover?.sizes[120] }
-            : { uri: require("@/assets/images/mirlo-logo-logoOnly-light.png") }
+          trackGroup.cover?.sizes?.[120]
+            ? { uri: trackGroup.cover.sizes[120] }
+            : require("@/assets/images/mirlo-logo-logoOnly-light.png")
         }
         style={styles.image}
       />

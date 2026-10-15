@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Text,
   View,
@@ -17,30 +18,35 @@ import { useTranslation } from "react-i18next";
 import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
-import { queryRadioPlays, findStation } from "@/queries/radio";
+import { queryRadioPlays, findStation, RADIO_SET_SECONDS } from "@/queries/radio";
+import { findPodcastShow } from "@/queries/podcast";
 import { queryArtist } from "@/queries/queries";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { savedAlbumHref } from "@/scripts/downloadManager";
+import { getRadioTimerElapsed, setRadioTimerElapsed } from "@/scripts/radioTimer";
 
 export default function NowPlaying() {
-  const { activeTrack } = usePlayer() as {
-    activeTrack: RNTrack | undefined;
-  };
+  const { activeTrack, looping, skipNext } = usePlayer();
   const progress = useProgress();
   const router = useRouter();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
+  const [slidingValue, setSlidingValue] = useState<number | null>(null);
 
   const albumArtSize = Math.min(width - 48, 380);
 
   // Live radio: show the song on air from the station's playlist feed (refreshes every minute)
   const station = findStation(activeTrack?.liveStation);
+  const podcastShow = findPodcastShow(activeTrack?.podcastId);
   const isLive = Boolean(station);
+  // Repeat one keeps a station on past its 10-minute set
+  const hasSetTimer = isLive && looping !== "track";
   const { data: plays } = useQuery(queryRadioPlays(station));
   const onAir = plays?.[0];
-  const artworkUri = isLive ? onAir?.artwork : activeTrack?.trackGroup?.cover?.sizes?.[600];
+  const artworkUri = isLive ? onAir?.artwork : (activeTrack?.artwork || activeTrack?.trackGroup?.cover?.sizes?.[600]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -68,36 +74,109 @@ export default function NowPlaying() {
         {/* Track & Artist Info */}
         {isLive ? (
           <View style={styles.trackInfoSection}>
-            <Text style={styles.trackTitle} numberOfLines={2}>
-              {onAir?.song || activeTrack?.title}
-            </Text>
-            <Text style={styles.cyanLink} numberOfLines={1}>
-              {onAir?.artist || activeTrack?.artist}
-            </Text>
-            <Text style={[styles.infoLabel, styles.liveStation]}>On {activeTrack?.title}</Text>
+            <View style={styles.titleRow}>
+              <ScrollView
+                key={onAir?.song || activeTrack?.title}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.titleScroll}
+                contentContainerStyle={styles.titleScrollContent}
+              >
+                <Text style={styles.trackTitle} numberOfLines={1}>
+                  {onAir?.song || activeTrack?.title}
+                </Text>
+              </ScrollView>
+              <View style={styles.titleActions}>
+                {activeTrack ? (
+                  <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+                ) : null}
+                {activeTrack ? (
+                  <ShareTrackButton
+                    track={activeTrack}
+                    overrideTitle={onAir?.song}
+                    overrideArtist={onAir?.artist}
+                  />
+                ) : null}
+                <View style={styles.liveBadge}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.artistGroupRow}>
+              <Text style={styles.infoLabel}>
+                {t("trackGroupDetails.byArtist")
+                  .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                  .trim() + " "}
+              </Text>
+              <Text style={styles.cyanLink} numberOfLines={1}>
+                {onAir?.artist || activeTrack?.artist}
+              </Text>
+            </View>
+
+            <View style={styles.artistGroupRow}>
+              <Text style={styles.infoLabel}>On </Text>
+              <Pressable
+                onPress={() => {
+                  if (!station) return;
+                  router.dismiss();
+                  router.navigate({ pathname: "/station/[id]", params: { id: station.id } });
+                }}
+                style={styles.linkPressable}
+              >
+                <Text style={styles.cyanLink} numberOfLines={1}>
+                  {activeTrack?.title}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : (
         <View style={styles.trackInfoSection}>
           <View style={styles.titleRow}>
-            <Text style={[styles.trackTitle, styles.titleText]} numberOfLines={2}>
-              {activeTrack?.title || "No track playing"}
-            </Text>
-            {activeTrack && activeTrack.id > 0 ? (
-              <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-            ) : null}
-            {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+            <ScrollView
+              key={activeTrack?.id ?? activeTrack?.title}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.titleScroll}
+              contentContainerStyle={styles.titleScrollContent}
+            >
+              <Text style={styles.trackTitle} numberOfLines={1}>
+                {activeTrack?.title || "No track playing"}
+              </Text>
+            </ScrollView>
+            <View style={styles.titleActions}>
+              {activeTrack && activeTrack.id > 0 ? (
+                <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+              ) : null}
+              {activeTrack ? <ShareTrackButton track={activeTrack} /> : null}
+            </View>
           </View>
 
           <View style={styles.artistGroupRow}>
             <Text style={styles.infoLabel}>
-              {t("trackGroupDetails.fromAlbum")
-                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                .trim() + " "}
+              {activeTrack?.podcastId
+                ? "Show "
+                : t("trackGroupDetails.fromAlbum")
+                    .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                    .trim() + " "}
             </Text>
             <Pressable
               onPress={() => {
+                if (activeTrack?.podcastId) {
+                  router.dismiss();
+                  router.navigate({
+                    pathname: "/podcast/[id]",
+                    params: { id: activeTrack.podcastId },
+                  });
+                  return;
+                }
                 if (!activeTrack?.trackGroup) return;
                 router.dismiss();
+                if (activeTrack.downloadAlbum) {
+                  router.navigate(savedAlbumHref(activeTrack.downloadAlbum));
+                  return;
+                }
                 router.navigate({
                   pathname: "/artist/[id]/album/[slug]/album-tracks",
                   params: {
@@ -116,54 +195,77 @@ export default function NowPlaying() {
 
           <View style={styles.artistGroupRow}>
             <Text style={styles.infoLabel}>
-              {t("trackGroupDetails.byArtist")
-                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                .trim() + " "}
+              {activeTrack?.podcastId
+                ? "Host "
+                : t("trackGroupDetails.byArtist")
+                    .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                    .trim() + " "}
             </Text>
-            <Pressable
-              onPress={() => {
-                if (!activeTrack?.trackGroup) return;
-                router.dismiss();
-                router.navigate({
-                  pathname: "/artist/[id]/artist-page",
-                  params: { id: String(activeTrack.trackGroup.artistId) },
-                });
-              }}
-              style={styles.linkPressable}
-            >
-              <Text style={styles.cyanLink} numberOfLines={1}>
-                {activeTrack?.artist}
+            {/* Saved songs and podcasts have no Mirlo artist page to open */}
+            {activeTrack?.downloadAlbum || activeTrack?.podcastId ? (
+              <Text style={styles.infoLabel} numberOfLines={1}>
+                {activeTrack.artist}
               </Text>
-            </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  if (!activeTrack?.trackGroup) return;
+                  router.dismiss();
+                  router.navigate({
+                    pathname: "/artist/[id]/artist-page",
+                    params: { id: String(activeTrack.trackGroup.artistId) },
+                  });
+                }}
+                style={styles.linkPressable}
+              >
+                <Text style={styles.cyanLink} numberOfLines={1}>
+                  {activeTrack?.artist}
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
         )}
 
-        {/* Progress Slider (live streams have no timeline) */}
-        {isLive ? (
+        {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
+        {(!isLive || hasSetTimer) && (
           <View style={styles.progressContainer}>
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
+            <Slider
+              style={styles.progressBar}
+              value={
+                slidingValue ??
+                (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
+              }
+              minimumValue={0}
+              maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
+              thumbTintColor={theme.colors.primary}
+              minimumTrackTintColor={theme.colors.primary}
+              maximumTrackTintColor={theme.colors.progressTrack}
+              onValueChange={(val) => setSlidingValue(val)}
+              onSlidingComplete={async (val) => {
+                setSlidingValue(null);
+                if (isLive) {
+                  setRadioTimerElapsed(val, progress.position);
+                  if (val >= RADIO_SET_SECONDS) {
+                    await skipNext();
+                  }
+                } else {
+                  await TrackPlayer.seekTo(val);
+                }
+              }}
+            />
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>
+                {formatTime(
+                  slidingValue ??
+                    (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
+                )}
+              </Text>
+              <Text style={styles.timeText}>
+                {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
+              </Text>
             </View>
           </View>
-        ) : (
-        <View style={styles.progressContainer}>
-          <Slider
-            style={styles.progressBar}
-            value={progress.position}
-            minimumValue={0}
-            maximumValue={progress.duration || 1}
-            thumbTintColor={theme.colors.primary}
-            minimumTrackTintColor={theme.colors.primary}
-            maximumTrackTintColor={theme.colors.progressTrack}
-            onSlidingComplete={async (value) => await TrackPlayer.seekTo(value)}
-          />
-          <View style={styles.timeRow}>
-            <Text style={styles.timeText}>{formatTime(progress.position)}</Text>
-            <Text style={styles.timeText}>{formatTime(progress.duration)}</Text>
-          </View>
-        </View>
         )}
 
         {/* Playback Controls */}
@@ -171,7 +273,7 @@ export default function NowPlaying() {
           <Player />
         </View>
 
-        {/* Listener-supported stations: send listeners to the station's own donation page */}
+        {/* Support actions: radio donation, podcast support, or Mirlo artist support */}
         {station ? (
           <Pressable
             onPress={() => openInBrowser(station.donatePage)}
@@ -181,6 +283,18 @@ export default function NowPlaying() {
           >
             <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
             <Text style={styles.donateText}>Donate to {station.name}</Text>
+          </Pressable>
+        ) : podcastShow?.supportUrl ? (
+          <Pressable
+            onPress={() => openInBrowser(podcastShow.supportUrl!)}
+            style={styles.donateButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Support ${podcastShow.name}`}
+          >
+            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+            <Text style={styles.donateText} numberOfLines={1}>
+              Support {podcastShow.name}
+            </Text>
           </Pressable>
         ) : activeTrack ? (
           <SupportArtistButton track={activeTrack} />
@@ -300,15 +414,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.colors.textPrimary,
     letterSpacing: -0.3,
-    marginBottom: 4,
   },
   titleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
+    marginBottom: 4,
   },
-  titleText: {
+  titleScroll: {
     flex: 1,
+  },
+  titleScrollContent: {
+    alignItems: "center",
   },
   artistGroupRow: {
     flexDirection: "row",
@@ -344,8 +461,10 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12,
   },
-  liveStation: {
-    marginTop: 6,
+  titleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   liveBadge: {
     flexDirection: "row",
@@ -365,9 +484,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#ff3b5c",
   },
   liveText: {
+    fontFamily: theme.fonts.display,
     color: theme.colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "normal",
     letterSpacing: 1,
   },
   playerWrapper: {

@@ -21,7 +21,7 @@ import {
   queryTrackGroups,
   queryTopSold,
 } from "@/queries/queries";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
@@ -32,6 +32,8 @@ import { getHistory, HistoryItem } from "@/scripts/historyManager";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+import { useStationLikes } from "@/scripts/stationLikes";
+import { findStation, liveTrack } from "@/queries/radio";
 
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
@@ -107,10 +109,16 @@ export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { playTrack, activeTrack } = usePlayer();
+  // History links a saved album here: ?tab=downloads&album=<album key>
+  const params = useLocalSearchParams<{ tab?: string; album?: string }>();
   const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">(
-    "library",
+    params.tab === "downloads" ? "downloads" : "library",
   );
+  useEffect(() => {
+    if (params.tab === "downloads") setActiveTab("downloads");
+  }, [params.tab, params.album]);
   const downloadedTracks = useDownloads();
+  const stationLikes = useStationLikes();
   const [librarySearch, setLibrarySearch] = useState("");
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
@@ -179,7 +187,7 @@ export default function LibraryScreen() {
     (topSoldData?.results || []).forEach(indexAlbum);
 
     historyItems.forEach((h: HistoryItem) => {
-      if (h) {
+      if (h && h.downloadAlbum === undefined) {
         const art = resolveArtworkUrl(h.coverUri);
         const entry = {
           artwork: art,
@@ -327,36 +335,43 @@ export default function LibraryScreen() {
       }
     });
 
-    // 2. Add tracks from wishlisted / liked albums
-    wishlist.forEach((w: any) => {
-      const tg = w?.trackGroup || w;
-      const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
-      const added = timeOf(w?.createdAt);
-      if (tg?.tracks && Array.isArray(tg.tracks)) {
-        tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
-      } else if (w.track) {
-        addTrackToMap(w.track, w, albumFallback, added);
-      }
-    });
-
-    // 3. Add tracks from user's explicit track favorites
+    // 2. Add tracks from user's explicit track favorites
     if (user?.trackFavorites) {
       user.trackFavorites.forEach((fav: any) => {
         addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
       });
     }
 
-    // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
+    // 3. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
     downloadedTracks.forEach((dl) => {
       markAdded(dl.id, dl.downloadedAt);
       if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
     });
 
+    // 4. Add liked radio stations, kept on the phone
+    stationLikes.forEach(({ stationId, likedAt }) => {
+      const station = findStation(stationId);
+      if (!station) return;
+      const key = `station:${stationId}`;
+      markAdded(key, likedAt);
+      trackMap.set(key, liveTrack(station));
+    });
+
     // Newest additions first; tracks added together keep their album order
+    const keyOf = (t: RNTrack) => (t.liveStation ? `station:${t.liveStation}` : t.id);
     return Array.from(trackMap.values()).sort(
-      (a, b) => (addedAt.get(b.id) || 0) - (addedAt.get(a.id) || 0),
+      (a, b) => (addedAt.get(keyOf(b)) || 0) - (addedAt.get(keyOf(a)) || 0),
     );
-  }, [user, purchases, wishlist, catalogData, topSoldData, historyItems, downloadedTracks]);
+  }, [
+    user,
+    purchases,
+    wishlist,
+    catalogData,
+    topSoldData,
+    historyItems,
+    downloadedTracks,
+    stationLikes,
+  ]);
 
   // All Tracks as shown: matching the search, in the chosen order
   const visibleTracks = useMemo(() => {
@@ -466,7 +481,7 @@ export default function LibraryScreen() {
       {/* Content */}
       {!user &&
       activeTab !== "downloads" &&
-      !(activeTab === "library" && downloadedTracks.length > 0) ? (
+      !(activeTab === "library" && combinedTracks.length > 0) ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
@@ -524,7 +539,7 @@ export default function LibraryScreen() {
             </View>
             <FlatList
               data={visibleTracks}
-              keyExtractor={(item, index) => `track-${item.id}-${index}`}
+              keyExtractor={(item, index) => `track-${item.liveStation ?? item.id}-${index}`}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
@@ -560,7 +575,7 @@ export default function LibraryScreen() {
                     </View>
                     <View style={styles.actionRow}>
                       <AddToQueueButton track={item} size={17} />
-                      {item.id > 0 && <FavoriteTrackButton track={item} size={17} />}
+                      <FavoriteTrackButton track={item} size={17} />
                     </View>
                   </Pressable>
                 );
@@ -569,7 +584,7 @@ export default function LibraryScreen() {
           </View>
         )
       ) : activeTab === "downloads" ? (
-        <DownloadsTab />
+        <DownloadsTab openAlbum={params.album} />
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
@@ -584,7 +599,9 @@ export default function LibraryScreen() {
         ) : (
           <FlatList
             data={purchases}
-            keyExtractor={(item, index) => String(item.id ?? index)}
+            keyExtractor={(item) =>
+              "trackGroupId" in item ? `album-${item.trackGroupId}` : `track-${item.trackId}`
+            }
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
               const tg = (item as any).trackGroup;
@@ -635,7 +652,7 @@ export default function LibraryScreen() {
       ) : (
         <FlatList
           data={wishlist}
-          keyExtractor={(item, index) => String(item.id ?? index)}
+          keyExtractor={(item) => String(item.trackGroupId)}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const tg = (item as any).trackGroup;
@@ -691,9 +708,12 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.surfaceCardBorder,
   },
   title: {
+    fontFamily: theme.fonts.display,
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "normal",
     color: theme.colors.textPrimary,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   subtitle: {
     fontSize: 12,

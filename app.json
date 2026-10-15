@@ -2,12 +2,11 @@
   "expo": {
     "name": "Mirlo Blue",
     "slug": "mirlo-blue",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
     "userInterfaceStyle": "dark",
-    "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "space.mirlo.blue",
@@ -15,7 +14,9 @@
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "audio"
-        ]
+        ],
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
       }
     },
     "android": {
@@ -24,7 +25,10 @@
         "backgroundColor": "#070b14"
       },
       "permissions": [
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "package": "space.mirlo.blue"
     },
@@ -49,6 +53,14 @@
         {
           "configureAndroidBackup": true,
           "faceIDPermission": "Allow Mirlo Blue to access your Face ID biometric data."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Mirlo Blue to access your photos.",
+          "savePhotosPermission": "Allow Mirlo Blue to save music to your device.",
+          "granularPermissions": ["audio"]
         }
       ],
       "expo-localization",

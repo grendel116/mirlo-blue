@@ -20,8 +20,12 @@ export async function downloadTrack(
   throw new Error("Downloads work in the phone app");
 }
 
-export async function importFiles(_albumTitle?: string, _artistName?: string): Promise<string | null> {
+export async function importFiles(): Promise<string | null> {
   throw new Error("Adding files works in the phone app");
+}
+
+export async function importFolder(): Promise<string | null> {
+  throw new Error("Adding folders works in the phone app");
 }
 
 export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
@@ -29,3 +33,15 @@ export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> 
 }
 
 export async function chooseAlbumCover(_album: DownloadedAlbum): Promise<void> {}
+
+export async function exportFilesToMusic(
+  _albumTitle: string,
+  _artistName: string | undefined,
+  _files: { uri: string }[],
+): Promise<boolean> {
+  return false;
+}
+
+export async function exportAlbumToMusic(_album: DownloadedAlbum): Promise<boolean> {
+  return false;
+}

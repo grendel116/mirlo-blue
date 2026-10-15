@@ -5,21 +5,81 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuthContext } from "@/state/AuthContext";
 import { queryAuthProfile } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
+import { toggleStationLike, useStationLikes } from "@/scripts/stationLikes";
 import * as api from "../queries/fetch/fetchWrapper";
 import { ViewStyle } from "react-native";
 
 type FavoriteTrackButton = {
   track: {
-    id: number;
+    id?: number;
     trackGroupId?: number;
+    liveStation?: string;
   };
   style?: ViewStyle;
   size?: number;
 };
 
+type HeartProps = { liked: boolean; onPress: () => void; style?: ViewStyle; size?: number };
+
+function Heart({ liked, onPress, style, size }: HeartProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={style}
+      accessibilityRole="button"
+      accessibilityLabel={liked ? "Unlike" : "Like"}
+    >
+      <Ionicons
+        name={liked ? "heart" : "heart-outline"}
+        color={liked ? "#BE3455" : "#ababab"}
+        size={size}
+      />
+    </Pressable>
+  );
+}
+
+// Songs are liked on the Mirlo account; radio stations are liked on the phone
+export default function FavoriteTrackButton({ track, style, size }: FavoriteTrackButton) {
+  if (track.liveStation) {
+    return <StationHeart stationId={track.liveStation} style={style} size={size} />;
+  }
+  if (!track.id || track.id <= 0) return null;
+  return (
+    <SongHeart
+      track={{ id: track.id, trackGroupId: track.trackGroupId }}
+      style={style}
+      size={size}
+    />
+  );
+}
+
+function StationHeart({
+  stationId,
+  style,
+  size,
+}: {
+  stationId: string;
+  style?: ViewStyle;
+  size?: number;
+}) {
+  const likes = useStationLikes();
+  const liked = likes.some((like) => like.stationId === stationId);
+  return (
+    <Heart liked={liked} onPress={() => toggleStationLike(stationId)} style={style} size={size} />
+  );
+}
+
 // The heart follows the account's favorites, so hearting a whole album fills every track's
 // heart. A tap shows right away and gives way to the account data once it refreshes
-export default function FavoriteTrackButton({ track, style, size }: FavoriteTrackButton) {
+function SongHeart({
+  track,
+  style,
+  size,
+}: {
+  track: { id: number; trackGroupId?: number };
+  style?: ViewStyle;
+  size?: number;
+}) {
   const { user } = useAuthContext();
   const queryClient = useQueryClient();
   const [tapped, setTapped] = useState<boolean | null>(null);
@@ -54,13 +114,5 @@ export default function FavoriteTrackButton({ track, style, size }: FavoriteTrac
     return null;
   }
 
-  return (
-    <Pressable onPress={onPress} style={style}>
-      <Ionicons
-        name={isInFavorites ? "heart" : "heart-outline"}
-        color={isInFavorites ? "#BE3455" : "#ababab"}
-        size={size}
-      />
-    </Pressable>
-  );
+  return <Heart liked={isInFavorites} onPress={onPress} style={style} size={size} />;
 }

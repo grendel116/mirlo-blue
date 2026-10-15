@@ -22,6 +22,27 @@ export async function mirloHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
+// A request that hasn't answered by now is treated as failed, so a stalled connection
+// shows an error instead of leaving the app waiting forever
+const REQUEST_TIMEOUT_MS = 10_000;
+
+// Sends the request and reads the whole response, giving up if that takes too long
+async function fetchWithTimeout(endpoint: string, init: RequestInit) {
+  // One controller carries both the caller's cancellation and the time limit
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  if (init.signal?.aborted) controller.abort();
+  init.signal?.addEventListener("abort", () => controller.abort());
+
+  try {
+    const res = await fetch(`${API_ROOT}${endpoint}`, { ...init, signal: controller.signal });
+    const text = await res.text();
+    return { res, text };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Wraps fetch() calls to Mirlo's API with error handling.
  *
@@ -38,16 +59,10 @@ async function fetchWrapper<R>(
   const headers = new Headers(init.headers);
   Object.entries(await mirloHeaders()).forEach(([key, value]) => headers.append(key, value));
 
-  const res = await fetch(`${API_ROOT}${endpoint}`, {
-    ...init,
-    headers,
-  });
+  const { res, text } = await fetchWithTimeout(endpoint, { ...init, headers });
 
   if (!res.ok) {
-    // Read the body once as text, then opportunistically JSON-parse it.
-    // Calling res.json() then res.text() throws because the body stream
-    // can only be consumed once
-    const text = await res.text();
+    // Opportunistically JSON-parse the body text for the error message
     let message: string = text;
     try {
       const parsed = JSON.parse(text);
@@ -57,7 +72,6 @@ async function fetchWrapper<R>(
     }
     throw new MirloFetchError(res, message);
   }
-  const text = await res.text();
 
   try {
     return JSON.parse(text);

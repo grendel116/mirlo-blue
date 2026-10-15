@@ -120,6 +120,7 @@ export function downloadToTrack(dl: DownloadedTrack): RNTrack {
     order: dl.order || 1,
     headers: {},
     allowIndividualSale: false,
+    downloadAlbum: albumKeyOf(dl),
   } as RNTrack;
 }
 
@@ -137,6 +138,11 @@ export type DownloadedAlbum = {
 export function albumKeyOf(track: DownloadedTrack): string {
   if (track.folder) return track.folder;
   return `album:${(track.albumTitle || "Imported Audio").trim().toLowerCase()}`;
+}
+
+// Where a saved album opens: Library > Downloads with the album expanded
+export function savedAlbumHref(albumKey: string) {
+  return { pathname: "/library", params: { tab: "downloads", album: albumKey } } as const;
 }
 
 // Newest albums first, each with its songs in album order

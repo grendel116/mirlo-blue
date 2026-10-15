@@ -145,12 +145,22 @@ interface RNTrack {
   order: number;
   headers: {};
   type?: import("react-native-track-player").TrackType;
+  // Length in seconds the lock screen shows; streams report their own
+  duration?: number;
   // Added by autoplay after the chosen playlist ran out
   autoplay?: boolean;
   // Picked by the listener with Add to queue: plays right after the current song
   queued?: boolean;
-  // Station id of a live radio stream: no duration, no seeking, nothing queued after it
+  // Station id of a live radio stream: a 10-minute set with no seeking, then the queue moves on
   liveStation?: string;
+  // Album key of a song saved on this phone, the album it opens in Library > Downloads
+  downloadAlbum?: string;
+  // Podcast show id if this track is a podcast episode
+  podcastId?: string;
+  // Podcast episode id or GUID
+  podcastEpisodeId?: string;
+  // Stable unique key for preserving row identity across queue reorders
+  _queueKey?: string;
 }
 
 interface PlayButtonProps {

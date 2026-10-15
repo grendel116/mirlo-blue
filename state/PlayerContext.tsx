@@ -31,6 +31,7 @@ import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchDiscoveryTracks } from "@/scripts/autoplay";
 import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
+import { resetRadioTimer } from "@/scripts/radioTimer";
 
 // Autoplay tops up when fewer than this many previews wait after the playlist
 const AUTOPLAY_THRESHOLD = 2;
@@ -147,6 +148,8 @@ function resolveStreamUrl(rawAudio: string): string {
   return `${API_ROOT}${path}`;
 }
 
+let nextQueueKeyId = 1;
+
 // Prepares any track for the player: absolute stream URL, API key header, artwork, and artist.
 // A song saved on the phone plays from its file instead of streaming
 function toPlayerTrack(
@@ -176,6 +179,7 @@ function toPlayerTrack(
 
   return {
     ...t,
+    _queueKey: t._queueKey || `qk-${nextQueueKeyId++}`,
     url: streamUrl,
     headers: saved ? {} : t.headers || { "mirlo-api-key": API_KEY },
     type: saved ? TrackType.Default : t.type || audioTrackType(streamUrl),
@@ -414,6 +418,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (event.type === Event.PlaybackActiveTrackChanged) {
+        resetRadioTimer();
         const track = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
         if (track) {
           setActiveTrack(track);
@@ -544,14 +549,22 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
         setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
+        setActiveIndex(startIndex);
         queueGenerationRef.current += 1;
         setQueueSource(nextSource);
         await TrackPlayer.setQueue(tracksToLoad);
         await TrackPlayer.skip(startIndex);
         await TrackPlayer.play();
 
-        // Record to Viewing History if trackGroup information is available
-        if (track.trackGroup) {
+        // History opens the album again: a saved song's album in Downloads, or the Mirlo album
+        if (track.downloadAlbum) {
+          recordHistoryItem({
+            downloadAlbum: track.downloadAlbum,
+            title: track.trackGroup?.title || track.title,
+            artistName: enrichedArtist,
+            coverUri: resolvedArtwork,
+          });
+        } else if (track.trackGroup?.urlSlug) {
           recordHistoryItem({
             id: track.trackGroup.id,
             artistId: track.trackGroup.artistId,
@@ -598,6 +611,22 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const moveQueueItem = useCallback(
     async (from: QueueSlot, to: QueueSlot) => {
       if (from.section === to.section && from.index === to.index) return;
+      setPlayingQueue((prev) => {
+        if (activeIndex < 0) return prev;
+        const first = activeIndex + 1;
+        const after = prev.slice(first);
+        const queued = queuedCount(after);
+        const fromAt = first + (from.section === "queue" ? 0 : queued) + from.index;
+        const track = prev[fromAt];
+        if (!track) return prev;
+        const next = [...prev];
+        next.splice(fromAt, 1);
+        const moved = toPlayerTrack({ ...track, autoplay: undefined, queued: to.section === "queue" });
+        const queuedLeft = queued - (from.section === "queue" ? 1 : 0);
+        const toAt = first + (to.section === "queue" ? 0 : queuedLeft) + to.index;
+        next.splice(toAt, 0, moved);
+        return next;
+      });
       try {
         await ensureTrackPlayerInitialized();
         const { queue, active, queued } = await readPlayer();
@@ -618,13 +647,13 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Move queue item error:", err);
       }
     },
-    [refreshQueue],
+    [activeIndex, refreshQueue],
   );
 
   // Keeps playback going: discovery previews always wait after the playlist,
   // topped up as they play
   useEffect(() => {
-    if (looping !== "none" || !activeTrack || activeTrack.liveStation || playingQueue.length === 0) return;
+    if (looping !== "none" || !activeTrack || playingQueue.length === 0) return;
     const activeIndex = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
     if (activeIndex < 0) return;
     const upcomingPreviews = playingQueue.slice(activeIndex + 1).filter((t) => t.autoplay).length;
@@ -697,11 +726,16 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [shuffled, playingQueue]);
 
   // Repeat cycles off → repeat all → repeat one, using the player's own repeat mode so it
-  // also works from the lock screen and when a song ends on its own. Repeat loops only the
+  // also works from the lock screen and when a song ends on its own. On a station it toggles
+  // off ↔ repeat one, which keeps the station on past its 10-minute set. Repeat loops only the
   // listener's songs: previews leave the queue (except one already playing), and come back
   // when repeat is off
   const cycleRepeat = useCallback(async () => {
-    const next = REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
+    const next: RepeatSetting = activeTrack?.liveStation
+      ? looping === "track"
+        ? "none"
+        : "track"
+      : REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(looping) + 1) % REPEAT_CYCLE.length];
     try {
       await ensureTrackPlayerInitialized();
       await TrackPlayer.setRepeatMode(REPEAT_MODES[next]);
@@ -722,7 +756,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Repeat mode error:", err);
     }
-  }, [looping, playingQueue, refreshQueue]);
+  }, [activeTrack, looping, playingQueue, refreshQueue]);
 
   const skipNext = useCallback(async () => {
     try {

@@ -8,6 +8,7 @@ import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
 import TrackPlayer from "react-native-track-player";
 import * as SplashScreen from "expo-splash-screen";
+import { useFonts } from "expo-font";
 import { AppReadyContextProvider } from "@/state/AppReadyContext";
 import { useEffect, useState } from "react";
 import Footer from "@/components/Footer";
@@ -29,6 +30,10 @@ TrackPlayer.registerPlaybackService(() => require("../scripts/service"));
 
 export default function RootLayout() {
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+  const [fontsLoaded, fontError] = useFonts({
+    Cubano: require("../assets/fonts/Cubano.otf"),
+    OpenSans: require("../assets/fonts/OpenSans-VariableFont_wdth,wght.ttf"),
+  });
   // Needed for TanStack Query Devtools
   const onCopy = async (text: string) => {
     try {
@@ -44,10 +49,14 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (isDataLoaded) {
+    if (isDataLoaded && (fontsLoaded || fontError)) {
       SplashScreen.hide();
     }
-  }, [isDataLoaded]);
+  }, [isDataLoaded, fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
     <AppReadyContextProvider
@@ -132,6 +141,18 @@ export default function RootLayout() {
                 />
                 <Stack.Screen
                   name="tags/[tag]"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="station/[id]"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="podcast/[id]"
                   options={{
                     headerShown: false,
                   }}

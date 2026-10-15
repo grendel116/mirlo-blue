@@ -1,0 +1,173 @@
+import {
+  decodeXml,
+  parseDuration,
+  parsePodcastRss,
+  findPodcastShow,
+  episodeTrack,
+  COLONIAL_OUTCASTS,
+  PODCAST_SHOWS,
+  PodcastEpisode,
+} from "@/queries/podcast";
+
+describe("decodeXml", () => {
+  test("strips CDATA blocks", () => {
+    expect(decodeXml("<![CDATA[Episode 1: The Beginning]]>")).toBe("Episode 1: The Beginning");
+  });
+
+  test("decodes named and numeric XML entities", () => {
+    expect(decodeXml("War &amp; Peace")).toBe("War & Peace");
+    expect(decodeXml("It&#8217;s a &#8220;quote&#8221;")).toBe("It's a \"quote\"");
+    expect(decodeXml("Price: &#36;100")).toBe("Price: $100");
+  });
+
+  test("handles empty or falsy strings", () => {
+    expect(decodeXml("")).toBe("");
+  });
+});
+
+describe("parseDuration", () => {
+  test("parses HH:MM:SS format", () => {
+    expect(parseDuration("01:30:15")).toBe(5415);
+  });
+
+  test("parses MM:SS format", () => {
+    expect(parseDuration("45:30")).toBe(2730);
+  });
+
+  test("parses plain seconds format", () => {
+    expect(parseDuration("3600")).toBe(3600);
+  });
+
+  test("returns undefined for invalid format", () => {
+    expect(parseDuration(undefined)).toBeUndefined();
+    expect(parseDuration("unknown")).toBeUndefined();
+  });
+});
+
+describe("parsePodcastRss", () => {
+  const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Sample Podcast</title>
+    <item>
+      <title><![CDATA[Episode 2: Audio &amp; Story]]></title>
+      <pubDate>Tue, 06 Oct 2026 18:00:00 GMT</pubDate>
+      <guid>ep-2</guid>
+      <description><![CDATA[<p>Summary of episode 2</p>]]></description>
+      <enclosure url="https://example.com/ep2.mp3" type="audio/mpeg" length="12345" />
+      <itunes:duration>01:15:00</itunes:duration>
+      <itunes:image href="https://example.com/ep2.jpg" />
+    </item>
+    <item>
+      <title>Episode 1: Non-Audio Announcement</title>
+      <pubDate>Mon, 05 Oct 2026 18:00:00 GMT</pubDate>
+      <guid>ep-1</guid>
+      <description>Text announcement</description>
+      <enclosure url="https://example.com/image.png" type="image/png" length="500" />
+    </item>
+    <item>
+      <title>Episode 0: Launch</title>
+      <pubDate>Sun, 04 Oct 2026 18:00:00 GMT</pubDate>
+      <guid>ep-0</guid>
+      <description>Launch episode</description>
+      <enclosure url="https://example.com/ep0.m4a" type="audio/x-m4a" length="10000" />
+      <itunes:duration>45:00</itunes:duration>
+    </item>
+  </channel>
+</rss>`;
+
+  test("extracts only audio episodes", () => {
+    const episodes = parsePodcastRss(sampleXml);
+    expect(episodes.length).toBe(2);
+    expect(episodes[0].id).toBe("ep-2");
+    expect(episodes[0].title).toBe("Episode 2: Audio & Story");
+    expect(episodes[0].audioUrl).toBe("https://example.com/ep2.mp3");
+    expect(episodes[0].duration).toBe(4500);
+    expect(episodes[0].artwork).toBe("https://example.com/ep2.jpg");
+    expect(episodes[0].description).toBe("Summary of episode 2");
+
+    expect(episodes[1].id).toBe("ep-0");
+    expect(episodes[1].title).toBe("Episode 0: Launch");
+  });
+
+  test("respects limit parameter", () => {
+    const episodes = parsePodcastRss(sampleXml, 1);
+    expect(episodes.length).toBe(1);
+    expect(episodes[0].id).toBe("ep-2");
+  });
+});
+
+describe("findPodcastShow", () => {
+  test("finds shows by ID and verifies list contains ongoing curated shows", () => {
+    expect(PODCAST_SHOWS.map((s) => s.id)).toEqual([
+      "colonial-outcasts",
+      "black-autonomy",
+      "everything-coop",
+    ]);
+
+    const colonial = findPodcastShow("colonial-outcasts");
+    expect(colonial).toBeDefined();
+    expect(colonial?.name).toBe("Colonial Outcasts");
+    expect(colonial?.author).toBe("Greg Stoker & Mark Wayne");
+    expect(colonial?.supportUrl).toBe("https://www.rfemedia.com/subscribe");
+
+    const blackAutonomy = findPodcastShow("black-autonomy");
+    expect(blackAutonomy).toBeDefined();
+    expect(blackAutonomy?.name).toBe("Black Autonomy Podcast");
+    expect(blackAutonomy?.author).toContain("Lorenzo Kom'boa Ervin");
+    expect(blackAutonomy?.feedUrl).toBe("https://blackautonomy.libsyn.com/rss");
+    expect(blackAutonomy?.supportUrl).toBe("https://www.patreon.com/blackautonomy");
+
+    const everythingCoop = findPodcastShow("everything-coop");
+    expect(everythingCoop).toBeDefined();
+    expect(everythingCoop?.name).toBe("Everything Co-op");
+    expect(everythingCoop?.author).toBe("Vernon Oakes");
+    expect(everythingCoop?.feedUrl).toContain("soundcloud.com");
+    expect(everythingCoop?.supportUrl).toBe("https://everything.coop");
+  });
+
+  test("returns undefined for unknown ID", () => {
+    expect(findPodcastShow("unknown-show")).toBeUndefined();
+    expect(findPodcastShow(undefined)).toBeUndefined();
+  });
+});
+
+describe("episodeTrack", () => {
+  test("converts PodcastEpisode to valid RNTrack", () => {
+    const episode: PodcastEpisode = {
+      id: "test-guid-123",
+      title: "Test Episode",
+      pubDate: "Tue, 06 Oct 2026 18:00:00 GMT",
+      audioUrl: "https://example.com/audio.mp3",
+      description: "Test description",
+      duration: 3600,
+      artwork: "https://example.com/custom-art.jpg",
+    };
+
+    const track = episodeTrack(episode, COLONIAL_OUTCASTS, 0);
+
+    expect(track.title).toBe("Test Episode");
+    expect(track.artist).toBe("Greg Stoker & Mark Wayne");
+    expect(track.artwork).toBe("https://example.com/custom-art.jpg");
+    expect(track.url).toBe("https://example.com/audio.mp3");
+    expect(track.duration).toBe(3600);
+    expect(track.headers).toEqual({});
+    expect(track.id).toBeLessThan(0);
+    expect(track.podcastId).toBe("colonial-outcasts");
+    expect(track.podcastEpisodeId).toBe("test-guid-123");
+    expect(track.trackGroup?.title).toBe("Colonial Outcasts");
+  });
+
+  test("falls back to show artwork when episode has no custom artwork", () => {
+    const episode: PodcastEpisode = {
+      id: "test-guid-456",
+      title: "Episode Without Art",
+      pubDate: "Tue, 06 Oct 2026 18:00:00 GMT",
+      audioUrl: "https://example.com/audio2.mp3",
+      description: "No art",
+    };
+
+    const track = episodeTrack(episode, COLONIAL_OUTCASTS, 1);
+    expect(track.artwork).toBe(COLONIAL_OUTCASTS.artwork);
+  });
+});

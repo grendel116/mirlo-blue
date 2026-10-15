@@ -1,7 +1,7 @@
 {
   "name": "mirlo-mobile",
   "main": "index.js",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -58,6 +58,7 @@
     "expo-haptics": "~55.0.8",
     "expo-linking": "~55.0.7",
     "expo-localization": "~55.0.8",
+    "expo-media-library": "~55.0.9",
     "expo-notifications": "~55.0.10",
     "expo-router": "~55.0.3",
     "expo-secure-store": "~55.0.8",
