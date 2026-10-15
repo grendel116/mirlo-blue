@@ -560,6 +560,8 @@ export function queryFairplayerAlbum(releaseSlug: string) {
 export const fairplayerReleaseSlug = {
   encode: encodeReleaseSlug,
   decode: decodeReleaseSlug,
+  artistRouteId: (slug: string) =>
+    decodeReleaseSlug(slug) ? "fairplayer" : undefined,
 };
 
 export const parseFairplayerReleaseCards = parseReleaseCards;

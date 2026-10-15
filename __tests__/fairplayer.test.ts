@@ -10,6 +10,15 @@ import {
 } from "@/queries/fairplayer";
 
 describe("Fairplayer Faircamp catalog integration", () => {
+  test("uses the Fairplayer artist route for Faircamp release slugs", () => {
+    expect(
+      fairplayerReleaseSlug.artistRouteId(
+        "fairplayer-primer-calaix%40sockpuppet.band",
+      ),
+    ).toBe("fairplayer");
+    expect(fairplayerReleaseSlug.artistRouteId("a-mirlo-album")).toBeUndefined();
+  });
+
   test("resolves Fairplayer song IDs to their Faircamp album slug", async () => {
     const originalFetch = global.fetch;
     global.fetch = jest.fn(() =>

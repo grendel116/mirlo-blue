@@ -18,7 +18,10 @@ import {
   distributeFairChorusAlbums,
   queryFederatedChorusAlbums,
 } from "@/queries/chorus";
-import { queryFairplayerAlbums } from "@/queries/fairplayer";
+import {
+  fairplayerReleaseSlug,
+  queryFairplayerAlbums,
+} from "@/queries/fairplayer";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
@@ -314,7 +317,10 @@ export default function Index() {
                             : router.push({
                                 pathname: "/artist/[id]/album/[slug]/album-tracks",
                                 params: {
-                                  id: String(item.artistId),
+                                  id:
+                                    fairplayerReleaseSlug.artistRouteId(
+                                      item.urlSlug ?? "",
+                                    ) ?? String(item.artistId),
                                   slug: String(item.urlSlug),
                                 },
                               })
