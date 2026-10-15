@@ -18,8 +18,11 @@ import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
 import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation } from "@/queries/radio";
+import { queryArtist } from "@/queries/queries";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { openInBrowser } from "@/scripts/openInBrowser";
 
 export default function NowPlaying() {
   const { activeTrack } = usePlayer() as {
@@ -167,8 +170,54 @@ export default function NowPlaying() {
         <View style={styles.playerWrapper}>
           <Player />
         </View>
+
+        {/* Listener-supported stations: send listeners to the station's own donation page */}
+        {station ? (
+          <Pressable
+            onPress={() => openInBrowser(station.donatePage)}
+            style={styles.donateButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Donate to ${station.name}`}
+          >
+            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+            <Text style={styles.donateText}>Donate to {station.name}</Text>
+          </Pressable>
+        ) : activeTrack ? (
+          <SupportArtistButton track={activeTrack} />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// Artists with paid subscription tiers get supporters through their support page; every
+// other artist is supported by buying the release this song is from
+function SupportArtistButton({ track }: { track: RNTrack }) {
+  const artistId = track.trackGroup?.artistId;
+  const { data: artist, isPending } = useQuery(queryArtist({ artistSlug: artistId ? String(artistId) : "" }));
+
+  const artistSlug = artist?.urlSlug ?? track.trackGroup?.artist?.urlSlug;
+  const albumSlug = track.trackGroup?.urlSlug;
+  if (isPending || !artistSlug || !albumSlug) return null;
+
+  const takesSubscribers = Boolean(artist?.subscriptionTiers?.some((tier) => !tier.isDefaultTier));
+  const url = takesSubscribers
+    ? `https://mirlo.space/${artistSlug}/support`
+    : `https://mirlo.space/${artistSlug}/release/${albumSlug}`;
+  const name = artist?.name ?? track.artist;
+
+  return (
+    <Pressable
+      onPress={() => openInBrowser(url)}
+      style={styles.donateButton}
+      accessibilityRole="button"
+      accessibilityLabel={`Support ${name}`}
+    >
+      <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+      <Text style={styles.donateText} numberOfLines={1}>
+        Support {name}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -185,6 +234,22 @@ function formatTime(seconds: number) {
 }
 
 const styles = StyleSheet.create({
+  donateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 28,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primary,
+  },
+  donateText: {
+    color: theme.colors.playButtonIcon,
+    fontSize: 15,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

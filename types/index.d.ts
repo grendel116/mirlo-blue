@@ -144,9 +144,11 @@ interface RNTrack {
   isPreview: boolean;
   order: number;
   headers: {};
-  type?: "default" | "hls" | "dash" | "smoothstreaming";
+  type?: import("react-native-track-player").TrackType;
   // Added by autoplay after the chosen playlist ran out
   autoplay?: boolean;
+  // Picked by the listener with Add to queue: plays right after the current song
+  queued?: boolean;
   // Station id of a live radio stream: no duration, no seeking, nothing queued after it
   liveStation?: string;
 }
@@ -187,6 +189,8 @@ interface Artist {
     colors: ArtistColors;
   };
   user?: Partial<User>;
+  // The default tier is the free "follow" tier; any other tier is a paid subscription
+  subscriptionTiers?: { id: number; name: string; isDefaultTier: boolean }[];
   banner?: {
     url: string;
     sizes?: { [key: number]: string };

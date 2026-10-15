@@ -27,6 +27,7 @@ const showModal = (
     params: {
       trackGroupTitle: trackGroup.title,
       trackGroupId: trackGroup.id,
+      artistId: trackGroup.artistId ?? trackGroup.artist.id,
       artist: trackGroup.artist.name,
     },
   });

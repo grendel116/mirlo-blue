@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   View,
@@ -34,7 +34,8 @@ export default function Index() {
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // Query Recent Releases; when this can't load, Mirlo is out of reach
+  // Recent Releases: a random pick of released albums, like the website, drawn fresh each
+  // time Home comes into view. When this can't load, Mirlo is out of reach
   const {
     data: recentData,
     isPending: isRecentPending,
@@ -44,7 +45,9 @@ export default function Index() {
   } = useQuery(
     queryTrackGroups({
       take: 12,
+      orderBy: "random",
       distinctArtists: true,
+      isReleased: "released",
     }),
   );
 
@@ -55,7 +58,8 @@ export default function Index() {
     refetch: refetchTopSold,
   } = useQuery(
     queryTopSold({
-      take: 10,
+      take: 12,
+      datePurchased: "pastMonth",
     }),
   );
 
@@ -89,16 +93,13 @@ export default function Index() {
     };
   }, []);
 
+  // The first visit already loads a list; every return to Home draws a new one
+  const hasFocused = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      let mounted = true;
-      getHistory().then((items) => {
-        if (mounted) setHistoryItems(items);
-      });
-      return () => {
-        mounted = false;
-      };
-    }, [])
+      if (hasFocused.current) refetchRecent();
+      hasFocused.current = true;
+    }, [refetchRecent]),
   );
 
   // Top 6 items for the "Viewing History" 2-column grid
@@ -266,7 +267,7 @@ export default function Index() {
               ) : (
                 <FlatList
                   horizontal
-                  data={popularPurchases.length > 0 ? popularPurchases : recentReleases.slice().reverse()}
+                  data={popularPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}

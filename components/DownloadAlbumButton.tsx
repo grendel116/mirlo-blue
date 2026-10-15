@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuthContext } from "@/state/AuthContext";
 import { theme } from "@/constants/theme";
@@ -63,9 +63,8 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
       }
     >
       {stage ? (
-        <View style={styles.progress}>
+        <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={theme.colors.primary} />
-          <Text style={styles.stage}>{STAGE_LABELS[stage]}</Text>
         </View>
       ) : (
         <Ionicons
@@ -80,16 +79,7 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
 
 const styles = StyleSheet.create({
   button: {
-    marginHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
-  },
-  progress: {
-    alignItems: "center",
-    gap: 2,
-  },
-  stage: {
-    fontSize: 10,
-    color: theme.colors.textSecondary,
   },
 });

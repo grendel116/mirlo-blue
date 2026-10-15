@@ -54,6 +54,13 @@ export enum AppKilledPlaybackBehavior {
   StopPlaybackAndRemoveNotification = "stop-playback-and-remove-notification",
 }
 
+export enum TrackType {
+  Default = "default",
+  Dash = "dash",
+  HLS = "hls",
+  SmoothStreaming = "smoothstreaming",
+}
+
 export enum RepeatMode {
   Off,
   Track,

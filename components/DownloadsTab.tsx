@@ -152,7 +152,7 @@ export default function DownloadsTab() {
                     style={styles.playButton}
                     accessibilityLabel={`Play ${album.title}`}
                   >
-                    <Ionicons name="play" size={18} color={theme.colors.playButtonIcon} />
+                    <Ionicons name="play" size={18} color={theme.colors.playButtonIcon} style={{ marginLeft: 2 }} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={toggle}
