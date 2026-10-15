@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   ScrollView,
+  Pressable,
 } from "react-native";
 import { useSearch } from "@/state/SearchContext";
 import { useEffect, useMemo, useRef } from "react";
@@ -15,8 +16,9 @@ import { useQuery } from "@tanstack/react-query";
 import { queryTags } from "@/queries/queries";
 import TagPill from "@/components/TagPill";
 import { optionDisplay } from "@/components/SearchOptionRenderer";
-import { Link } from "expo-router";
-import { useRouter } from "expo-router";
+import { Link, useRouter } from "expo-router";
+import { theme } from "@/constants/theme";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 export default function SearchPage() {
   const {
@@ -37,11 +39,11 @@ export default function SearchPage() {
   const router = useRouter();
 
   const tagPills = useMemo(() => {
-    const group = tags?.results.map((tag, index) => {
-      return <TagPill key={index} tagName={tag.tag} />;
-    });
-    return group;
+    return tags?.results.map((tag, index) => (
+      <TagPill key={index} tagName={tag.tag} />
+    ));
   }, [tags]);
+
   const searchCallbackRef = useRef(
     debounce(async (searchString) => {
       if (searchString && searchString.length > 1) {
@@ -65,88 +67,66 @@ export default function SearchPage() {
   if (isPending) {
     return (
       <View
-        style={{
-          flex: 1,
-          backgroundColor: "white",
-          paddingTop: top,
-          paddingBottom: bottom,
-          justifyContent: "space-between",
-        }}
+        style={[
+          styles.container,
+          {
+            paddingTop: top,
+            paddingBottom: bottom,
+            justifyContent: "space-between",
+          },
+        ]}
       >
-        <SearchHeader style={{ borderBottomWidth: 1, marginBottom: 1 }} />
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
+        <SearchHeader />
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </View>
     );
   }
 
   return (
     <View
-      style={{
-        flex: 1,
-        backgroundColor: "white",
-        paddingTop: top,
-        paddingBottom: bottom,
-      }}
+      style={[
+        styles.container,
+        {
+          paddingTop: top,
+          paddingBottom: bottom,
+        },
+      ]}
     >
-      <SearchHeader style={{ borderBottomWidth: 1, marginBottom: 1 }} />
-
-      {!isSearching &&
-        !showSuggestions &&
-        !searchValue &&
-        !searchResults.length && (
-          <ScrollView style={{ marginTop: 20, marginHorizontal: 10, gap: 20 }}>
-            <Text>Or Search By Popular Tags:</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
-              {tagPills}
-            </View>
-            <TypeLinks />
-          </ScrollView>
-        )}
-
-      {isSearching && (
-        <View style={{ marginVertical: 30, flex: 1 }}>
-          <ActivityIndicator
-            size="large"
-            color="#BE3455"
-            style={styles.loadSpinner}
-          />
+      <SearchHeader />
+      {!isSearching && !showSuggestions && !searchValue && !searchResults.length ? (
+        <ScrollView
+          style={styles.contentScrollView}
+          contentContainerStyle={styles.contentContainer}
+        >
+          <Text style={styles.sectionHeader}>POPULAR TAGS</Text>
+          <View style={styles.tagWrap}>{tagPills}</View>
+          <TypeLinks />
+        </ScrollView>
+      ) : null}
+      {isSearching ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      )}
-
-      {searchValue &&
-        showSuggestions &&
-        !isSearching &&
-        searchResults.length < 1 && (
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "white",
-              justifyContent: "flex-start",
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ margin: 20, fontSize: 20 }}>
-              Hmmm, couldn't find anything for that search... Try again!
-            </Text>
-          </View>
-        )}
-
-      {!isSearching && showSuggestions && searchResults.length > 0 && (
+      ) : null}
+      {Boolean(searchValue && showSuggestions && !isSearching && searchResults.length < 1) ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search" size={40} color={theme.colors.textMuted} />
+          <Text style={styles.emptyText}>
+            {`Couldn't find anything for "${searchValue}". Try another search!`}
+          </Text>
+        </View>
+      ) : null}
+      {Boolean(!isSearching && showSuggestions && searchResults.length > 0) ? (
         <FlatList
-          style={{
-            backgroundColor: "white",
-            flex: 1,
-            width: "100%",
-          }}
+          style={styles.resultsList}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
           data={searchResults}
           renderItem={({ item, index }) => optionDisplay(item, index)}
           keyExtractor={(item, index) => `${index}-${item.id || item.name}`}
         />
-      )}
+      ) : null}
     </View>
   );
 }
@@ -154,24 +134,98 @@ export default function SearchPage() {
 function TypeLinks() {
   const router = useRouter();
   return (
-    <View
-      style={{
-        gap: 20,
-        paddingVertical: 15,
-      }}
-    >
-      <Link href={{ pathname: "/topSold" }} onPress={() => router.back()}>
-        Popular{" >"}
-      </Link>
-      <Link href={{ pathname: "/mostPlayed" }} onPress={() => router.back()}>
-        Most Listened To{" >"}
-      </Link>
+    <View style={styles.typeLinksContainer}>
+      <Text style={styles.sectionHeader}>DISCOVER BY CATEGORY</Text>
+      <Pressable
+        onPress={() => router.navigate("/topSold")}
+        style={styles.typeLinkCard}
+        accessibilityRole="button"
+      >
+        <View style={styles.typeLinkRow}>
+          <Text style={styles.typeLinkText}>Popular Purchases</Text>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+        </View>
+      </Pressable>
+      <Pressable
+        onPress={() => router.navigate("/mostPlayed")}
+        style={styles.typeLinkCard}
+        accessibilityRole="button"
+      >
+        <View style={styles.typeLinkRow}>
+          <Text style={styles.typeLinkText}>Most Listened To</Text>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+        </View>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  loadSpinner: {
+  container: {
     flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  contentScrollView: {
+    flex: 1,
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 32,
+    gap: 16,
+  },
+  sectionHeader: {
+    ...theme.typography.sectionHeader,
+    marginBottom: 4,
+  },
+  tagWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 12,
+  },
+  typeLinksContainer: {
+    gap: 12,
+    marginTop: 8,
+  },
+  typeLinkCard: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+    borderRadius: theme.radius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  typeLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  typeLinkText: {
+    color: theme.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  emptyText: {
+    color: theme.colors.textSecondary,
+    fontSize: 16,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  resultsList: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
   },
 });

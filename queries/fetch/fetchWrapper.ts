@@ -28,6 +28,12 @@ async function fetchWrapper<R>(
   if (cookieHeader) {
     headers.append("Cookie", cookieHeader);
   }
+  if (jwtToken) {
+    headers.append("x-mirlo-jwt", jwtToken);
+  }
+  if (refreshToken) {
+    headers.append("x-mirlo-refresh", refreshToken);
+  }
 
   if (API_KEY) {
     headers.append("mirlo-api-key", API_KEY);

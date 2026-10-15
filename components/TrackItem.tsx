@@ -1,7 +1,9 @@
 import { useAuthContext } from "@/state/AuthContext";
-import { View, StyleSheet, Text } from "react-native";
+import { View, StyleSheet, Text, Image } from "react-native";
 import { isTrackOwnedOrPreview } from "@/scripts/utils";
 import FavoriteTrackButton from "./FavoriteTrackButton";
+import AddToQueueButton from "./AddToQueueButton";
+import { theme } from "@/constants/theme";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -42,45 +44,49 @@ export const TrackItem = ({
       }
     }
   }
+
+  const textColor = canPlayTrack
+    ? thisSongSelected
+      ? theme.colors.primary
+      : theme.colors.textPrimary
+    : theme.colors.textMuted;
+
+  const artworkUri =
+    track.artwork ||
+    album?.cover?.sizes?.[300] ||
+    album?.cover?.sizes?.[120] ||
+    album?.cover?.sizes?.[600] ||
+    track.trackGroup?.cover?.sizes?.[300] ||
+    track.trackGroup?.cover?.sizes?.[120] ||
+    track.trackGroup?.cover?.sizes?.[600];
+
   return (
-    <View style={styles.listItem}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "flex-start",
-          width: "70%",
-        }}
-      >
-        {track && (
+    <View style={[styles.listItem, thisSongSelected && styles.selectedListItem]}>
+      <View style={styles.trackDetailsRow}>
+        {artworkUri ? (
+          <Image source={{ uri: artworkUri }} style={styles.trackThumb} resizeMode="cover" />
+        ) : track ? (
           <Text
-            style={{
-              color: canPlayTrack ? "#636363" : "lightgrey",
-              fontSize: 16,
-              width: 30,
-              marginLeft: 5,
-              fontWeight: canPlayTrack
-                ? thisSongSelected
-                  ? "bold"
-                  : "normal"
-                : "normal",
-            }}
+            style={[
+              styles.orderText,
+              {
+                color: thisSongSelected ? theme.colors.primary : theme.colors.textSecondary,
+                fontWeight: thisSongSelected ? "700" : "500",
+              },
+            ]}
           >
             {track.order}.
           </Text>
-        )}
-        <View style={{ maxWidth: "90%" }}>
+        ) : null}
+        <View style={styles.titleContainer}>
           <Text
-            style={{
-              color: canPlayTrack ? "#636363" : "lightgrey",
-              fontSize: 16,
-              paddingRight: 5,
-              fontWeight: canPlayTrack
-                ? thisSongSelected
-                  ? "bold"
-                  : "normal"
-                : "normal",
-            }}
+            style={[
+              styles.titleText,
+              {
+                color: textColor,
+                fontWeight: thisSongSelected ? "700" : "500",
+              },
+            ]}
             ellipsizeMode="tail"
             numberOfLines={1}
           >
@@ -93,35 +99,26 @@ export const TrackItem = ({
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              style={{ color: "grey" }}
+              style={styles.contributorText}
             >
               {contributors}
             </Text>
           ) : null}
         </View>
       </View>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-          width: "20%",
-        }}
-      >
-        {!onTrackScreen && <FavoriteTrackButton track={track} size={15} />}
+      <View style={styles.actionRow}>
+        {!onTrackScreen && <AddToQueueButton track={track} album={album} size={17} />}
+        {!onTrackScreen && <FavoriteTrackButton track={track} size={17} />}
         <Text
-          style={{
-            color: canPlayTrack ? "#636363" : "lightgrey",
-            fontSize: 15,
-            marginRight: 10,
-            fontWeight: canPlayTrack
-              ? thisSongSelected
-                ? "bold"
-                : "normal"
-              : "normal",
-          }}
+          style={[
+            styles.durationText,
+            {
+              color: thisSongSelected ? theme.colors.primary : theme.colors.textSecondary,
+              fontWeight: thisSongSelected ? "700" : "400",
+            },
+          ]}
         >
-          {track.audio.duration ? formatTime(track.audio.duration) : 0}
+          {track.audio?.duration ? formatTime(track.audio.duration) : "0:00"}
         </Text>
       </View>
     </View>
@@ -132,8 +129,53 @@ const styles = StyleSheet.create({
   listItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     justifyContent: "space-between",
-    marginVertical: 5,
+    marginVertical: 2,
+    borderRadius: theme.radius.sm,
+  },
+  selectedListItem: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+  },
+  trackDetailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    flex: 1,
+    paddingRight: 10,
+  },
+  orderText: {
+    fontSize: 14,
+    width: 26,
+    marginLeft: 2,
+  },
+  trackThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.sm,
+    marginRight: 10,
+    backgroundColor: theme.colors.surfaceElevated,
+  },
+  titleContainer: {
+    flex: 1,
+  },
+  titleText: {
+    fontSize: 15,
+  },
+  contributorText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  durationText: {
+    fontSize: 13,
   },
 });

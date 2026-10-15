@@ -20,7 +20,8 @@ async function isArtist(slug: string) {
 }
 
 // Maps a mirlo.space link to the app route that shows it. Anything the app
-// can't show opens in an in-app browser tab and leaves navigation alone
+// can't show opens in an in-app browser tab and leaves navigation alone.
+// Tapping the playback notification opens the app with trackplayer://notification.click
 export async function redirectSystemPath({
   path,
 }: {
@@ -33,6 +34,7 @@ export async function redirectSystemPath({
   } catch {
     return path;
   }
+  if (url.protocol === "trackplayer:") return "/now-playing";
   if (url.hostname !== "mirlo.space") return path;
 
   const [artist, section, album, tracks, trackId] = url.pathname

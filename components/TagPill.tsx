@@ -1,31 +1,39 @@
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
+import { Pressable, Text, StyleSheet } from "react-native";
+import { theme } from "@/constants/theme";
 
 type TagPillProps = {
-  key: number;
+  key?: number;
   tagName: string;
 };
 
 export default function TagPill({ tagName }: TagPillProps) {
   const router = useRouter();
   return (
-    <Link
-      href={{
-        pathname: "/tags/[tag]",
-        params: { tag: tagName },
-      }}
-      style={{
-        backgroundColor: "#f0f0f0",
-        borderWidth: 1,
-        borderColor: "#e3e1e1",
-        padding: 6,
-        paddingHorizontal: 15,
-        borderRadius: 18,
-        marginRight: 5,
-        marginVertical: 5,
-      }}
-      onPress={() => router.back()}
+    <Pressable
+      onPress={() => router.push(`/tags/${encodeURIComponent(tagName)}` as const)}
+      style={styles.pill}
+      accessibilityRole="button"
     >
-      {tagName}
-    </Link>
+      <Text style={styles.text}>#{tagName}</Text>
+    </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  pill: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.full,
+    marginRight: 6,
+    marginVertical: 4,
+  },
+  text: {
+    color: theme.colors.textCyan,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+});

@@ -1,4 +1,29 @@
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { API_ROOT } from "@/constants/api-root";
+
+// Mirlo serves every track's audio as an HLS playlist at this path.
+// List endpoints (wishlist, collection, favorites) omit audio.url, so derive it from the id.
+export function trackStreamPath(trackId: number | string): string {
+  return `/v1/tracks/${trackId}/stream/playlist.m3u8`;
+}
+
+export function resolveArtworkUrl(rawUrl?: string): string {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "";
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("file://") ||
+    trimmed.startsWith("data:")
+  ) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/")) {
+    return `${API_ROOT}${trimmed}`;
+  }
+  return `${API_ROOT}/${trimmed}`;
+}
 
 export function audioTrackType(url: string): "default" | "hls" | "dash" {
   if (url.endsWith(".m3u8")) return "hls";
@@ -71,3 +96,11 @@ export const handleExternalPurchase = (trackGroup: AlbumProps) => {
   const purchaseUrl = `https://mirlo.space/${trackGroup.artist.urlSlug}/release/${trackGroup.urlSlug}`;
   openInBrowser(purchaseUrl);
 };
+
+// The song's page on mirlo.space. Social apps and messages show it with the cover art
+export function songPageUrl(track: RNTrack): string | undefined {
+  const artistSlug = track.trackGroup?.artist?.urlSlug;
+  const albumSlug = track.trackGroup?.urlSlug;
+  if (!artistSlug || !albumSlug || !track.id) return undefined;
+  return `https://mirlo.space/${artistSlug}/release/${albumSlug}/tracks/${track.id}`;
+}

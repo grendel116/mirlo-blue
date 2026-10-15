@@ -64,7 +64,12 @@ export async function clearLocalAuthSession() {
 }
 
 async function login(body: LoginBody) {
-  const res: Response = await api.post("/auth/login", body);
+  const res: any = await api.post("/auth/login", body);
+
+  if (res?._tokens?.jwt && res?._tokens?.refresh) {
+    await SecureStore.setItemAsync("jwt", res._tokens.jwt);
+    await SecureStore.setItemAsync("refresh", res._tokens.refresh);
+  }
 
   await storeTokens();
 
@@ -120,8 +125,12 @@ export function useLogoutMutation() {
 export async function authRefresh() {
   try {
     await clearCookies();
-    await api.post("/auth/refresh", {});
+    const res: any = await api.post("/auth/refresh", {});
     await clearStoredTokens();
+    if (res?._tokens?.jwt && res?._tokens?.refresh) {
+      await SecureStore.setItemAsync("jwt", res._tokens.jwt);
+      await SecureStore.setItemAsync("refresh", res._tokens.refresh);
+    }
     await storeTokens();
 
     return false;

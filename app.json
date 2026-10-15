@@ -1,45 +1,36 @@
 {
   "expo": {
-    "name": "Mirlo",
-    "slug": "mirlo-mobile",
+    "name": "Mirlo Blue",
+    "slug": "mirlo-blue",
     "version": "1.0.3",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "mirlo",
-    "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/mirlo-blue-icon.png",
+    "scheme": "mirloblue",
+    "userInterfaceStyle": "dark",
     "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "space.mirlo.mobile",
+      "bundleIdentifier": "space.mirlo.blue",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "audio"
         ]
-      },
-      "icon": {
-        "dark": "./assets/images/mirlo-logo-logoOnly-dark.png",
-        "light": "./assets/images/mirlo-app-icon-light.png"
-      },
-      "runtimeVersion": "1.0.2",
-      "associatedDomains": [
-        "applinks:mirlo.space"
-      ],
-      "appleTeamId": "VZCHHV7VNW"
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/Logo-Mirlo_LogoOnly.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/mirlo-blue-adaptive.png",
+        "backgroundColor": "#070b14"
       },
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "space.mirlo.mobile"
+      "package": "space.mirlo.blue"
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -47,22 +38,21 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Logo-Mirlo_LogoOnly.png",
+          "image": "./assets/images/mirlo-blue-splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#070b14"
         }
       ],
       [
         "expo-secure-store",
         {
           "configureAndroidBackup": true,
-          "faceIDPermission": "Allow Mirlo-Mobile to access your Face ID biometric data."
+          "faceIDPermission": "Allow Mirlo Blue to access your Face ID biometric data."
         }
       ],
       "expo-localization",
-      "expo-asset",
-      "./plugins/withMirloAppLinks"
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
@@ -72,15 +62,15 @@
         "origin": false
       },
       "eas": {
-        "projectId": "a2ccd2d1-a537-4697-9df3-43228ba534ef"
+        "projectId": "797fb379-0d0b-4d23-b827-bb78570fb948"
       }
     },
-    "owner": "mirlo-app",
-    "runtimeVersion": "1.0.2",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "owner": "drhodesw",
     "updates": {
-      "url": "https://u.expo.dev/a2ccd2d1-a537-4697-9df3-43228ba534ef",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 2000
+      "url": "https://u.expo.dev/797fb379-0d0b-4d23-b827-bb78570fb948"
     }
   }
 }

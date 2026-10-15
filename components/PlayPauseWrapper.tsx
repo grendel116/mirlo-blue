@@ -1,146 +1,39 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { API_ROOT } from "@/constants/api-root";
 import { usePlayer } from "@/state/PlayerContext";
-import { TouchableOpacity, Text, StyleSheet, Pressable } from "react-native";
-import {
-  useCallback,
-  useState,
-  useEffect,
-  PropsWithChildren,
-  useRef,
-} from "react";
-import TrackPlayer, { PlaybackState, State } from "react-native-track-player";
-import { isEqual } from "lodash";
+import { Pressable, StyleSheet } from "react-native";
+import { PropsWithChildren } from "react";
 import { TrackItem } from "./TrackItem";
-import { isTrackOwnedOrPreview, isTrackOwned } from "@/scripts/utils";
+import { isTrackOwnedOrPreview } from "@/scripts/utils";
 import { useAuthContext } from "@/state/AuthContext";
-import { reachedMaxPlays } from "@/scripts/trackPlayUtils";
 
-type PlayPauseWrapper = PropsWithChildren<PlayPauseWrapperProps>;
+type PlayPauseWrapperPropsWithChildren = PropsWithChildren<PlayPauseWrapperProps>;
 
 export default function PlayPauseWrapper({
   trackObject,
-  children,
   style,
   selectedAlbum,
   onTrackScreen,
-}: PlayPauseWrapper) {
-  const {
-    playbackState,
-    playableTracks,
-    activeTrack,
-    setActiveTrack,
-    setShuffled,
-  } = usePlayer();
-  const audioURL = trackObject?.url;
-  const [thisSongSelected, setThisSongSelected] = useState<boolean>(false);
+}: PlayPauseWrapperPropsWithChildren) {
+  const { activeTrack, playTrack, playableTracks } = usePlayer();
   const { user } = useAuthContext();
 
   const canPlayTrack = isTrackOwnedOrPreview(trackObject, user, selectedAlbum);
-
-  useEffect(() => {
-    const checkTrack = async () => {
-      try {
-        const queue = await TrackPlayer.getQueue();
-        const currentTrack = await TrackPlayer.getActiveTrack();
-
-        const isSameAlbum =
-          currentTrack?.trackGroup.urlSlug === trackObject.trackGroup.urlSlug &&
-          playableTracks.length === queue?.length;
-
-        // Need to check isSameAlbum because track could be located on it's respective album view or in individual track view
-        if (activeTrack?.url === audioURL && isSameAlbum) {
-          setThisSongSelected(true);
-        } else {
-          setThisSongSelected(false);
-        }
-      } catch (error) {
-        console.error("Error checking track:", error);
-      }
-    };
-
-    checkTrack();
-  }, [activeTrack, playableTracks]);
-
-  const togglePlayBack = async (
-    playBackState: PlaybackState | { state: undefined },
-  ) => {
-    try {
-      const queue = await TrackPlayer.getQueue();
-      // Set queue if no queue currently set
-      if (!queue.length) {
-        console.log("no curr track: setting track");
-        await TrackPlayer.setQueue(playableTracks);
-        await TrackPlayer.skip(trackObject.queueIndex);
-        setActiveTrack(trackObject);
-        await TrackPlayer.play();
-        console.log("Q set from nothing");
-        return;
-      }
-
-      const currentTrack = await TrackPlayer.getActiveTrack();
-
-      const isSameAlbum =
-        currentTrack?.trackGroup.urlSlug === trackObject.trackGroup.urlSlug &&
-        playableTracks.length === queue.length
-          ? true
-          : false;
-
-      // Song Change to different album
-      if (!isSameAlbum) {
-        try {
-          setShuffled(false);
-          await TrackPlayer.setQueue(playableTracks);
-          await TrackPlayer.skip(trackObject.queueIndex);
-          setActiveTrack(trackObject);
-          await TrackPlayer.play();
-          console.log("Q set from diff album");
-          return;
-        } catch (err) {
-          console.error("issue changing albums", err);
-          return;
-        }
-      }
-
-      // Song Change within same album
-      if (currentTrack?.url !== audioURL) {
-        setActiveTrack(trackObject);
-        await TrackPlayer.skip(trackObject.queueIndex);
-        await TrackPlayer.play();
-        return;
-      } else {
-        if (
-          playbackState.state === State.Paused ||
-          playbackState.state === State.Ready
-        ) {
-          await TrackPlayer.play();
-        } else {
-          await TrackPlayer.pause();
-        }
-      }
-    } catch (err) {
-      console.error("issue with playback:", err);
-    }
-  };
+  const thisSongSelected = Boolean(activeTrack?.url && activeTrack.url === trackObject?.url);
 
   return (
     <Pressable
       onPress={async () => {
-        if (canPlayTrack) {
-          await togglePlayBack(playbackState);
-          const q = await TrackPlayer.getQueue();
-        } else {
-          return;
-        }
+        if (!canPlayTrack) return;
+        await playTrack(trackObject, playableTracks);
       }}
       style={style}
+      accessibilityLabel={`Play ${trackObject?.title || "track"}`}
     >
       <TrackItem
         track={trackObject}
         album={selectedAlbum ? selectedAlbum : undefined}
         thisSongSelected={thisSongSelected}
         onTrackScreen={onTrackScreen}
-      ></TrackItem>
+      />
     </Pressable>
   );
 }

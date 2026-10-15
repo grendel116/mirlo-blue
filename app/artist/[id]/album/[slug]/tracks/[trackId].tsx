@@ -7,7 +7,6 @@ import {
   Text,
   Image,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
   FlatList,
   useWindowDimensions} from "react-native";
@@ -24,7 +23,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
+import AddToQueueButton from "@/components/AddToQueueButton";
 import ErrorNotification from "@/components/ErrorNotification";
+import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
@@ -83,13 +84,7 @@ export default function TrackView() {
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
-      </View>
+      <LoadingScreen />
     );
   }
 
@@ -203,10 +198,14 @@ export default function TrackView() {
                     flexDirection: "row",
                     justifyContent: "center",
                     alignItems: "center",
+                    gap: 16,
                   }}
                 >
                   {filteredTrack && (
-                    <FavoriteTrackButton track={filteredTrack} size={40} />
+                    <>
+                      <AddToQueueButton track={filteredTrack} album={data.result} size={36} />
+                      <FavoriteTrackButton track={filteredTrack} size={36} />
+                    </>
                   )}
                   <TrackPlayButton />
                 </View>
@@ -239,94 +238,38 @@ export default function TrackView() {
 function TrackPlayButton() {
   const {
     isPlaying,
-    playbackState,
     activeTrack,
     playableTracks,
-    setActiveTrack,
-    setShuffled,
+    playTrack,
+    togglePlayPause,
   } = usePlayer();
-  const [q, setQ] = useState<RNTrack[] | null>(null);
 
-  async function getQ() {
-    const queue = (await TrackPlayer.getQueue()) as RNTrack[];
-    setQ(queue);
-  }
+  const isCurrentTrack = Boolean(
+    activeTrack &&
+      playableTracks.length > 0 &&
+      activeTrack.url === playableTracks[0]?.url,
+  );
 
-  useEffect(() => {
-    getQ();
-  }, [playableTracks]);
-
-  const togglePlayBack = async () =>
-    // playBackState: PlaybackState | { state: undefined }
-    {
-      try {
-        const queue = await TrackPlayer.getQueue();
-        // Set queue if no queue currently set
-        if (!queue) {
-          console.log("no curr track: setting track");
-          await TrackPlayer.setQueue(playableTracks);
-          const current = (await TrackPlayer.getActiveTrack()) as RNTrack;
-          setActiveTrack(current);
-          await TrackPlayer.play();
-          return;
-        }
-
-        const currentTrack = await TrackPlayer.getActiveTrack();
-
-        const isSameAlbum =
-          currentTrack?.trackGroup.urlSlug ===
-            playableTracks[0].trackGroup.urlSlug &&
-          playableTracks.length === queue.length
-            ? true
-            : false;
-
-        // Song Change to different album
-        if (!isSameAlbum) {
-          try {
-            setShuffled(false);
-            await TrackPlayer.setQueue(playableTracks);
-            const current = (await TrackPlayer.getActiveTrack()) as RNTrack;
-            setActiveTrack(current);
-            await TrackPlayer.play();
-            return;
-          } catch (err) {
-            console.error("issue changing albums", err);
-            return;
-          }
-        }
-
-        if (
-          playbackState.state === State.Paused ||
-          playbackState.state === State.Ready
-        ) {
-          await TrackPlayer.play();
-          return;
-        } else if (
-          playbackState.state === State.Playing ||
-          playbackState.state === State.Buffering
-        ) {
-          await TrackPlayer.pause();
-          return;
-        } else {
-          console.error(`playback state: ${playbackState.state} not expected`);
-        }
-      } catch (err) {
-        console.error("issue with playback", err);
-      }
-    };
+  const togglePlayback = useCallback(async () => {
+    if (!playableTracks.length) return;
+    if (isCurrentTrack) {
+      await togglePlayPause();
+    } else {
+      await playTrack(playableTracks[0], playableTracks);
+    }
+  }, [isCurrentTrack, playableTracks, playTrack, togglePlayPause]);
 
   return (
     <TouchableOpacity
-      onPress={() => togglePlayBack()}
-      disabled={playableTracks.length ? false : true}
+      onPress={togglePlayback}
+      disabled={!playableTracks.length}
+      accessibilityRole="button"
+      accessibilityLabel={isCurrentTrack && isPlaying ? "Pause Track" : "Play Track"}
     >
       <Ionicons
         name={
           playableTracks.length
-            ? (isPlaying || playbackState.state === State.Buffering) &&
-              activeTrack?.trackGroup?.urlSlug ===
-                playableTracks[0].trackGroup?.urlSlug &&
-              playableTracks.length === q?.length
+            ? isCurrentTrack && isPlaying
               ? "pause-circle-outline"
               : "play-circle-outline"
             : "play-circle-outline"
@@ -391,8 +334,5 @@ const styles = StyleSheet.create({
     height: 380,
     backgroundColor: "#f0f0f0", // placeholder color while loading
     alignSelf: "center",
-  },
-  loadSpinner: {
-    flex: 1,
   },
 });

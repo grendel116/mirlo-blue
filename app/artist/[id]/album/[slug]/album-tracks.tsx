@@ -4,7 +4,6 @@ import {
   StyleSheet,
   FlatList,
   Image,
-  ActivityIndicator,
   TouchableOpacity,
   Pressable,
   useWindowDimensions,
@@ -34,94 +33,55 @@ import WishlistButton from "@/components/WishlistButton";
 import ErrorNotification from "@/components/ErrorNotification";
 import AddAlbumButton from "@/components/AddAlbumButton";
 import { mirloRed } from "@/constants/mirlo-red";
+import { theme } from "@/constants/theme";
+import TagPill from "@/components/TagPill";
+import { recordHistoryItem } from "@/scripts/historyManager";
+import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
 function AlbumPlayButton() {
   const {
-    playbackState,
     isPlaying,
     activeTrack,
     playableTracks,
-    setActiveTrack,
-    setShuffled,
+    playTrack,
+    togglePlayPause,
   } = usePlayer();
 
-  const togglePlayBack = useCallback(async () => {
-    try {
-      const queue = await TrackPlayer.getQueue();
+  const isCurrentAlbum = Boolean(
+    activeTrack &&
+      playableTracks.length > 0 &&
+      activeTrack.trackGroup?.urlSlug === playableTracks[0]?.trackGroup?.urlSlug,
+  );
 
-      // Set queue if no queue currently set or if the queue is empty
-      if (!queue || queue.length === 0) {
-        await TrackPlayer.setQueue(playableTracks);
-        const current = (await TrackPlayer.getActiveTrack()) as RNTrack;
-        setActiveTrack(current);
-        await TrackPlayer.play();
-        return;
-      }
-
-      const currentTrack = await TrackPlayer.getActiveTrack();
-
-      // Check if the current album in the player is the same as the album for playableTracks
-      const isSameAlbum =
-        currentTrack?.trackGroup?.urlSlug ===
-          playableTracks[0]?.trackGroup?.urlSlug &&
-        playableTracks.length === queue.length; // More robust check
-
-      // Song Change to different album
-      if (!isSameAlbum) {
-        try {
-          setShuffled(false);
-          await TrackPlayer.setQueue(playableTracks);
-          const current = (await TrackPlayer.getActiveTrack()) as RNTrack;
-          setActiveTrack(current);
-          await TrackPlayer.play();
-          return;
-        } catch (err) {
-          console.error("issue changing albums", err);
-          return;
-        }
-      }
-
-      // If it's the same album, toggle play/pause
-      if (
-        playbackState.state === State.Paused ||
-        playbackState.state === State.Ready
-      ) {
-        await TrackPlayer.play();
-        return;
-      } else if (
-        playbackState.state === State.Playing ||
-        playbackState.state === State.Buffering
-      ) {
-        await TrackPlayer.pause();
-        return;
-      } else {
-        console.error(`playback state: ${playbackState.state} not expected`);
-      }
-    } catch (err) {
-      console.error("issue with playback", err);
+  const togglePlayback = useCallback(async () => {
+    if (!playableTracks.length) return;
+    if (isCurrentAlbum) {
+      await togglePlayPause();
+    } else {
+      await playTrack(playableTracks[0], playableTracks);
     }
-  }, [isPlaying, playableTracks, setActiveTrack]);
+  }, [isCurrentAlbum, playableTracks, playTrack, togglePlayPause]);
 
   return (
     <TouchableOpacity
-      onPress={togglePlayBack}
-      disabled={playableTracks.length ? false : true}
+      onPress={togglePlayback}
+      disabled={!playableTracks.length}
+      accessibilityRole="button"
+      accessibilityLabel={isCurrentAlbum && isPlaying ? "Pause Album" : "Play Album"}
+      style={styles.albumPlayBtn}
     >
       <Ionicons
         name={
           playableTracks.length
-            ? (isPlaying || playbackState.state == State.Buffering) &&
-              activeTrack?.trackGroup?.urlSlug ===
-                playableTracks[0].trackGroup?.urlSlug // && playableTracks.length === q?.length
-              ? "pause-circle-outline"
-              : "play-circle-outline"
-            : "play-circle-outline"
+            ? isCurrentAlbum && isPlaying
+              ? "pause"
+              : "play"
+            : "play"
         }
-        size={70}
-        style={{ marginHorizontal: 5 }}
-        color={playableTracks.length ? "black" : "lightgrey"}
+        size={24}
+        color={theme.colors.playButtonIcon}
       />
     </TouchableOpacity>
   );
@@ -172,71 +132,79 @@ export default function AlbumTracks() {
       const allTracks: RNTrack[] = [];
       let playableIndex = 0;
 
-      if (data && data.result.tracks) {
-        data.result.tracks.forEach((track) => {
-          const newTrack: RNTrack = {
-            title: track.title,
-            artist: data.result.artist.name,
-            artwork: data.result.cover.sizes[600],
-            url: `${API_ROOT}${track.audio.url}`,
-            allowIndividualSale: track.allowIndividualSale,
-            id: track.id,
-            trackArtists: track.trackArtists,
-            queueIndex: track.order,
-            trackGroupId: data.result.trackGroupId,
-            trackGroup: {
-              userTrackGroupPurchases: data.result.userTrackGroupPurchases,
-              artistId: data.result.artistId,
-              urlSlug: data.result.urlSlug,
-              cover: data.result.cover,
-              title: data.result.title,
-              artist: data.result.artist,
-              id: data.result.id,
-              releaseDate: data.result.releaseDate,
-              trackGroupId: data.result.trackGroupId,
-            },
-            audio: {
-              url: track.audio.url,
-              duration: track.audio.duration,
-            },
-            isPreview: track.isPreview,
-            order: track.order,
-            headers: {
-              "mirlo-api-key": API_KEY,
-            },
-            type: audioTrackType(track.audio.url),
-          };
-
-          allTracks.push(newTrack);
-
-          if (isTrackOwnedOrPreview(newTrack, user, data.result)) {
-            newTrack.queueIndex = playableIndex;
-            playableIndex++;
-            tracksToPlay.push(newTrack);
-          }
+      if (data && data.result) {
+        // Record album in Viewing History
+        recordHistoryItem({
+          id: data.result.id,
+          artistId: data.result.artistId,
+          urlSlug: data.result.urlSlug,
+          title: data.result.title,
+          artistName: data.result.artist?.name || "",
+          coverUri:
+            data.result.cover?.sizes?.[300] ||
+            data.result.cover?.sizes?.[600] ||
+            data.result.cover?.sizes?.[120],
         });
+
+        if (data.result.tracks) {
+          data.result.tracks.forEach((track) => {
+            const newTrack: RNTrack = {
+              title: track.title,
+              artist: data.result.artist.name,
+              artwork: data.result.cover.sizes[600],
+              url: `${API_ROOT}${track.audio.url}`,
+              allowIndividualSale: track.allowIndividualSale,
+              id: track.id,
+              trackArtists: track.trackArtists,
+              queueIndex: track.order,
+              trackGroupId: data.result.trackGroupId,
+              trackGroup: {
+                userTrackGroupPurchases: data.result.userTrackGroupPurchases,
+                artistId: data.result.artistId,
+                urlSlug: data.result.urlSlug,
+                cover: data.result.cover,
+                title: data.result.title,
+                artist: data.result.artist,
+                id: data.result.id,
+                releaseDate: data.result.releaseDate,
+                trackGroupId: data.result.trackGroupId,
+              },
+              audio: {
+                url: track.audio.url,
+                duration: track.audio.duration,
+              },
+              isPreview: track.isPreview,
+              order: track.order,
+              headers: {
+                "mirlo-api-key": API_KEY,
+              },
+              type: audioTrackType(track.audio.url),
+            };
+
+            allTracks.push(newTrack);
+
+            if (isTrackOwnedOrPreview(newTrack, user, data.result)) {
+              newTrack.queueIndex = playableIndex;
+              playableIndex++;
+              tracksToPlay.push(newTrack);
+            }
+          });
+        }
       }
       setAlbum(allTracks);
       setPlayableTracks(tracksToPlay);
-    }, [data]),
+    }, [data, user]),
   );
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
-      </View>
+      <LoadingScreen />
     );
   }
 
   if (isError) {
-    console.error(error);
     return (
-      <View style={{ flex: 1 }}>
+      <View style={styles.loadingContainer}>
         <ErrorNotification
           visible={showError}
           onDismiss={() => setShowError(false)}
@@ -248,49 +216,20 @@ export default function AlbumTracks() {
 
   const selectedAlbum = data.result;
 
-  const tagPills = selectedAlbum.tags?.map((tagName, index) => {
-    return (
-      <Link
-        key={index}
-        href={{
-          pathname: "/tags/[tag]",
-          params: { tag: tagName },
-        }}
-        style={{
-          backgroundColor: "#f0f0f0",
-          borderWidth: 1,
-          borderColor: "#e3e1e1",
-          padding: 10,
-          paddingHorizontal: 15,
-          borderRadius: 18,
-          marginRight: 10,
-          marginVertical: 5,
-        }}
-      >
-        {tagName}
-      </Link>
-    );
-  });
-
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "flex-start",
-          paddingHorizontal: 10,
-          width: "100%",
-          height: 60,
-          backgroundColor: "#fafafa",
-        }}
-      >
-        <Pressable onPress={() => router.dismiss()}>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.topNav}>
+        <Pressable
+          onPress={() => router.dismiss()}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
           <Ionicons
-            name="chevron-back-outline"
-            size={40}
-            style={{ color: "#696969" }}
-          ></Ionicons>
+            name="chevron-back"
+            size={24}
+            color={theme.colors.textPrimary}
+          />
         </Pressable>
       </View>
       <View style={styles.container}>
@@ -305,71 +244,57 @@ export default function AlbumTracks() {
                 trackObject={item}
                 selectedAlbum={selectedAlbum}
                 onTrackScreen={false}
-              ></PlayPauseWrapper>
+              />
             ) : null
           }
           ListHeaderComponent={() => (
-            <View style={{ marginBottom: 10 }}>
-              <Image
-                source={{ uri: selectedAlbum?.cover?.sizes[600] }}
-                style={[
-                  styles.image,
-                  { width: width, height: width < 380 ? width * 0.9 : width },
-                ]}
-                resizeMode={width < 380 ? "stretch" : "cover"}
-              />
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginVertical: 10,
-                }}
-              >
-                <View style={{ maxWidth: "55%", marginRight: 10 }}>
+            <View style={styles.headerSection}>
+              <View style={styles.coverWrapper}>
+                <Image
+                  source={{ uri: selectedAlbum?.cover?.sizes[600] }}
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                />
+              </View>
+              <View style={styles.albumMetaRow}>
+                <View style={styles.metaTitles}>
                   <Text
-                    style={{
-                      color: "black",
-                      marginBottom: 5,
-                      fontWeight: "bold",
-                    }}
+                    style={styles.albumMainTitle}
                     ellipsizeMode="tail"
                     numberOfLines={1}
                   >
                     {selectedAlbum?.title}
                   </Text>
-                  <Text>
-                    {/* const result = str.replace(/<[^>]*>/g, '').trim(); */}
-                    {t("trackGroupDetails.byArtist")
-                      .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                      .trim() + " "}
-                    <Link
-                      href={{
-                        pathname: "/artist/[id]/artist-page",
-                        params: { id: selectedAlbum?.artistId },
-                      }}
-                      style={{ color: "#BE3455", fontWeight: "bold" }}
+                  <View style={styles.artistNameRow}>
+                    <Text style={styles.byText}>
+                      {t("trackGroupDetails.byArtist")
+                        .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                        .trim() + " "}
+                    </Text>
+                    <Pressable
+                      onPress={() =>
+                        router.navigate({
+                          pathname: "/artist/[id]/artist-page",
+                          params: { id: selectedAlbum?.artistId },
+                        })
+                      }
                     >
-                      {selectedAlbum?.artist.name}
-                    </Link>
-                  </Text>
+                      <Text style={styles.artistLink}>
+                        {selectedAlbum?.artist.name}
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
+                <View style={styles.albumActions}>
                   <AddAlbumButton
                     trackGroup={selectedAlbum}
-                    size={40}
+                    size={36}
                     setModalVisible={setModalVisible}
                   />
                   <WishlistButton
                     trackGroup={selectedAlbum}
-                    size={40}
-                    style={{ marginLeft: 10 }}
+                    size={36}
+                    style={{ marginHorizontal: 8 }}
                   />
                   <MemoizedAlbumPlayButton />
                 </View>
@@ -377,23 +302,22 @@ export default function AlbumTracks() {
             </View>
           )}
           ListFooterComponent={() => (
-            <View style={{ marginVertical: 10 }}>
-              <Text
-                style={{
-                  fontWeight: "bold",
-                  fontSize: 20,
-                  marginBottom: 15,
-                }}
-              >
+            <View style={styles.footerSection}>
+              <Text style={styles.aboutHeader}>
                 {t("trackGroupDetails.about")}
               </Text>
-              <Text style={{ fontStyle: "italic", marginBottom: 20 }}>
+              <Text style={styles.releaseDateText}>
                 {formatUTCDate(selectedAlbum?.releaseDate)}
               </Text>
 
               {selectedAlbum?.about ? (
-                <View style={{ marginBottom: 20 }}>
-                  <Markdown>
+                <View style={styles.aboutBody}>
+                  <Markdown
+                    style={{
+                      body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
+                      link: { color: theme.colors.textCyan },
+                    }}
+                  >
                     {linkifyUrls(
                       selectedAlbum.about.replace(/([^\n])\n([^\n])/g, "$1 $2"),
                     )}
@@ -401,44 +325,34 @@ export default function AlbumTracks() {
                 </View>
               ) : null}
 
-              <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                {selectedAlbum.tags && tagPills}
+              <View style={styles.tagWrap}>
+                {selectedAlbum.tags?.map((tagName: string, index: number) => (
+                  <TagPill key={index} tagName={tagName} />
+                ))}
               </View>
             </View>
           )}
-        ></FlatList>
+        />
         <Modal
           visible={modalVisible}
           transparent={true}
-          animationType="none"
-          onRequestClose={() => {
-            setModalVisible(!modalVisible);
-          }}
+          animationType="fade"
+          onRequestClose={() => setModalVisible(!modalVisible)}
         >
-          <View
-            style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
-          >
-            <View style={styles.modalView}>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
               <Pressable
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  backgroundColor: mirloRed,
-                  padding: 10,
-                  borderRadius: 10,
-                }}
+                style={styles.purchaseBtn}
                 onPress={() => handleExternalPurchase(selectedAlbum)}
               >
-                <Text style={{ color: "white", fontSize: 18 }}>
-                  Purchase Info{" "}
-                </Text>
-                <Ionicons name="open-outline" color="white" size={18} />
+                <Text style={styles.purchaseBtnText}>Purchase Info</Text>
+                <Ionicons name="open-outline" color="#070b14" size={18} />
               </Pressable>
               <Pressable
-                style={{ marginTop: 30 }}
+                style={styles.modalCloseBtn}
                 onPress={() => setModalVisible(!modalVisible)}
               >
-                <Text style={{ color: "#666", fontSize: 16 }}>Close</Text>
+                <Text style={styles.modalCloseText}>Close</Text>
               </Pressable>
             </View>
           </View>
@@ -449,54 +363,164 @@ export default function AlbumTracks() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "white",
-    alignItems: "flex-start",
-    justifyContent: "space-evenly",
+    backgroundColor: theme.colors.background,
   },
-  listContainer: {
-    backgroundColor: "white",
-    paddingHorizontal: "5%",
-    gap: 3,
-  },
-  listItem: {
+  topNav: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 5,
-    justifyContent: "space-between",
-    marginVertical: 5,
+    paddingHorizontal: 16,
+    height: 52,
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.surfaceCardBorder,
   },
-  listHeader: {
-    alignContent: "center",
+  backBtn: {
+    padding: 6,
   },
-  text: {
-    padding: 10,
-    fontWeight: "bold",
-  },
-  image: {
-    height: 380,
-    marginBottom: 10,
-    backgroundColor: "#f0f0f0", // placeholder color while loading
-    alignSelf: "center",
-  },
-  loadSpinner: {
+  container: {
     flex: 1,
+    backgroundColor: theme.colors.background,
   },
-  modalView: {
-    margin: 20,
-    backgroundColor: "white",
-    borderRadius: 20,
-    padding: 35,
-    paddingBottom: 20,
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+  },
+  listContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+  },
+  headerSection: {
+    marginBottom: 16,
+    paddingTop: 12,
+  },
+  coverWrapper: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: theme.radius.lg,
+    overflow: "hidden",
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 6,
+    marginBottom: 16,
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+  },
+  albumMetaRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  metaTitles: {
+    flex: 1,
+    marginRight: 12,
+  },
+  albumMainTitle: {
+    color: theme.colors.textPrimary,
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  artistNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  byText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+  },
+  artistLink: {
+    color: theme.colors.textCyan,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  albumActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  albumPlayBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  footerSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surfaceCardBorder,
+  },
+  aboutHeader: {
+    ...theme.typography.sectionHeader,
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  releaseDateText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontStyle: "italic",
+    marginBottom: 14,
+  },
+  aboutBody: {
+    marginBottom: 16,
+  },
+  tagWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 8,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+  },
+  modalCard: {
+    width: "85%",
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.lg,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+  },
+  purchaseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: theme.radius.md,
+    gap: 8,
+  },
+  purchaseBtnText: {
+    color: "#070b14",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  modalCloseBtn: {
+    marginTop: 20,
+    padding: 8,
+  },
+  modalCloseText: {
+    color: theme.colors.textSecondary,
+    fontSize: 15,
   },
 });

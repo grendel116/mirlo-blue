@@ -20,7 +20,10 @@
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      }
     },
     "staging": {
       "channel": "staging"
@@ -33,7 +36,8 @@
       "extends": "production",
       "ios": {
         "simulator": true
-      }
+      },
+      "channel": "production-simulator"
     }
   },
   "submit": {

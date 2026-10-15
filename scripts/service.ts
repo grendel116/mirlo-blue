@@ -1,97 +1,77 @@
 import TrackPlayer, { Event } from "react-native-track-player";
-import { incrementPlayCount } from "./trackPlayUtils";
-import { useAuthContext } from "@/state/AuthContext";
-import { isTrackOwned } from "./utils";
-
-let incremented = false;
-let currentTrack: RNTrack | undefined = undefined;
 
 module.exports = async function () {
-  TrackPlayer.addEventListener(
-    Event.RemotePlay,
-    async () => await TrackPlayer.play()
-  );
+  TrackPlayer.addEventListener(Event.RemotePlay, async () => {
+    try {
+      await TrackPlayer.play();
+    } catch (err) {
+      console.error("RemotePlay error:", err);
+    }
+  });
 
-  TrackPlayer.addEventListener(
-    Event.RemotePause,
-    async () => await TrackPlayer.pause()
-  );
+  TrackPlayer.addEventListener(Event.RemotePause, async () => {
+    try {
+      await TrackPlayer.pause();
+    } catch (err) {
+      console.error("RemotePause error:", err);
+    }
+  });
 
   TrackPlayer.addEventListener(Event.RemoteNext, async () => {
     try {
       const queue = await TrackPlayer.getQueue();
       const trackIndex = await TrackPlayer.getActiveTrackIndex();
-      const queueLength = queue.length;
+      if (queue.length === 0 || trackIndex === undefined) return;
 
-      if (trackIndex === queueLength - 1) {
+      if (trackIndex >= queue.length - 1) {
         await TrackPlayer.skip(0);
-        await TrackPlayer.play();
       } else {
         await TrackPlayer.skipToNext();
-        const cur = await TrackPlayer.getActiveTrack();
-        console.log(cur?.title);
-        await TrackPlayer.play();
       }
     } catch (err) {
-      console.error("issue remoteNext skipping to next song", err);
+      console.error("RemoteNext error:", err);
     }
   });
 
   TrackPlayer.addEventListener(Event.RemotePrevious, async () => {
     try {
-      const queue = await TrackPlayer.getQueue();
-      const activeTrackIndex = await TrackPlayer.getActiveTrackIndex();
+      const progress = await TrackPlayer.getProgress();
+      if (progress.position > 3) {
+        await TrackPlayer.seekTo(0);
+        return;
+      }
 
-      if (activeTrackIndex === 0) {
+      const queue = await TrackPlayer.getQueue();
+      const trackIndex = await TrackPlayer.getActiveTrackIndex();
+      if (queue.length === 0 || trackIndex === undefined) return;
+
+      if (trackIndex === 0) {
         await TrackPlayer.skip(queue.length - 1);
-        await TrackPlayer.play();
       } else {
         await TrackPlayer.skipToPrevious();
-        await TrackPlayer.play();
       }
     } catch (err) {
-      console.error("issue setting the song to previous track in queue");
+      console.error("RemotePrevious error:", err);
     }
   });
 
-  TrackPlayer.addEventListener(Event.RemoteSeek, ({ position }) =>
-    TrackPlayer.seekTo(position)
-  );
+  TrackPlayer.addEventListener(Event.RemoteSeek, async ({ position }) => {
+    try {
+      await TrackPlayer.seekTo(position);
+    } catch (err) {
+      console.error("RemoteSeek error:", err);
+    }
+  });
 
-  // CURRENTLY ALL HANDLED IN PLAYERCONTEXT
-  // Manages how play counts are incremented for unowned songs
-  // We need to keep track to prevent playback of unowned songs once the maximum # of plays has been reached
-  // TrackPlayer.addEventListener(
-  //   Event.PlaybackProgressUpdated, // SEE DOCS
-  //   async ({ position, duration, track }) => {
-  //     if (currentTrack === undefined) {
-  //       return;
-  //     }
-  //     // Only increment for unowned songs.
-  //     // boolean 'incremented' prevents this condition from running every second after having listened to more the half of the song...
-  //     // ...when PlayBackProgress Updated is fired
-  //     if (
-  //       !isTrackOwned(currentTrack, undefined, user) &&
-  //       !incremented &&
-  //       position / duration >= 0.5
-  //     ) {
-  //       incremented = true;
-  //       console.log(currentTrack.title + ": " + currentTrack.id);
-  //       incrementPlayCount(currentTrack.id);
-  //     } else {
-  //       console.log("track play count not incremented");
-  //     }
-
-  //     // reset boolean 'incremented' if we've already incremented the playcount (meaning more than half the song has been listened to) and
-  //     // the current playback position is zero (when the track changes or is replayed). This isn't perfect but will work for now. Room for improvement
-  //     if (incremented && position / duration == 0) {
-  //       incremented = false;
-  //     }
-  //   }
-  // );
-
-  // TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, async () => {
-  //   incremented = false;
-  //   currentTrack = (await TrackPlayer.getActiveTrack()) as RNTrack;
-  // });
+  TrackPlayer.addEventListener(Event.RemoteDuck, async ({ paused, permanent }) => {
+    try {
+      if (permanent || paused) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+    } catch (err) {
+      console.error("RemoteDuck error:", err);
+    }
+  });
 };

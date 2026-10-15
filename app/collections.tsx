@@ -3,7 +3,6 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  ActivityIndicator,
 } from "react-native";
 import { useAuthContext } from "@/state/AuthContext";
 import { Link, router } from "expo-router";
@@ -17,6 +16,7 @@ import CollectionPurchase from "@/components/CollectionPurchase";
 import { isTrackGroupPurchase, isTrackPurchase } from "@/types/typeguards";
 import ErrorNotification from "@/components/ErrorNotification";
 import { useTranslation } from "react-i18next";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function Collections() {
   const { user } = useAuthContext();
@@ -37,13 +37,7 @@ export default function Collections() {
 
   if (isPending) {
     return (
-      <View style={{ flex: 1 }}>
-        <ActivityIndicator
-          size="large"
-          color="#BE3455"
-          style={styles.loadSpinner}
-        />
-      </View>
+      <LoadingScreen />
     );
   }
 
@@ -152,9 +146,6 @@ const styles = StyleSheet.create({
   text: {
     padding: 10,
     fontWeight: "bold",
-  },
-  loadSpinner: {
-    flex: 1,
   },
   listText: {
     padding: 10,

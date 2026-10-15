@@ -1,6 +1,6 @@
 import { Pressable, Text, View, ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { useTranslation } from "react-i18next";
 import * as api from "../queries/fetch/fetchWrapper";
@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 type WishlistButton = {
   trackGroup: {
     id: number;
+    tracks?: RNTrack[];
   };
   style?: ViewStyle;
   size?: number;
@@ -22,9 +23,11 @@ export default function WishlistButton({
 }: WishlistButton) {
   const { user, refreshLoggedInUser } = useAuthContext();
   const queryClient = useQueryClient();
-  const [isInWishlist, setIsInWishlist] = useState(
-    !!user?.wishlist?.find((w) => w.trackGroupId === trackGroup.id)
-  );
+  // Follows the account's wishlist; a tap shows right away until the account data refreshes
+  const [tapped, setTapped] = useState<boolean | null>(null);
+  useEffect(() => setTapped(null), [user]);
+  const isInWishlist =
+    tapped ?? !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
   const router = useRouter();
 
   const onPress = useCallback(async () => {
@@ -34,15 +37,34 @@ export default function WishlistButton({
       });
       return null;
     }
-    await api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
-      wishlist: !isInWishlist,
-    });
-    setIsInWishlist((val) => !val);
+
+    const nextState = !isInWishlist;
+    setTapped(nextState);
+
+    try {
+      await api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
+        wishlist: nextState,
+      });
+
+      // If liking the album, also automatically like all album tracks
+      if (trackGroup.tracks && Array.isArray(trackGroup.tracks)) {
+        await Promise.allSettled(
+          trackGroup.tracks.map((t) =>
+            api.post(`/v1/tracks/${t.id}/favorite`, {
+              favorite: nextState,
+            }),
+          ),
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update wishlist / track favorites:", err);
+    }
+
     queryClient.invalidateQueries({
       queryKey: ["fetchWishlist", { userId: user.id }],
     });
     refreshLoggedInUser();
-  }, [isInWishlist, trackGroup.id]);
+  }, [isInWishlist, trackGroup, user, queryClient, refreshLoggedInUser, router]);
 
   return (
     <Pressable onPress={onPress} style={style}>
