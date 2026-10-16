@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   listContainer: {
-    paddingBottom: 110,
+    paddingBottom: 80,
   },
   columnWrapper: {
     justifyContent: "space-between",

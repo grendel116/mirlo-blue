@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 32,
+    paddingBottom: 80,
     gap: 16,
   },
   sectionHeader: {
@@ -236,6 +236,7 @@ const styles = StyleSheet.create({
   },
   resultsContent: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 80,
   },
 });
