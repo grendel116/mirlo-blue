@@ -10,6 +10,7 @@ jest.mock("@preeternal/react-native-cookie-manager", () => ({
   default: { get: jest.fn(), getAll: jest.fn(), clearAll: jest.fn() },
 }));
 jest.mock("@/queries/fairplayer", () => ({
+  ...jest.requireActual("@/queries/fairplayer"),
   fetchFairplayerSongReleaseSlug: jest.fn(),
 }));
 jest.mock("expo-web-browser", () => ({

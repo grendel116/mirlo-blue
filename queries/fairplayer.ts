@@ -8,6 +8,95 @@ const FAIRPLAYER_ID_PREFIX = "fairplayer-";
 const FAIRPLAYER_ARTIST_PREFIX = "fairplayer-artist-";
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Domains with expired/invalid TLS certificates, non-standard ports, insecure HTTP, or dead 404 audio streams
+const BLOCKED_FAIRCAMP_DOMAINS = new Set<string>([
+  "faircamp.txels.art",
+  "txels.art",
+  "music.strangetextures.com",
+  "strangetextures.com",
+  "faircamp.omar.apps.dj",
+  "cult.kidlightbulbs.com",
+  "sknot.fr",
+  "amicpublic.remor.net",
+  "carmevives.remor.net",
+  "garrafa.remor.net",
+  "maldol.remor.net",
+  "sknam.nham.co.uk",
+  "tallhouserecordingco.com",
+]);
+
+const quarantinedFaircampDomains = new Set<string>();
+
+function normalizeDomain(hostname: string): string {
+  return hostname.toLowerCase().trim().replace(/^www\./, "").replace(/\.$/, "");
+}
+
+function isIpOrLocalhost(domain: string): boolean {
+  if (!domain || domain === "localhost" || domain.endsWith(".local") || domain.endsWith(".internal")) {
+    return true;
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(domain) || domain.includes(":")) {
+    return true;
+  }
+  return false;
+}
+
+export function isFaircampDomainBlocked(domainOrUrl?: string): boolean {
+  if (!domainOrUrl) return true;
+  let domain = domainOrUrl.trim();
+  if (domain.includes("://")) {
+    try {
+      const parsed = new URL(domain);
+      if (parsed.protocol !== "https:") return true;
+      if (parsed.port && parsed.port !== "443") return true;
+      if (parsed.username || parsed.password) return true;
+      domain = parsed.hostname;
+    } catch {
+      return true;
+    }
+  }
+  const normalized = normalizeDomain(domain);
+  if (!normalized || !normalized.includes(".") || isIpOrLocalhost(normalized)) {
+    return true;
+  }
+  if (BLOCKED_FAIRCAMP_DOMAINS.has(normalized) || quarantinedFaircampDomains.has(normalized)) {
+    return true;
+  }
+  for (const blocked of BLOCKED_FAIRCAMP_DOMAINS) {
+    if (normalized.endsWith(`.${blocked}`)) return true;
+  }
+  for (const quarantined of quarantinedFaircampDomains) {
+    if (normalized.endsWith(`.${quarantined}`)) return true;
+  }
+  return false;
+}
+
+export function blockFaircampDomain(domainOrUrl?: string): void {
+  if (!domainOrUrl) return;
+  let domain = domainOrUrl.trim();
+  if (domain.includes("://")) {
+    try {
+      domain = new URL(domain).hostname;
+    } catch {
+      return;
+    }
+  }
+  const normalized = normalizeDomain(domain);
+  if (!normalized) return;
+  quarantinedFaircampDomains.add(normalized);
+
+  for (const [slug, album] of knownAlbumsBySlug.entries()) {
+    const releaseId = decodeReleaseSlug(slug);
+    const albumDomain = releaseId ? getFaircampDomain(releaseId) : undefined;
+    if (!albumDomain || albumDomain === normalized || albumDomain.endsWith(`.${normalized}`)) {
+      knownAlbumsBySlug.delete(slug);
+      if (album.artistId) {
+        knownArtistsById.delete(album.artistId);
+      }
+    }
+  }
+}
+
 let cachedVerifiedCatalogs: {
   fetchRef: typeof fetch;
   promise: Promise<Map<string, string>>;
@@ -175,7 +264,10 @@ function getFaircampDomain(releaseId: string): string | undefined {
   try {
     const url = new URL(`https://${match[1]}`);
     if (url.username || url.password || url.pathname !== "/") return undefined;
-    return url.hostname.toLowerCase().replace(/^www\./, "");
+    if (url.port && url.port !== "443") return undefined;
+    const domain = normalizeDomain(url.hostname);
+    if (isFaircampDomainBlocked(domain)) return undefined;
+    return domain;
   } catch {
     return undefined;
   }
@@ -368,9 +460,16 @@ export function parseVerifiedFaircampCatalogs(
   for (const link of catalogLinks) {
     try {
       const parsed = new URL(getAttribute(link, "href") || "");
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-        const domain = parsed.hostname.toLowerCase().replace(/^www\./, "");
-        catalogs.set(domain, parsed.href);
+      if (
+        parsed.protocol === "https:" &&
+        (!parsed.port || parsed.port === "443") &&
+        !parsed.username &&
+        !parsed.password
+      ) {
+        const domain = normalizeDomain(parsed.hostname);
+        if (!isFaircampDomainBlocked(domain)) {
+          catalogs.set(domain, parsed.href);
+        }
       }
     } catch {
       continue;
@@ -531,7 +630,13 @@ export async function fetchFairplayerAlbums(
   take: number = 40,
   signal?: AbortSignal,
 ): Promise<AlbumProps[]> {
-  const verifiedAlbums = await fetchVerifiedDirectoryAlbums(signal);
+  const verifiedAlbums = (await fetchVerifiedDirectoryAlbums(signal)).filter(
+    (album) => {
+      const releaseId = decodeReleaseSlug(album.urlSlug);
+      const domain = releaseId ? getFaircampDomain(releaseId) : undefined;
+      return Boolean(domain && !isFaircampDomainBlocked(domain));
+    },
+  );
 
   const shuffled = shuffleItems(verifiedAlbums);
   const artistsSeen = new Map<string, number>();
@@ -579,7 +684,8 @@ export function parseFairplayerRelease(
   releaseSlug: string,
 ): AlbumProps {
   const releaseId = decodeReleaseSlug(releaseSlug);
-  if (!releaseId || !getFaircampDomain(releaseId)) {
+  const releaseDomain = releaseId ? getFaircampDomain(releaseId) : undefined;
+  if (!releaseId || !releaseDomain) {
     throw new Error("Invalid Faircamp release identifier.");
   }
 
@@ -628,8 +734,21 @@ export function parseFairplayerRelease(
     } catch {
       return [];
     }
-    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:")
+    if (
+      parsedUrl.protocol !== "https:" ||
+      (parsedUrl.port && parsedUrl.port !== "443") ||
+      parsedUrl.username ||
+      parsedUrl.password
+    ) {
       return [];
+    }
+    const trackDomain = normalizeDomain(parsedUrl.hostname);
+    if (
+      isFaircampDomainBlocked(trackDomain) ||
+      (trackDomain !== releaseDomain && !trackDomain.endsWith(`.${releaseDomain}`))
+    ) {
+      return [];
+    }
 
     const sourceTrackId = getAttribute(song, "data-id");
     const trackIdValue = sourceTrackId || `${releaseId}-${index}`;

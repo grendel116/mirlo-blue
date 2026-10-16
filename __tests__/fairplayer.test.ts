@@ -1,16 +1,19 @@
 import {
+  blockFaircampDomain,
   fetchFairplayerAlbum,
   fetchFairplayerAlbums,
   fetchFairplayerArtist,
   fetchFairplayerDiscoveryTracks,
   fetchFairplayerSongReleaseSlug,
   fairplayerReleaseSlug,
+  isFaircampDomainBlocked,
   parseFairplayerRelease,
   parseFairplayerReleaseCards,
   parseFairplayerSearchResults,
   parseVerifiedFaircampCatalogs,
   searchFairplayerAlbums,
 } from "@/queries/fairplayer";
+import { isSafeExternalUrl } from "@/scripts/openInBrowser";
 
 describe("Fairplayer Faircamp catalog integration", () => {
   test("uses the Fairplayer artist route for Faircamp release slugs", () => {
@@ -420,6 +423,81 @@ describe("Fairplayer Faircamp catalog integration", () => {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+
+  test("rejects blocked, insecure HTTP, and non-standard port Faircamp catalogs and cross-origin tracks", () => {
+    expect(isFaircampDomainBlocked("https://faircamp.txels.art")).toBe(true);
+    expect(isFaircampDomainBlocked("txels.art")).toBe(true);
+    expect(isSafeExternalUrl("https://faircamp.txels.art")).toBe(false);
+    expect(isSafeExternalUrl("http://sknam.nham.co.uk")).toBe(false);
+    expect(isSafeExternalUrl("https://amicpublic.remor.net:8443/")).toBe(false);
+    expect(isSafeExternalUrl("https://sockpuppet.band/music")).toBe(true);
+
+    const catalogs = parseVerifiedFaircampCatalogs(`
+      <a href="https://faircamp.txels.art">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+      <a href="http://sknam.nham.co.uk">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+      <a href="https://amicpublic.remor.net:8443">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+      <a href="https://sockpuppet.band/music">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+    `);
+    expect([...catalogs.keys()]).toEqual(["sockpuppet.band"]);
+
+    const cards = parseFairplayerReleaseCards(`
+      <a hx-get="/player/release/lento@txels.art">
+        <img src="https://images.example/lento.jpg">
+        <p title="Lento">Lento</p>
+        <p>Carles Barrobés</p>
+      </a>
+      <a hx-get="/player/release/sjX@sockpuppet.band">
+        <img src="https://images.example/sjx.jpg">
+        <p title="sjX">sjX</p>
+        <p>Sockpuppet</p>
+      </a>
+    `);
+    expect(cards.map((album) => album.title)).toEqual(["sjX"]);
+
+    const releaseWithUntrustedStreams = parseFairplayerRelease(
+      `
+        <h1>sjX</h1>
+        <div class="song"
+          data-id="1"
+          data-title="Valid Track"
+          data-duration="120"
+          data-url="https://sockpuppet.band/sjx/01.opus">
+        </div>
+        <div class="song"
+          data-id="2"
+          data-title="HTTP Downgrade Track"
+          data-duration="120"
+          data-url="http://sockpuppet.band/sjx/02.opus">
+        </div>
+        <div class="song"
+          data-id="3"
+          data-title="Cross-Origin Malware Track"
+          data-duration="120"
+          data-url="https://evil.example/payload.opus">
+        </div>
+      `,
+      fairplayerReleaseSlug.encode("sjX@sockpuppet.band"),
+    );
+    expect(releaseWithUntrustedStreams.tracks?.map((t) => t.title)).toEqual([
+      "Valid Track",
+    ]);
+
+    blockFaircampDomain("https://quarantined-node.example/track.opus");
+    expect(isFaircampDomainBlocked("quarantined-node.example")).toBe(true);
+    expect(isSafeExternalUrl("https://quarantined-node.example")).toBe(false);
   });
 });
 

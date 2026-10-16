@@ -37,6 +37,7 @@ import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchDiscoveryTracks } from "@/scripts/autoplay";
+import { blockFaircampDomain } from "@/queries/fairplayer";
 import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
 import { resetRadioTimer } from "@/scripts/radioTimer";
 
@@ -461,22 +462,41 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       Event.PlaybackError,
     ],
     async (event) => {
-      if (
-        event.type === Event.PlaybackError &&
-        (event.message?.includes("Track play limit exceeded") ||
+      if (event.type === Event.PlaybackError) {
+        const currentTrack =
+          activeTrackRef.current ??
+          ((await TrackPlayer.getActiveTrack()) as RNTrack | undefined);
+        const targetId = activeTrackIdRef.current ?? currentTrack?.id;
+        const isFaircampError = Boolean(
+          currentTrack?.fairplayerTrackId ||
+            currentTrack?.source === "Faircamp" ||
+            currentTrack?.trackGroup?.source === "Faircamp",
+        );
+
+        if (isFaircampError) {
+          blockFaircampDomain(currentTrack?.sourceUrl || currentTrack?.url);
+          await TrackPlayer.pause();
+          if (typeof targetId === "number" && targetId > 0) {
+            await markTrackDisabled(targetId);
+            setDisabledTrackIds((prev) => new Set(prev).add(targetId));
+          }
+          return;
+        }
+
+        if (
+          event.message?.includes("Track play limit exceeded") ||
           event.message?.includes("402") ||
           event.message?.toLowerCase().includes("payment required") ||
           (event as any).code === "402" ||
-          (event as any).code === 402)
-      ) {
-        await TrackPlayer.pause();
-        const currentTrack = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
-        const targetId = activeTrackIdRef.current ?? currentTrack?.id;
-        if (typeof targetId === "number" && targetId > 0) {
-          await markTrackDisabled(targetId);
-          setDisabledTrackIds((prev) => new Set(prev).add(targetId));
+          (event as any).code === 402
+        ) {
+          await TrackPlayer.pause();
+          if (typeof targetId === "number" && targetId > 0) {
+            await markTrackDisabled(targetId);
+            setDisabledTrackIds((prev) => new Set(prev).add(targetId));
+          }
+          return;
         }
-        return;
       }
 
       if (event.type === Event.PlaybackState) {
