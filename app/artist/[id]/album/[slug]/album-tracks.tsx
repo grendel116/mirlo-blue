@@ -6,15 +6,9 @@ import {
   Image,
   TouchableOpacity,
   Pressable,
-  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  useLocalSearchParams,
-  useRouter,
-  Link,
-  useFocusEffect,
-} from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePlayer } from "@/state/PlayerContext";
 import { audioTrackType, isTrackOwnedOrPreview, linkifyUrls, htmlToMarkdown } from "@/scripts/utils";
 import { useAuthContext } from "@/state/AuthContext";
@@ -23,10 +17,9 @@ import { queryAlbum } from "@/queries/queries";
 import { resolveFeedSourceName } from "@/queries/chorus";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { openInBrowser } from "@/scripts/openInBrowser";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
-import TrackPlayer, { State } from "react-native-track-player";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import PlayPauseWrapper from "@/components/PlayPauseWrapper";
 import { useTranslation } from "react-i18next";
@@ -35,7 +28,6 @@ import WishlistButton from "@/components/WishlistButton";
 import ErrorNotification from "@/components/ErrorNotification";
 import AddAlbumButton from "@/components/AddAlbumButton";
 import DownloadAlbumButton from "@/components/DownloadAlbumButton";
-import { mirloRed } from "@/constants/mirlo-red";
 import { theme } from "@/constants/theme";
 import TagPill from "@/components/TagPill";
 import { recordHistoryItem } from "@/scripts/historyManager";
@@ -43,14 +35,8 @@ import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
-function AlbumPlayButton() {
-  const {
-    isPlaying,
-    activeTrack,
-    playableTracks,
-    playTrack,
-    togglePlayPause,
-  } = usePlayer();
+function AlbumPlayButton({ playableTracks }: { playableTracks: RNTrack[] }) {
+  const { isPlaying, activeTrack, playTrack, togglePlayPause } = usePlayer();
 
   const isCurrentAlbum = Boolean(
     activeTrack &&
@@ -83,10 +69,8 @@ function AlbumPlayButton() {
     >
       <Ionicons
         name={
-          playableTracks.length
-            ? isCurrentAlbum && isPlaying
-              ? "pause"
-              : "play"
+          playableTracks.length && isCurrentAlbum && isPlaying
+            ? "pause"
             : "play"
         }
         size={24}
@@ -131,106 +115,106 @@ export default function AlbumTracks() {
     queryAlbum({ slug: slug, id: id }),
   );
   const router = useRouter();
-  const { setPlayableTracks, disabledTrackIds } = usePlayer();
+  const { disabledTrackIds } = usePlayer();
   const { user } = useAuthContext();
-  const [album, setAlbum] = useState<RNTrack[]>();
   const { t } = useTranslation("translation");
-  const { width } = useWindowDimensions();
   const [showError, setShowError] = useState<boolean>(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      const tracksToPlay: RNTrack[] = [];
-      const allTracks: RNTrack[] = [];
-      let playableIndex = 0;
+  useEffect(() => {
+    if (!data?.result) return;
+    recordHistoryItem({
+      id: data.result.id,
+      artistId: data.result.artistId,
+      urlSlug: data.result.urlSlug,
+      title: data.result.title,
+      artistName: data.result.artist?.name || "",
+      coverUri:
+        data.result.cover?.sizes?.[300] ||
+        data.result.cover?.sizes?.[600] ||
+        data.result.cover?.sizes?.[120],
+    });
+  }, [data?.result]);
 
-      if (data && data.result) {
-        // Record album in Viewing History
-        recordHistoryItem({
-          id: data.result.id,
-          artistId: data.result.artistId,
-          urlSlug: data.result.urlSlug,
-          title: data.result.title,
-          artistName: data.result.artist?.name || "",
-          coverUri:
-            data.result.cover?.sizes?.[300] ||
-            data.result.cover?.sizes?.[600] ||
-            data.result.cover?.sizes?.[120],
-        });
+  const { allTracks: album, playableTracks } = useMemo(() => {
+    const tracksToPlay: RNTrack[] = [];
+    const allTracks: RNTrack[] = [];
+    let playableIndex = 0;
 
-        const fallbackAlbumSource =
+    if (data?.result) {
+      const fallbackAlbumSource =
+        data.result.source ||
+        resolveFeedSourceName(
+          data.result.tracks?.[0]?.url || data.result.tracks?.[0]?.audio?.url,
+        );
+      data.result.source = fallbackAlbumSource;
+
+      const resolvedAlbumId = data.result.id || data.result.trackGroupId;
+
+      data.result.tracks?.forEach((track) => {
+        const rawAudioUrl = track.audio?.url || track.url || "";
+        const streamUrl = rawAudioUrl.startsWith("http")
+          ? rawAudioUrl
+          : `${API_ROOT}${rawAudioUrl.startsWith("/") ? "" : "/"}${rawAudioUrl}`;
+        const trackSource =
+          track.source ||
           data.result.source ||
-          resolveFeedSourceName(data.result.tracks?.[0]?.url || data.result.tracks?.[0]?.audio?.url);
-        data.result.source = fallbackAlbumSource;
+          (streamUrl.startsWith("http")
+            ? resolveFeedSourceName(streamUrl)
+            : "Mirlo Space");
+        const trackSourceUrl = track.sourceUrl || data.result.sourceUrl;
+        const trackAlbumId = resolvedAlbumId || track.trackGroupId;
 
-        const resolvedAlbumId = data.result.id || data.result.trackGroupId;
+        const newTrack: RNTrack = {
+          title: track.title,
+          artist: data.result.artist.name,
+          artwork: data.result.cover.sizes[600],
+          url: streamUrl,
+          allowIndividualSale: track.allowIndividualSale,
+          id: track.id,
+          trackArtists: track.trackArtists,
+          queueIndex: track.order,
+          trackGroupId: trackAlbumId,
+          trackGroup: {
+            userTrackGroupPurchases: data.result.userTrackGroupPurchases,
+            artistId: data.result.artistId,
+            urlSlug: data.result.urlSlug,
+            cover: data.result.cover,
+            title: data.result.title,
+            artist: data.result.artist,
+            id: data.result.id,
+            releaseDate: data.result.releaseDate,
+            trackGroupId: trackAlbumId,
+            source: trackSource,
+            sourceUrl: trackSourceUrl,
+            purchaseLinks: data.result.purchaseLinks,
+          },
+          audio: {
+            url: streamUrl,
+            duration: track.audio?.duration ?? track.duration,
+          },
+          isPreview: track.isPreview,
+          order: track.order,
+          headers: track.headers || {
+            "mirlo-api-key": API_KEY,
+          },
+          type: audioTrackType(streamUrl),
+          source: trackSource,
+          sourceUrl: trackSourceUrl,
+          fairplayerTrackId: track.fairplayerTrackId,
+        };
 
-        if (data.result.tracks) {
-          data.result.tracks.forEach((track) => {
-            const rawAudioUrl = track.audio?.url || track.url || "";
-            const streamUrl = rawAudioUrl.startsWith("http")
-              ? rawAudioUrl
-              : `${API_ROOT}${rawAudioUrl.startsWith("/") ? "" : "/"}${rawAudioUrl}`;
-            const trackSource =
-              track.source ||
-              data.result.source ||
-              (streamUrl.startsWith("http") ? resolveFeedSourceName(streamUrl) : "Mirlo Space");
-            const trackSourceUrl = track.sourceUrl || data.result.sourceUrl;
-            const trackAlbumId = resolvedAlbumId || track.trackGroupId;
+        allTracks.push(newTrack);
 
-            const newTrack: RNTrack = {
-              title: track.title,
-              artist: data.result.artist.name,
-              artwork: data.result.cover.sizes[600],
-              url: streamUrl,
-              allowIndividualSale: track.allowIndividualSale,
-              id: track.id,
-              trackArtists: track.trackArtists,
-              queueIndex: track.order,
-              trackGroupId: trackAlbumId,
-              trackGroup: {
-                userTrackGroupPurchases: data.result.userTrackGroupPurchases,
-                artistId: data.result.artistId,
-                urlSlug: data.result.urlSlug,
-                cover: data.result.cover,
-                title: data.result.title,
-                artist: data.result.artist,
-                id: data.result.id,
-                releaseDate: data.result.releaseDate,
-                trackGroupId: trackAlbumId,
-                source: trackSource,
-                sourceUrl: trackSourceUrl,
-                purchaseLinks: data.result.purchaseLinks,
-              },
-              audio: {
-                url: streamUrl,
-                duration: track.audio?.duration ?? track.duration,
-              },
-              isPreview: track.isPreview,
-              order: track.order,
-              headers: track.headers || {
-                "mirlo-api-key": API_KEY,
-              },
-              type: audioTrackType(streamUrl),
-              source: trackSource,
-              sourceUrl: trackSourceUrl,
-              fairplayerTrackId: track.fairplayerTrackId,
-            };
-
-            allTracks.push(newTrack);
-
-            if (isTrackOwnedOrPreview(newTrack, user, data.result, disabledTrackIds)) {
-              newTrack.queueIndex = playableIndex;
-              playableIndex++;
-              tracksToPlay.push(newTrack);
-            }
-          });
+        if (isTrackOwnedOrPreview(newTrack, user, data.result, disabledTrackIds)) {
+          newTrack.queueIndex = playableIndex;
+          playableIndex++;
+          tracksToPlay.push(newTrack);
         }
-      }
-      setAlbum(allTracks);
-      setPlayableTracks(tracksToPlay);
-    }, [data, user, disabledTrackIds]),
-  );
+      });
+    }
+
+    return { allTracks, playableTracks: tracksToPlay };
+  }, [data, user, disabledTrackIds]);
 
   if (isPending) {
     return (
@@ -282,8 +266,8 @@ export default function AlbumTracks() {
             selectedAlbum ? (
               <PlayPauseWrapper
                 trackObject={item}
+                playableTracks={playableTracks}
                 selectedAlbum={selectedAlbum}
-                onTrackScreen={false}
               />
             ) : null
           }
@@ -339,7 +323,7 @@ export default function AlbumTracks() {
                     size={36}
                     style={{ marginHorizontal: 8 }}
                   />
-                  <MemoizedAlbumPlayButton />
+                  <MemoizedAlbumPlayButton playableTracks={playableTracks} />
                 </View>
               </View>
             </View>

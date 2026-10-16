@@ -1,54 +1,209 @@
-import { usePlayer } from "@/state/PlayerContext";
-import { Pressable, StyleSheet } from "react-native";
-import { PropsWithChildren } from "react";
-import { TrackItem } from "./TrackItem";
-import { isTrackOwnedOrPreview } from "@/scripts/utils";
+import { Pressable, View, StyleSheet, Text, Image } from "react-native";
 import { useAuthContext } from "@/state/AuthContext";
+import { usePlayer } from "@/state/PlayerContext";
+import { isTrackOwnedOrPreview } from "@/scripts/utils";
+import FavoriteTrackButton from "./FavoriteTrackButton";
+import AddToQueueButton from "./AddToQueueButton";
+import DownloadTrackButton from "./DownloadTrackButton";
+import { theme } from "@/constants/theme";
 
-type PlayPauseWrapperPropsWithChildren = PropsWithChildren<PlayPauseWrapperProps>;
+function formatTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Number(seconds.toFixed(0)) % 60;
+  const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+  const formattedSeconds =
+    remainingSeconds < 10 ? `0${remainingSeconds}` : remainingSeconds;
+  return `${formattedMinutes}:${formattedSeconds}`;
+}
 
 export default function PlayPauseWrapper({
   trackObject,
+  playableTracks,
   style,
   selectedAlbum,
-  onTrackScreen,
-}: PlayPauseWrapperPropsWithChildren) {
-  const { activeTrack, playTrack, playableTracks, disabledTrackIds } = usePlayer();
+}: PlayPauseWrapperProps) {
+  const { activeTrack, playTrack, disabledTrackIds } = usePlayer();
   const { user } = useAuthContext();
 
-  const canPlayTrack = isTrackOwnedOrPreview(trackObject, user, selectedAlbum, disabledTrackIds);
-  const thisSongSelected = Boolean(activeTrack?.url && activeTrack.url === trackObject?.url);
+  const canPlayTrack = isTrackOwnedOrPreview(
+    trackObject,
+    user,
+    selectedAlbum,
+    disabledTrackIds,
+  );
+  const thisSongSelected = Boolean(
+    activeTrack?.url && activeTrack.url === trackObject?.url,
+  );
+
+  const contributors = trackObject.trackArtists
+    ?.map((a) => a.artistName)
+    .join(", ");
+  const hasContributor = Boolean(
+    contributors &&
+      trackObject.trackArtists?.length &&
+      trackObject.trackArtists[0].artistName !== trackObject.artist,
+  );
+
+  const textColor = canPlayTrack
+    ? thisSongSelected
+      ? theme.colors.primary
+      : theme.colors.textPrimary
+    : theme.colors.textMuted;
+
+  const artworkUri =
+    selectedAlbum?.cover?.sizes?.[120] ||
+    selectedAlbum?.cover?.sizes?.[300] ||
+    trackObject.trackGroup?.cover?.sizes?.[120] ||
+    trackObject.trackGroup?.cover?.sizes?.[300] ||
+    trackObject.artwork ||
+    selectedAlbum?.cover?.sizes?.[600];
 
   return (
     <Pressable
-      onPress={async () => {
+      onPress={() => {
         if (!canPlayTrack) return;
-        await playTrack(trackObject, playableTracks);
+        playTrack(trackObject, playableTracks);
       }}
-      style={style}
+      style={[
+        styles.listItem,
+        thisSongSelected && styles.selectedListItem,
+        style,
+      ]}
       accessibilityLabel={`Play ${trackObject?.title || "track"}`}
     >
-      <TrackItem
-        track={trackObject}
-        album={selectedAlbum ? selectedAlbum : undefined}
-        thisSongSelected={thisSongSelected}
-        onTrackScreen={onTrackScreen}
-      />
+      <View style={styles.trackDetailsRow}>
+        {artworkUri ? (
+          <Image
+            source={{ uri: artworkUri }}
+            style={styles.trackThumb}
+            resizeMode="cover"
+          />
+        ) : (
+          <Text
+            style={[
+              styles.orderText,
+              {
+                color: thisSongSelected
+                  ? theme.colors.primary
+                  : theme.colors.textSecondary,
+                fontWeight: thisSongSelected ? "700" : "500",
+              },
+            ]}
+          >
+            {trackObject.order}.
+          </Text>
+        )}
+        <View style={styles.titleContainer}>
+          <Text
+            style={[
+              styles.titleText,
+              {
+                color: textColor,
+                fontWeight: thisSongSelected ? "700" : "500",
+              },
+            ]}
+            ellipsizeMode="tail"
+            numberOfLines={1}
+          >
+            {trackObject.title}
+          </Text>
+          {hasContributor ? (
+            <View style={styles.subtitleRow}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={styles.contributorText}
+              >
+                {contributors}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.actionRow}>
+        {canPlayTrack && (
+          <AddToQueueButton track={trackObject} album={selectedAlbum} size={17} />
+        )}
+        <FavoriteTrackButton track={trackObject} size={17} />
+        {selectedAlbum && (
+          <DownloadTrackButton track={trackObject} album={selectedAlbum} />
+        )}
+        <Text
+          style={[
+            styles.durationText,
+            {
+              color: thisSongSelected
+                ? theme.colors.primary
+                : theme.colors.textSecondary,
+              fontWeight: thisSongSelected ? "700" : "400",
+            },
+          ]}
+        >
+          {trackObject.audio?.duration
+            ? formatTime(trackObject.audio.duration)
+            : "0:00"}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  playPauseButtonContainer: {
-    borderRadius: 10,
+  listItem: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginRight: 0,
+    justifyContent: "space-between",
+    marginVertical: 2,
+    borderRadius: theme.radius.sm,
   },
-  playPauseButtonText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    alignSelf: "center",
-    textTransform: "uppercase",
+  selectedListItem: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceGlassBorder,
+  },
+  trackDetailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    flex: 1,
+    paddingRight: 10,
+  },
+  orderText: {
+    fontSize: 14,
+    width: 26,
+    marginLeft: 2,
+  },
+  trackThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.sm,
+    marginRight: 10,
+    backgroundColor: theme.colors.surfaceElevated,
+  },
+  titleContainer: {
+    flex: 1,
+  },
+  titleText: {
+    fontSize: 15,
+  },
+  subtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+    flexWrap: "nowrap",
+  },
+  contributorText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  durationText: {
+    fontSize: 13,
   },
 });

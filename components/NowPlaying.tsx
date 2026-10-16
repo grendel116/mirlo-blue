@@ -62,7 +62,6 @@ export function closeNowPlaying() {
 export default function NowPlaying() {
   const { height: windowHeight } = useWindowDimensions();
   const [visible, setVisible] = useState(isSheetOpen);
-  const [hasOpened, setHasOpened] = useState(isSheetOpen);
   const translateY = useSharedValue(isSheetOpen ? 0 : windowHeight);
   const heightSv = useSharedValue(windowHeight);
   const scrollOffset = useSharedValue(0);
@@ -90,7 +89,6 @@ export default function NowPlaying() {
     const listener = (open: boolean) => {
       if (open) {
         setVisible(true);
-        setHasOpened(true);
         translateY.value = withTiming(0, { duration: SETTLE_MS });
       } else {
         close();
@@ -158,7 +156,7 @@ export default function NowPlaying() {
       pointerEvents={visible ? "auto" : "none"}
       style={[styles.sheet, sheetStyle]}
     >
-      {hasOpened && (
+      {visible && (
         <GestureDetector gesture={panGesture}>
           <SafeAreaView style={styles.container}>
             <DismissModalBar onPress={close} />

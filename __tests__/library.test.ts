@@ -132,6 +132,32 @@ describe("buildWishlistAlbums", () => {
     expect(albums[0].trackGroup.title).toBe("Liked Faircamp Album");
     expect(albums[0].savedAt).toBe(Date.parse("2025-05-01T00:00:00.000Z"));
   });
+
+  test("leaves out albums already downloaded to the phone", () => {
+    const albums = buildWishlistAlbums({
+      wishlist: [],
+      faircampSaves: {
+        albums: [
+          { album: album(801, "owned", "Bought & Saved!"), savedAt: 2 },
+          { album: album(802, "wanted", "Still Wanted"), savedAt: 1 },
+        ],
+        tracks: [],
+      },
+      downloads: [
+        {
+          id: -1,
+          title: "Song",
+          artist: "Duo",
+          albumTitle: "bought & saved",
+          url: "file:///music/song.mp3",
+          downloadedAt: 3,
+          source: "file",
+        },
+      ],
+    });
+
+    expect(albums.map((a) => a.trackGroup.title)).toEqual(["Still Wanted"]);
+  });
 });
 
 describe("buildBookmarks", () => {

@@ -10,8 +10,6 @@ import {
   Pressable,
 } from "react-native";
 import { useProgress } from "react-native-track-player";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { makeMutable, runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
@@ -26,18 +24,12 @@ import {
 
 export type MainTab = "home" | "queue" | "library";
 
-// The active tab as a shared value: the UI thread shows and hides the Queue and Library
-// overlays from it, so a tap switches menus even while JavaScript is busy
-const TAB_INDEX: Record<MainTab, number> = { home: 0, queue: 1, library: 2 };
-export const mainTabIndex = makeMutable(0);
-
 let currentTab: MainTab = "home";
 let currentSavedAlbum: string | undefined;
 let savedAlbumSeq = 0;
 const tabListeners = new Set<() => void>();
 
 export function setMainTab(tab: MainTab) {
-  mainTabIndex.value = TAB_INDEX[tab];
   if (currentTab === tab) return;
   currentTab = tab;
   tabListeners.forEach((listener) => listener());
@@ -52,7 +44,6 @@ export function openMainTab(tab: MainTab) {
 
 export function openSavedAlbum(albumKey: string) {
   currentTab = "library";
-  mainTabIndex.value = TAB_INDEX.library;
   currentSavedAlbum = albumKey;
   savedAlbumSeq += 1;
   tabListeners.forEach((listener) => listener());
@@ -77,8 +68,6 @@ export function useMainTab() {
   };
 }
 
-// A menu button. The tap runs on the UI thread: it moves the overlays at once, then hands
-// the navigation to JavaScript
 function NavTab({
   tab,
   label,
@@ -88,18 +77,15 @@ function NavTab({
   label: string;
   children: React.ReactNode;
 }) {
-  const tap = Gesture.Tap().onEnd((_event, success) => {
-    if (!success) return;
-    mainTabIndex.value = TAB_INDEX[tab];
-    runOnJS(openMainTab)(tab);
-  });
-
   return (
-    <GestureDetector gesture={tap}>
-      <View style={styles.navTab} accessible accessibilityRole="button" accessibilityLabel={label}>
-        {children}
-      </View>
-    </GestureDetector>
+    <Pressable
+      onPressIn={() => openMainTab(tab)}
+      style={styles.navTab}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      {children}
+    </Pressable>
   );
 }
 

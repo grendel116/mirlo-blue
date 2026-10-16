@@ -187,9 +187,9 @@ interface PropsWithChildren<P> extends P {
 
 interface PlayPauseWrapperProps {
   trackObject: RNTrack;
+  playableTracks: RNTrack[];
   style?: StyleProp<ViewStyle>;
   selectedAlbum?: AlbumProps;
-  onTrackScreen: boolean;
 }
 
 interface Artist {

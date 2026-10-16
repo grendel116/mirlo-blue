@@ -21,9 +21,13 @@ import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
 import DownloadsTab from "@/components/DownloadsTab";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
-import { useDownloads } from "@/scripts/downloadManager";
+import {
+  DownloadedTrack,
+  groupTracksIntoAlbums,
+  useDownloads,
+} from "@/scripts/downloadManager";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
-import { ownsAlbum, resolveArtworkUrl } from "@/scripts/utils";
+import { ownsAlbum, resolveArtworkUrl, sameAlbum } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { useFaircampSaves, FaircampSaves } from "@/scripts/faircampSaves";
@@ -46,21 +50,37 @@ function albumCover(tg: any): string {
 
 export type WishlistAlbum = { trackGroup: AlbumProps; savedAt: number };
 
+// Faircamp has no purchase record, so a downloaded album counts as owned: its files carry a
+// title and artist, and a wishlist album with the same title and artist is that album
+function downloadedAlbumMatcher(downloads: DownloadedTrack[]) {
+  const saved = groupTracksIntoAlbums(downloads);
+  return (trackGroup: any) =>
+    saved.some((a) =>
+      sameAlbum(
+        { title: a.title, artist: a.artist },
+        { title: trackGroup?.title, artist: trackGroup?.artist?.name },
+      ),
+    );
+}
+
 // Wishlist: albums on the Mirlo wishlist, plus Faircamp albums saved on the phone or holding
-// a liked song, newest first. Albums the listener owns move to Purchases. Each album opens
-// its page, where the listener can play or buy it
+// a liked song, newest first. Albums the listener owns, by purchase or download, move out to
+// Purchases or Downloads. Each album opens its page, where the listener can play or buy it
 export function buildWishlistAlbums({
   user,
   wishlist,
   faircampSaves,
+  downloads = [],
 }: {
   user?: LoggedInUser | null;
   wishlist: any[];
   faircampSaves: FaircampSaves;
+  downloads?: DownloadedTrack[];
 }): WishlistAlbum[] {
   const albums = new Map<string, WishlistAlbum>();
+  const isDownloaded = downloadedAlbumMatcher(downloads);
   const keep = (trackGroup: any, savedAt: number) => {
-    if (!trackGroup || ownsAlbum(user, trackGroup)) return;
+    if (!trackGroup || ownsAlbum(user, trackGroup) || isDownloaded(trackGroup)) return;
     const key = String(trackGroup.urlSlug || trackGroup.id);
     const existing = albums.get(key);
     albums.set(key, {
@@ -152,8 +172,14 @@ export default function LibraryScreen({
 
   const purchases = useMemo(() => collectionData?.results || [], [collectionData?.results]);
   const wishlistAlbums = useMemo(
-    () => buildWishlistAlbums({ user, wishlist: wishlistData?.results || [], faircampSaves }),
-    [user, wishlistData?.results, faircampSaves],
+    () =>
+      buildWishlistAlbums({
+        user,
+        wishlist: wishlistData?.results || [],
+        faircampSaves,
+        downloads: downloadedTracks,
+      }),
+    [user, wishlistData?.results, faircampSaves, downloadedTracks],
   );
   const bookmarks = useMemo(
     () => buildBookmarks({ stationLikes, podcastEpisodeLikes }),
@@ -247,7 +273,7 @@ export default function LibraryScreen({
     />
   );
 
-  const wishlistContent = useMemo(() => {
+  const renderWishlist = () => {
     if (!user && wishlistAlbums.length === 0) return renderSignIn();
     if (isWishlistLoading) {
       return <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />;
@@ -260,9 +286,9 @@ export default function LibraryScreen({
       );
     }
     return renderAlbumList(wishlistAlbums, "Saved Album", "heart");
-  }, [user, isWishlistLoading, wishlistAlbums]);
+  };
 
-  const purchasesContent = useMemo(() => {
+  const renderPurchases = () => {
     if (!user) return renderSignIn();
     if (isCollectionPending) {
       return <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />;
@@ -275,9 +301,9 @@ export default function LibraryScreen({
       );
     }
     return renderAlbumList(purchases, "Purchased Item", "musical-notes");
-  }, [user, isCollectionPending, purchases]);
+  };
 
-  const bookmarksContent = useMemo(() => {
+  const renderBookmarks = () => {
     if (bookmarks.length === 0) {
       return renderEmpty(
         "bookmark-outline",
@@ -330,7 +356,7 @@ export default function LibraryScreen({
         }}
       />
     );
-  }, [bookmarks, activeTrack?.url, playTrack]);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -369,32 +395,13 @@ export default function LibraryScreen({
         </ScrollView>
       </View>
 
-      {/* Pre-mounted Sub-Panes for Instant Tab Switching */}
       <View style={styles.contentArea}>
-        <View
-          style={[styles.subPane, activeTab !== "wishlist" && styles.subPaneHidden]}
-          pointerEvents={activeTab === "wishlist" ? "auto" : "none"}
-        >
-          {wishlistContent}
-        </View>
-        <View
-          style={[styles.subPane, activeTab !== "purchases" && styles.subPaneHidden]}
-          pointerEvents={activeTab === "purchases" ? "auto" : "none"}
-        >
-          {purchasesContent}
-        </View>
-        <View
-          style={[styles.subPane, activeTab !== "bookmarks" && styles.subPaneHidden]}
-          pointerEvents={activeTab === "bookmarks" ? "auto" : "none"}
-        >
-          {bookmarksContent}
-        </View>
-        <View
-          style={[styles.subPane, activeTab !== "downloads" && styles.subPaneHidden]}
-          pointerEvents={activeTab === "downloads" ? "auto" : "none"}
-        >
+        {activeTab === "wishlist" && renderWishlist()}
+        {activeTab === "purchases" && renderPurchases()}
+        {activeTab === "bookmarks" && renderBookmarks()}
+        {activeTab === "downloads" && (
           <DownloadsTab openAlbum={targetAlbum} openAlbumTrigger={openAlbumTrigger} />
-        </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -407,16 +414,6 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
-    position: "relative",
-  },
-  subPane: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 1,
-    zIndex: 0,
-  },
-  subPaneHidden: {
-    opacity: 0,
-    zIndex: -1,
   },
   header: {
     paddingHorizontal: 16,

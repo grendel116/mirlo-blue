@@ -1,3 +1,8 @@
+jest.mock("@preeternal/react-native-cookie-manager", () => ({
+  __esModule: true,
+  default: { get: jest.fn(), getAll: jest.fn(), clearAll: jest.fn() },
+}));
+
 import {
   buildShareMessage,
   buildShareUrl,

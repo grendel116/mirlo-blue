@@ -257,3 +257,19 @@ export const ownsAlbum = (user: LoggedInUser | null | undefined, album: AlbumPro
   (album.artistId === user.id ||
     !!album.userTrackGroupPurchases?.some((p) => p.userId === user.id) ||
     !!user.userTrackGroupPurchases?.some((p) => p.trackGroupId === album.id));
+
+export const nameKey = (text?: string) =>
+  (text || "").toLowerCase().replace(/[^a-z0-9\u00c0-\uffff]/g, "");
+
+// Two albums are the same when the titles match and one artist name holds the other
+export function sameAlbum(
+  a: { title?: string; artist?: string },
+  b: { title?: string; artist?: string },
+): boolean {
+  const artistA = nameKey(a.artist);
+  const artistB = nameKey(b.artist);
+  return (
+    nameKey(a.title) === nameKey(b.title) &&
+    (artistA.includes(artistB) || artistB.includes(artistA))
+  );
+}

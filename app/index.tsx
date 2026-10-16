@@ -12,7 +12,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryTrackGroups, queryTopSold } from "@/queries/queries";
 import {
@@ -24,12 +24,10 @@ import {
   queryFairplayerAlbums,
 } from "@/queries/fairplayer";
 import { useRouter } from "expo-router";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
 import {
-  mainTabIndex,
   openMainTab,
   openSavedAlbum,
   setMainTab,
@@ -48,8 +46,6 @@ import {
 import {
   PODCAST_SHOWS,
   PodcastShow,
-  queryPodcastEpisodes,
-  queryDiscussionLatestDates,
   sortDiscussionsByLastUpdate,
   queryDiscoveredPodcasts,
 } from "@/queries/podcast";
@@ -118,16 +114,8 @@ const HOME_QUERIES = new Set([
   "fairplayerAlbums",
   "discoveredRadioStations",
   "castopodPodcasts",
-  "discussionLatestDates",
   "fetchRadioPlays",
-  "podcastEpisodes",
 ]);
-
-// Where an overlay waits while hidden
-const PARKED_X = 10000;
-
-const MemoQueueScreen = memo(QueueScreen);
-const MemoLibraryScreen = memo(LibraryScreen);
 
 export default function Index() {
   const router = useRouter();
@@ -144,31 +132,21 @@ export default function Index() {
     return () => sub.remove();
   }, [tab, router]);
 
-  // Home is always there. Queue and Library are overlays: the UI thread slides the one in
-  // use into place and parks the other far off-screen, where it cannot be touched
-  const queueStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: mainTabIndex.value === 1 ? 0 : PARKED_X }],
-  }));
-  const libraryStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: mainTabIndex.value === 2 ? 0 : PARKED_X }],
-  }));
-
   return (
     <View style={styles.root}>
-      <HomePane active={tab === "home"} />
-      <Animated.View style={[styles.overlayPane, queueStyle]}>
-        <MemoQueueScreen />
-      </Animated.View>
-      <Animated.View style={[styles.overlayPane, libraryStyle]}>
-        <MemoLibraryScreen openAlbum={savedAlbum} openAlbumTrigger={savedAlbumSeq} />
-      </Animated.View>
+      <View style={tab === "home" ? styles.pane : styles.hiddenPane}>
+        <HomePane active={tab === "home"} />
+      </View>
+      {tab === "queue" && <QueueScreen />}
+      {tab === "library" && (
+        <LibraryScreen openAlbum={savedAlbum} openAlbumTrigger={savedAlbumSeq} />
+      )}
     </View>
   );
 }
 
 const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   const router = useRouter();
-  const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [shuffleSeed, setShuffleSeed] = useState(0);
 
@@ -279,18 +257,12 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   }, [discoveredRadio, shuffleSeed]);
 
   // Curated and Castopod-indexed discussion shows, ordered by latest episode
-  const { data: latestDates } = useQuery(queryDiscussionLatestDates(PODCAST_SHOWS));
-
   const podcastShows = useMemo(() => {
     const combined = [...PODCAST_SHOWS, ...discoveredPodcasts].filter((show) =>
       isQualityArtwork(show.artwork),
     );
-    const withLiveDates = combined.map((show) => {
-      const liveDate = latestDates?.[show.id];
-      return liveDate ? { ...show, lastUpdated: liveDate } : show;
-    });
-    return sortDiscussionsByLastUpdate(withLiveDates);
-  }, [latestDates, discoveredPodcasts]);
+    return sortDiscussionsByLastUpdate(combined);
+  }, [discoveredPodcasts]);
 
   const popularPurchases = useMemo(
     () => shuffleCarousel(topSoldData?.results || []),
@@ -439,12 +411,15 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                   horizontal
                   data={recentReleases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
+                  initialNumToRender={4}
+                  maxToRenderPerBatch={4}
+                  windowSize={3}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
                   renderItem={({ item }) => {
                     const coverUri =
-                      item.cover?.sizes?.[600] ||
                       item.cover?.sizes?.[300] ||
+                      item.cover?.sizes?.[600] ||
                       item.cover?.sizes?.[120];
                     return (
                       <Pressable
@@ -497,12 +472,15 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                   horizontal
                   data={popularPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
+                  initialNumToRender={4}
+                  maxToRenderPerBatch={4}
+                  windowSize={3}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
                   renderItem={({ item }) => {
                     const coverUri =
-                      item.cover?.sizes?.[600] ||
                       item.cover?.sizes?.[300] ||
+                      item.cover?.sizes?.[600] ||
                       item.cover?.sizes?.[120];
                     return (
                       <Pressable
@@ -547,6 +525,9 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 horizontal
                 data={radioStations}
                 keyExtractor={(station) => station.id}
+                initialNumToRender={4}
+                maxToRenderPerBatch={4}
+                windowSize={3}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
                 renderItem={({ item }) => (
@@ -555,7 +536,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               />
             </View>
 
-            {/* DISCUSSION: one card per show, showing latest episode */}
+            {/* DISCUSSION: one card per show */}
             <View style={styles.section}>
               <View style={styles.sectionTitleRow}>
                 <Text style={styles.sectionHeader}>Discussion</Text>
@@ -564,6 +545,9 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 horizontal
                 data={podcastShows}
                 keyExtractor={(show) => show.id}
+                initialNumToRender={4}
+                maxToRenderPerBatch={4}
+                windowSize={3}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
                 renderItem={({ item }) => <DiscussionCard show={item} cardWidth={cardWidth} />}
@@ -626,12 +610,9 @@ function StationCard({
   );
 }
 
-// A show in the Discussion row, shaped like an album card: the cover and latest episode,
-// and tapping opens the show's episode list
+// A show in the Discussion row, shaped like an album card, and tapping opens the episode list
 function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: number }) {
   const router = useRouter();
-  const { data: episodes } = useQuery(queryPodcastEpisodes(show));
-  const latest = episodes?.[0];
   const [failedArtwork, setFailedArtwork] = useState<string>();
 
   if (!isQualityArtwork(show.artwork) || failedArtwork === show.artwork) return null;
@@ -656,7 +637,7 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
         {show.name}
       </Text>
       <Text style={styles.cardArtist} numberOfLines={1}>
-        {latest ? latest.title : show.author}
+        {show.author}
       </Text>
     </Pressable>
   );
@@ -668,9 +649,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: theme.colors.background,
   },
-  overlayPane: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: theme.colors.background,
+  pane: {
+    flex: 1,
+  },
+  hiddenPane: {
+    flex: 1,
+    display: "none",
   },
   safeArea: {
     flex: 1,

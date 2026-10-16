@@ -24,7 +24,6 @@ import TrackPlayer, {
   IOSCategoryOptions,
   usePlaybackState,
   useTrackPlayerEvents,
-  PlaybackState,
   RepeatMode,
   State,
   TrackType,
@@ -33,7 +32,6 @@ import { useAuthContext } from "./AuthContext";
 import { isTrackOwned, audioTrackType, resolveArtworkUrl } from "@/scripts/utils";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
-import { useRouter } from "expo-router";
 import * as api from "../queries/fetch/fetchWrapper";
 import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchDiscoveryTracks } from "@/scripts/autoplay";
@@ -208,9 +206,6 @@ export type QueueSection = "queue" | "upcoming";
 export type QueueSlot = { section: QueueSection; index: number };
 
 export interface PlayerContextType {
-  playbackState: PlaybackState | { state: undefined };
-  playableTracks: RNTrack[];
-  setPlayableTracks: (tracks: RNTrack[]) => void;
   // Tracks currently loaded in the player, and the name of where they came from
   playingQueue: RNTrack[];
   queueSource: string;
@@ -247,7 +242,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [shuffled, setShuffled] = useState<boolean>(false);
   const [looping, setLooping] = useState<RepeatSetting>("none");
-  const [playableTracks, setPlayableTracks] = useState<RNTrack[]>([]);
   const [playingQueue, setPlayingQueue] = useState<RNTrack[]>([]);
   const [queueSource, setQueueSource] = useState<string>("");
   const [activeTrack, setActiveTrack] = useState<RNTrack>();
@@ -258,7 +252,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     userRef.current = user;
   }, [user]);
-  const router = useRouter();
   const incrementedRef = useRef(false);
   const [disabledTrackIds, setDisabledTrackIds] = useState<Set<number>>(new Set());
 
@@ -472,9 +465,12 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (event.type === Event.PlaybackActiveTrackChanged) {
         resetRadioTimer();
-        const track = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+        const track = ((event as any).track ??
+          (await TrackPlayer.getActiveTrack())) as RNTrack | undefined;
         if (track) {
-          setActiveTrack(track);
+          setActiveTrack((prev) =>
+            prev?._queueKey && prev._queueKey === track._queueKey ? prev : track,
+          );
           setActiveIndex(event.index ?? -1);
           const owned = isTrackOwned(track, track.trackGroup, userRef.current);
           activeTrackOwnedRef.current = owned;
@@ -663,7 +659,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         ];
 
         setActiveTrack(ordered[startIndex]);
-        setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
         setActiveIndex(startIndex);
         queueGenerationRef.current += 1;
@@ -930,9 +925,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const value: PlayerContextType = useMemo(
     () => ({
-      playbackState: playBackState,
-      playableTracks,
-      setPlayableTracks,
       playingQueue,
       queueSource,
       userQueue,
@@ -959,8 +951,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       isTrackDisabled,
     }),
     [
-      playBackState,
-      playableTracks,
       playingQueue,
       queueSource,
       userQueue,

@@ -6,6 +6,7 @@ import { songPageUrl } from "@/scripts/utils";
 import { findStation } from "@/queries/radio";
 import { findPodcastShow } from "@/queries/podcast";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
+import { findOnlineSong } from "@/scripts/albumLookup";
 
 /**
  * Resolves the primary web page URL for the track (Mirlo song page, station site, or podcast site).
@@ -166,7 +167,9 @@ export function buildShareMessage(
 }
 
 // Shares the current track and source link through the phone's share sheet.
-// Browsers without a share sheet copy the text instead.
+// Browsers without a share sheet copy the text instead. A song that exists only as a file on
+// the phone shares the link of its Mirlo or Faircamp page, found when you tap; with no page
+// to link to, it shares the song's name
 export default function ShareTrackButton({
   track,
   size = 22,
@@ -190,13 +193,20 @@ export default function ShareTrackButton({
     overrideArtwork,
   );
 
+  const isPhoneFile = Boolean(track.downloadAlbum) && track.id < 0;
+
   const share = async () => {
+    let message = shareUrl;
+    if (isPhoneFile) {
+      const onlineSong = await findOnlineSong(track).catch(() => undefined);
+      message = onlineSong ? buildShareUrl(onlineSong) : headline;
+    }
     if (Platform.OS === "web" && typeof navigator !== "undefined" && !navigator.share) {
-      await Clipboard.setStringAsync(shareUrl);
+      await Clipboard.setStringAsync(message);
       return;
     }
     try {
-      await Share.share({ message: shareUrl, title: headline });
+      await Share.share({ message, title: headline });
     } catch {}
   };
 
