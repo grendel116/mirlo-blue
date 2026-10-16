@@ -327,6 +327,7 @@ const styles = StyleSheet.create({
   },
   navTab: {
     flex: 1,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
   },

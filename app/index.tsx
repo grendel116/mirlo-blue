@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo, useDeferredValue } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -297,13 +297,6 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
     [topSoldData?.results, shuffleSeed],
   );
 
-  // Menu taps outrank carousel renders: new releases, stations, and shows draw at low priority,
-  // so a tap interrupts them instead of waiting for them to finish
-  const shownReleases = useDeferredValue(recentReleases);
-  const shownPurchases = useDeferredValue(popularPurchases);
-  const shownStations = useDeferredValue(radioStations);
-  const shownShows = useDeferredValue(podcastShows);
-
   // The splash screen stays up until Home has its first content (or an error to show)
   const { setIsDataLoaded } = useAppIsReadyContext();
   useEffect(() => {
@@ -444,7 +437,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               ) : (
                 <FlatList
                   horizontal
-                  data={shownReleases}
+                  data={recentReleases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
@@ -502,7 +495,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               ) : (
                 <FlatList
                   horizontal
-                  data={shownPurchases}
+                  data={popularPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
@@ -552,7 +545,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               </View>
               <FlatList
                 horizontal
-                data={shownStations}
+                data={radioStations}
                 keyExtractor={(station) => station.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
@@ -569,7 +562,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               </View>
               <FlatList
                 horizontal
-                data={shownShows}
+                data={podcastShows}
                 keyExtractor={(show) => show.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
