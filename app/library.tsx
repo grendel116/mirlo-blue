@@ -23,7 +23,7 @@ import DownloadsTab from "@/components/DownloadsTab";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import { useDownloads } from "@/scripts/downloadManager";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
-import { resolveArtworkUrl } from "@/scripts/utils";
+import { ownsAlbum, resolveArtworkUrl } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { useFaircampSaves, FaircampSaves } from "@/scripts/faircampSaves";
@@ -47,17 +47,20 @@ function albumCover(tg: any): string {
 export type WishlistAlbum = { trackGroup: AlbumProps; savedAt: number };
 
 // Wishlist: albums on the Mirlo wishlist, plus Faircamp albums saved on the phone or holding
-// a liked song, newest first. Each album opens its page, where the listener can play or buy it
+// a liked song, newest first. Albums the listener owns move to Purchases. Each album opens
+// its page, where the listener can play or buy it
 export function buildWishlistAlbums({
+  user,
   wishlist,
   faircampSaves,
 }: {
+  user?: LoggedInUser | null;
   wishlist: any[];
   faircampSaves: FaircampSaves;
 }): WishlistAlbum[] {
   const albums = new Map<string, WishlistAlbum>();
   const keep = (trackGroup: any, savedAt: number) => {
-    if (!trackGroup) return;
+    if (!trackGroup || ownsAlbum(user, trackGroup)) return;
     const key = String(trackGroup.urlSlug || trackGroup.id);
     const existing = albums.get(key);
     albums.set(key, {
@@ -139,8 +142,8 @@ export default function LibraryScreen() {
 
   const purchases = useMemo(() => collectionData?.results || [], [collectionData?.results]);
   const wishlistAlbums = useMemo(
-    () => buildWishlistAlbums({ wishlist: wishlistData?.results || [], faircampSaves }),
-    [wishlistData?.results, faircampSaves],
+    () => buildWishlistAlbums({ user, wishlist: wishlistData?.results || [], faircampSaves }),
+    [user, wishlistData?.results, faircampSaves],
   );
   const bookmarks = useMemo(
     () => buildBookmarks({ stationLikes, podcastEpisodeLikes }),

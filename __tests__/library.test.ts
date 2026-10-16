@@ -57,6 +57,7 @@ jest.mock("expo-file-system", () => ({
 import { buildBookmarks, buildWishlistAlbums } from "@/app/library";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
 import { createMockArtist } from "@/__mocks__/mockArtist";
+import { createMockUser } from "@/__mocks__/mockUser";
 
 const album = (id: number, urlSlug: string, title: string) =>
   ({
@@ -96,6 +97,20 @@ describe("buildWishlistAlbums", () => {
       "Saved Faircamp Album",
       "Mirlo Album",
     ]);
+  });
+
+  test("leaves out albums the listener has bought", () => {
+    const user = createMockUser({ id: 1, userTrackGroupPurchases: [{ trackGroupId: 701 }] });
+    const albums = buildWishlistAlbums({
+      user,
+      wishlist: [
+        { userId: 1, trackGroupId: 701, trackGroup: album(701, "bought", "Bought Album") },
+        { userId: 1, trackGroupId: 702, trackGroup: album(702, "wanted", "Wanted Album") },
+      ],
+      faircampSaves: { albums: [], tracks: [] },
+    });
+
+    expect(albums.map((a) => a.trackGroup.title)).toEqual(["Wanted Album"]);
   });
 
   test("a liked Faircamp song brings its album, listed once", () => {
