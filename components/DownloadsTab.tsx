@@ -141,10 +141,11 @@ export default memo(function DownloadsTab() {
           renderItem={({ item: album }) => (
             <View style={[styles.card, editingKey === album.key && styles.cardEditing]}>
               <Pressable
+                android_ripple={{ color: theme.colors.ripple }}
                 onPress={() => open(album)}
                 onLongPress={() => showTools(album)}
                 disabled={openingKey !== null}
-                style={styles.row}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
                 accessibilityHint="Hold for cover, edit, and delete"
               >
                 {album.artwork ? (

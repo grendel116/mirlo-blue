@@ -8,6 +8,8 @@ export const theme = {
     surfaceGloss: "rgba(19, 30, 53, 0.75)",
     surfaceGlassBorder: "rgba(0, 210, 255, 0.18)",
     surfaceCardBorder: "rgba(255, 255, 255, 0.08)",
+    ripple: "rgba(0, 210, 255, 0.16)",
+    rippleLight: "rgba(255, 255, 255, 0.12)",
 
     // Nightwing Electric Blue & Cyan Accents
     primary: "#00d2ff",

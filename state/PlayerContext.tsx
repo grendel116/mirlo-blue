@@ -33,7 +33,6 @@ import { isTrackOwned, audioTrackType, resolveArtworkUrl } from "@/scripts/utils
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import * as api from "../queries/fetch/fetchWrapper";
-import { recordHistoryItem } from "@/scripts/historyManager";
 import { fetchDiscoveryTracks } from "@/scripts/autoplay";
 import { blockFaircampDomain } from "@/queries/fairplayer";
 import { findDownload, getDownloadedTracks, subscribeDownloads } from "@/scripts/downloadManager";
@@ -669,25 +668,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           await TrackPlayer.skip(startIndex);
         }
         await TrackPlayer.play();
-
-        // History opens the album again: a saved song's album in Downloads, or the Mirlo album
-        if (track.downloadAlbum) {
-          recordHistoryItem({
-            downloadAlbum: track.downloadAlbum,
-            title: track.trackGroup?.title || track.title,
-            artistName: enrichedArtist,
-            coverUri: resolvedArtwork,
-          });
-        } else if (track.trackGroup?.urlSlug) {
-          recordHistoryItem({
-            id: track.trackGroup.id,
-            artistId: track.trackGroup.artistId,
-            urlSlug: track.trackGroup.urlSlug,
-            title: track.trackGroup.title || track.title,
-            artistName: enrichedArtist,
-            coverUri: resolvedArtwork,
-          });
-        }
       } catch (err) {
         console.error("Play track error:", err);
       }

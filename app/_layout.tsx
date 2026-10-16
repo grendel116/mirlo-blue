@@ -51,10 +51,21 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    // Hide the splash screen only when fonts are ready and Home has loaded its first content.
+    // A 4-second safety timer guarantees the splash screen will never get stuck offline.
+    const fallbackTimer = setTimeout(() => {
+      if (fontsLoaded || fontError) {
+        SplashScreen.hide();
+      }
+    }, 4000);
+
+    if ((fontsLoaded || fontError) && isDataLoaded) {
+      clearTimeout(fallbackTimer);
       SplashScreen.hide();
     }
-  }, [fontsLoaded, fontError]);
+
+    return () => clearTimeout(fallbackTimer);
+  }, [fontsLoaded, fontError, isDataLoaded]);
 
   if (!fontsLoaded && !fontError) {
     return null;

@@ -61,13 +61,15 @@ export default function PlayPauseWrapper({
 
   return (
     <Pressable
+      android_ripple={{ color: theme.colors.ripple }}
       onPress={() => {
         if (!canPlayTrack) return;
         playTrack(trackObject, playableTracks);
       }}
-      style={[
+      style={({ pressed }) => [
         styles.listItem,
         thisSongSelected && styles.selectedListItem,
+        pressed && canPlayTrack && styles.listItemPressed,
         style,
       ]}
       accessibilityLabel={`Play ${trackObject?.title || "track"}`}
@@ -163,6 +165,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceElevated,
     borderWidth: 1,
     borderColor: theme.colors.surfaceGlassBorder,
+  },
+  listItemPressed: {
+    backgroundColor: theme.colors.surfaceElevated,
+    opacity: 0.8,
   },
   trackDetailsRow: {
     flexDirection: "row",

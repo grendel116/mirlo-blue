@@ -159,10 +159,23 @@ export default function LibraryScreen() {
   );
   const { data: wishlistData, isPending: isWishlistPending } = useQuery(queryWishlist(userId));
 
+  const downloadedAlbums = useMemo(
+    () => groupTracksIntoAlbums(downloadedTracks),
+    [downloadedTracks],
+  );
+
   const purchases = useMemo(() => {
-    const isDownloaded = downloadedAlbumMatcher(downloadedTracks);
-    return (collectionData?.results || []).filter((p: any) => !isDownloaded(p.trackGroup));
-  }, [collectionData?.results, downloadedTracks]);
+    return (collectionData?.results || []).filter((p: any) => {
+      const trackGroup = p.trackGroup;
+      return !downloadedAlbums.some((a) =>
+        sameAlbum(
+          { title: a.title, artist: a.artist },
+          { title: trackGroup?.title, artist: trackGroup?.artist?.name },
+        ),
+      );
+    });
+  }, [collectionData?.results, downloadedAlbums]);
+
   const wishlistAlbums = useMemo(
     () =>
       buildWishlistAlbums({
@@ -187,7 +200,7 @@ export default function LibraryScreen() {
       id: "downloads",
       label: "Downloads",
       icon: "download-outline",
-      count: groupTracksIntoAlbums(downloadedTracks).length,
+      count: downloadedAlbums.length,
     },
     { id: "bookmarks", label: "Bookmarks", icon: "bookmark-outline", count: bookmarks.length },
   ];
@@ -242,7 +255,11 @@ export default function LibraryScreen() {
         const tg = item.trackGroup;
         const coverUri = albumCover(tg);
         return (
-          <Pressable onPress={() => openAlbumPage(tg)} style={styles.card}>
+          <Pressable
+            android_ripple={{ color: theme.colors.ripple }}
+            onPress={() => openAlbumPage(tg)}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          >
             {coverUri ? (
               <Image source={{ uri: coverUri }} style={styles.thumb} />
             ) : (
@@ -315,8 +332,13 @@ export default function LibraryScreen() {
           const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
           return (
             <Pressable
+              android_ripple={{ color: theme.colors.ripple }}
               onPress={() => playTrack(item, bookmarks, "Bookmarks")}
-              style={[styles.card, isSelected && styles.selectedCard]}
+              style={({ pressed }) => [
+                styles.card,
+                isSelected && styles.selectedCard,
+                pressed && styles.cardPressed,
+              ]}
             >
               {item.artwork ? (
                 <Image source={{ uri: item.artwork }} style={styles.thumb} />
@@ -368,8 +390,13 @@ export default function LibraryScreen() {
             return (
               <Pressable
                 key={tab.id}
+                android_ripple={{ color: theme.colors.ripple, borderless: true, radius: 24 }}
                 onPress={() => setActiveTab(tab.id)}
-                style={[styles.togglePill, active && styles.togglePillActive]}
+                style={({ pressed }) => [
+                  styles.togglePill,
+                  active && styles.togglePillActive,
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
               >
@@ -470,6 +497,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.surfaceCardBorder,
+  },
+  cardPressed: {
+    opacity: 0.75,
+    backgroundColor: theme.colors.surfaceElevated,
   },
   selectedCard: {
     backgroundColor: theme.colors.surfaceElevated,

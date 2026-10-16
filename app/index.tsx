@@ -58,6 +58,8 @@ import {
   resolveQualityArtworkSource,
 } from "@/scripts/utils";
 
+export const CAROUSEL_LIMIT = 12;
+
 export function shuffleCarousel<T>(items: T[]): T[] {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
@@ -71,6 +73,7 @@ export function blendCarouselReleases(
   direct: AlbumProps[] = [],
   chorus: AlbumProps[] = [],
   fairplayer: AlbumProps[] = [],
+  limit: number = CAROUSEL_LIMIT,
 ): AlbumProps[] {
   const seenIds = new Set<number>();
   const seenSlugs = new Set<string>();
@@ -98,6 +101,7 @@ export function blendCarouselReleases(
     if (item.urlSlug) seenSlugs.add(item.urlSlug);
     artistCounts.set(artistKey, count + 1);
     blended.push(item);
+    if (blended.length >= limit) break;
   }
 
   return blended;
@@ -150,10 +154,8 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   const { width } = useWindowDimensions();
   const [shuffleSeed, setShuffleSeed] = useState(0);
 
-  // Recent Releases: a random pick of released albums, like the website. The picks hold for a
-  // while so Home stays put as you come and go; pulling down draws new ones. When this can't
-  // load, Mirlo is out of reach. It holds the splash screen, so it fails on the first timeout
-  // and Retry in the notice tries again
+  // Recent Releases: loads behind the splash screen on startup. Held until the listener
+  // pulls down to refresh so the home page never re-queries or re-renders automatically.
   const {
     data: recentData,
     isPending: isRecentPending,
@@ -167,7 +169,10 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
       distinctArtists: true,
       isReleased: "released",
     }),
-    staleTime: CAROUSEL_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
     retry: false,
   });
 
@@ -181,7 +186,10 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
       take: 12,
       datePurchased: "pastMonth",
     }),
-    staleTime: CAROUSEL_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   // Query releases from the configured Mirlo Chorus catalog
@@ -190,11 +198,19 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
     refetch: refetchChorus,
   } = useQuery({
     ...queryFederatedChorusAlbums({ take: 40 }),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
     retry: false,
   });
 
   const { data: fairplayerAlbums, refetch: refetchFairplayer } = useQuery({
     ...queryFairplayerAlbums(40),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
     retry: false,
   });
 
@@ -202,13 +218,25 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   const {
     data: discoveredRadio = [],
     refetch: refetchDiscoveredRadio,
-  } = useQuery(queryDiscoveredRadioStations(8));
+  } = useQuery({
+    ...queryDiscoveredRadioStations(8),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
 
   // Discover podcast feeds through the open Castopod Index catalog
   const {
     data: discoveredPodcasts = [],
     refetch: refetchDiscoveredPodcasts,
-  } = useQuery(queryDiscoveredPodcasts(6));
+  } = useQuery({
+    ...queryDiscoveredPodcasts(6),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
 
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
 
@@ -244,7 +272,8 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
         recentData?.results || [],
         chorusAlbums || [],
         fairplayerAlbums || [],
-      ),
+        CAROUSEL_LIMIT,
+      ).slice(0, CAROUSEL_LIMIT),
     [recentData?.results, chorusAlbums, fairplayerAlbums, shuffleSeed],
   );
 
@@ -253,7 +282,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
     const combined = [...RADIO_STATIONS, ...discoveredRadio].filter((station) =>
       isQualityArtwork(station.artwork),
     );
-    return sortRadioRandomly(deduplicateRadioStations(combined));
+    return sortRadioRandomly(deduplicateRadioStations(combined)).slice(0, CAROUSEL_LIMIT);
   }, [discoveredRadio, shuffleSeed]);
 
   // Curated and Castopod-indexed discussion shows, ordered by latest episode
@@ -261,11 +290,11 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
     const combined = [...PODCAST_SHOWS, ...discoveredPodcasts].filter((show) =>
       isQualityArtwork(show.artwork),
     );
-    return sortDiscussionsByLastUpdate(combined);
+    return sortDiscussionsByLastUpdate(combined).slice(0, CAROUSEL_LIMIT);
   }, [discoveredPodcasts]);
 
   const popularPurchases = useMemo(
-    () => shuffleCarousel(topSoldData?.results || []),
+    () => shuffleCarousel(topSoldData?.results || []).slice(0, CAROUSEL_LIMIT),
     [topSoldData?.results, shuffleSeed],
   );
 
@@ -362,6 +391,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                     return (
                       <Pressable
                         key={`${item.downloadAlbum ?? item.id}-${idx}`}
+                        android_ripple={{ color: theme.colors.ripple }}
                         onPress={() =>
                           item.downloadAlbum
                             ? openDownloadedAlbum(item.downloadAlbum)
@@ -376,7 +406,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                                 },
                               })
                         }
-                        style={styles.historyCard}
+                        style={({ pressed }) => [styles.historyCard, pressed && styles.cardPressed]}
                       >
                         <Image
                           source={resolveQualityArtworkSource(item.coverUri)}
@@ -423,6 +453,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                       item.cover?.sizes?.[120];
                     return (
                       <Pressable
+                        android_ripple={{ color: theme.colors.ripple, borderless: false }}
                         onPress={() =>
                           router.push({
                             pathname: "/artist/[id]/album/[slug]/album-tracks",
@@ -435,7 +466,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                             },
                           })
                         }
-                        style={[styles.albumCard, { width: cardWidth }]}
+                        style={({ pressed }) => [styles.albumCard, { width: cardWidth }, pressed && styles.cardPressed]}
                       >
                         <View style={styles.cardImageContainer}>
                           <Image
@@ -484,6 +515,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                       item.cover?.sizes?.[120];
                     return (
                       <Pressable
+                        android_ripple={{ color: theme.colors.ripple, borderless: false }}
                         onPress={() =>
                           router.push({
                             pathname: "/artist/[id]/album/[slug]/album-tracks",
@@ -493,7 +525,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                             },
                           })
                         }
-                        style={[styles.albumCard, { width: cardWidth }]}
+                        style={({ pressed }) => [styles.albumCard, { width: cardWidth }, pressed && styles.cardPressed]}
                       >
                         <View style={styles.cardImageContainer}>
                           <Image
@@ -586,9 +618,10 @@ function StationCard({
 
   return (
     <Pressable
+      android_ripple={{ color: theme.colors.ripple, borderless: false }}
       onPress={() => router.push({ pathname: "/station/[id]", params: { id: station.id } })}
       accessibilityLabel={`Open ${station.name}`}
-      style={[styles.albumCard, { width: cardWidth }]}
+      style={({ pressed }) => [styles.albumCard, { width: cardWidth }, pressed && styles.cardPressed]}
     >
       <View style={styles.cardImageContainer}>
         <Image
@@ -619,9 +652,10 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
 
   return (
     <Pressable
+      android_ripple={{ color: theme.colors.ripple, borderless: false }}
       onPress={() => router.push({ pathname: "/podcast/[id]", params: { id: show.id } })}
       accessibilityLabel={`Open ${show.name}`}
-      style={[styles.albumCard, { width: cardWidth }]}
+      style={({ pressed }) => [styles.albumCard, { width: cardWidth }, pressed && styles.cardPressed]}
     >
       <View style={styles.cardImageContainer}>
         <Image
@@ -791,6 +825,10 @@ const styles = StyleSheet.create({
   },
   albumCard: {
     marginRight: 2,
+  },
+  cardPressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.98 }],
   },
   cardImageContainer: {
     aspectRatio: 1,

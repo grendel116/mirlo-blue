@@ -63,8 +63,9 @@ function NavTab({
 }) {
   return (
     <Pressable
-      onPressIn={() => openMainTab(tab)}
-      style={styles.navTab}
+      android_ripple={{ color: theme.colors.ripple, borderless: true, radius: 36 }}
+      onPress={() => openMainTab(tab)}
+      style={({ pressed }) => [styles.navTab, pressed && { opacity: 0.7 }]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
@@ -114,8 +115,9 @@ export default function Footer({ style }: ViewProps) {
           <MiniPlayerProgressBar isLiveSet={isLiveSet} />
 
           <Pressable
+            android_ripple={{ color: theme.colors.ripple }}
             onPress={openNowPlaying}
-            style={styles.miniPlayerContent}
+            style={({ pressed }) => [styles.miniPlayerContent, pressed && { opacity: 0.85 }]}
             accessibilityRole="button"
             accessibilityLabel="Open now playing"
           >
