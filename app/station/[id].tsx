@@ -43,7 +43,7 @@ export default function StationScreen() {
   const rawArt = isQualityArtwork(onAirArtwork) ? onAirArtwork : station.artwork;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.topNav}>
         <Pressable
           onPress={() => router.back()}

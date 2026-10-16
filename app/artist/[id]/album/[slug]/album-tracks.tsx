@@ -257,7 +257,7 @@ export default function AlbumTracks() {
     resolveFeedSourceName(selectedAlbum?.tracks?.[0]?.url || selectedAlbum?.tracks?.[0]?.audio?.url);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.topNav}>
         <Pressable
           onPress={() => router.dismiss()}
@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   headerSection: {
     marginBottom: 16,

@@ -370,7 +370,7 @@ export default function QueueScreen() {
   const areaHeight = totalDragAreaHeight(metrics);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       {/* Top Header with Back Button */}
       <View style={styles.header}>
         <TouchableOpacity

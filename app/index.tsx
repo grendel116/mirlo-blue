@@ -297,7 +297,7 @@ const HomePane = memo(function HomePane() {
   const cardWidth = Math.max(140, Math.min(170, (width - 48) / 2.2));
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       {/* Top Header */}
       <View style={styles.header}>
         <View style={styles.brandRow}>

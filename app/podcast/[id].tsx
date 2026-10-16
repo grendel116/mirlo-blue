@@ -67,7 +67,7 @@ export default function PodcastScreen() {
 
   if (!show || !isQualityArtwork(show.artwork)) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.topNav}>
           <Pressable
             onPress={() => router.back()}
@@ -98,7 +98,7 @@ export default function PodcastScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.topNav}>
         <Pressable
           onPress={() => router.back()}

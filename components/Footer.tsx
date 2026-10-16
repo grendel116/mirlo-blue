@@ -108,7 +108,7 @@ export default function Footer({ style }: ViewProps) {
     <View style={[styles.container, style]}>
       {/* Glossy Docked Mini-Player when a track is active and not on dedicated track / player screen */}
       {activeTrack && !isTrackScreen && (
-        <View style={styles.miniPlayer}>
+        <View style={[styles.miniPlayer, { bottom: 60 + Math.max(bottom, 8) }]}>
           <MiniPlayerProgressBar isLiveSet={isLiveSet} />
 
           <Pressable
@@ -250,13 +250,13 @@ export default function Footer({ style }: ViewProps) {
 const styles = StyleSheet.create({
   container: {
     width: "100%",
-    backgroundColor: theme.colors.background,
   },
   miniPlayer: {
-    marginHorizontal: 12,
-    marginBottom: 8,
+    position: "absolute",
+    left: 0,
+    right: 0,
     backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.radius.md,
+    borderRadius: 0,
     borderWidth: 1,
     borderColor: theme.colors.surfaceGlassBorder,
     flexDirection: "row",

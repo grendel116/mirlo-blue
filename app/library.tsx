@@ -333,7 +333,7 @@ export default function LibraryScreen({
   }, [bookmarks, activeTrack?.url, playTrack]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Your Library</Text>
