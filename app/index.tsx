@@ -236,11 +236,13 @@ export default function Index() {
     useCallback(() => {
       if (hasFocused.current) {
         setShuffleSeed((s) => s + 1);
-        refetchRecent();
-        refetchChorus();
-        refetchFairplayer();
-        refetchDiscoveredRadio();
-        refetchDiscoveredPodcasts();
+        // Let a fetch already in flight finish rather than aborting and restarting it
+        const options = { cancelRefetch: false };
+        refetchRecent(options);
+        refetchChorus(options);
+        refetchFairplayer(options);
+        refetchDiscoveredRadio(options);
+        refetchDiscoveredPodcasts(options);
       }
       hasFocused.current = true;
     }, [

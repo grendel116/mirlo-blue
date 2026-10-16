@@ -9,7 +9,7 @@ export default function DismissModalBar() {
   return (
     <View style={styles.bar}>
       <Pressable
-        onPress={() => router.dismiss()}
+        onPress={() => (router.canDismiss() ? router.dismiss() : router.replace("/"))}
         style={styles.pressable}
         accessibilityRole="button"
         accessibilityLabel="Dismiss modal"

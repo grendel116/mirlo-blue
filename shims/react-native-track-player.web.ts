@@ -72,10 +72,17 @@ export type PlaybackState = { state: State };
 let queue: any[] = [];
 let activeIndex = 0;
 let currentState: State = State.None;
+let shouldPlay = false;
+let loadedUrl = "";
 let repeatMode: RepeatMode = RepeatMode.Off;
 const listeners = new Set<(event: any) => void>();
 let audioElement: HTMLAudioElement | null = null;
 let hlsInstance: Hls | null = null;
+
+function setPlaybackState(nextState: State) {
+  currentState = nextState;
+  emit(Event.PlaybackState, { state: nextState });
+}
 
 function emit(type: Event, data: any = {}) {
   listeners.forEach((listener) => {
@@ -90,23 +97,38 @@ function getAudio(): HTMLAudioElement | null {
   if (!audioElement) {
     audioElement = new Audio();
     audioElement.addEventListener("play", () => {
-      currentState = State.Playing;
-      emit(Event.PlaybackState, { state: State.Playing });
+      if (!shouldPlay) {
+        audioElement?.pause();
+        return;
+      }
+      setPlaybackState(State.Playing);
+    });
+    audioElement.addEventListener("playing", () => {
+      if (!shouldPlay) {
+        audioElement?.pause();
+        return;
+      }
+      setPlaybackState(State.Playing);
     });
     audioElement.addEventListener("pause", () => {
-      currentState = State.Paused;
-      emit(Event.PlaybackState, { state: State.Paused });
+      if (audioElement && audioElement.ended) return;
+      if (!shouldPlay || currentState !== State.Loading) {
+        shouldPlay = false;
+        setPlaybackState(State.Paused);
+      }
     });
     audioElement.addEventListener("ended", () => {
       if (repeatMode === RepeatMode.Track && audioElement) {
         audioElement.currentTime = 0;
+        shouldPlay = true;
         audioElement.play().catch(() => {});
       } else if (activeIndex < queue.length - 1) {
         TrackPlayer.skipToNext();
       } else if (repeatMode === RepeatMode.Queue && queue.length > 0) {
         TrackPlayer.skip(0);
       } else {
-        currentState = State.Ended;
+        shouldPlay = false;
+        setPlaybackState(State.Ended);
         emit(Event.PlaybackQueueEnded);
       }
     });
@@ -122,39 +144,55 @@ function getAudio(): HTMLAudioElement | null {
   return audioElement;
 }
 
-function loadAudioSource(audio: HTMLAudioElement, url: string) {
+function destroyHls() {
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
+  }
+}
+
+function loadAudioSource(audio: HTMLAudioElement, url: string, autoPlay: boolean) {
+  destroyHls();
+  loadedUrl = url;
+  shouldPlay = autoPlay;
+
+  if (!url) {
+    audio.pause();
+    audio.removeAttribute("src");
+    return;
   }
 
   const isHls = url.includes(".m3u8");
 
   if (isHls) {
     if (Hls.isSupported()) {
-      hlsInstance = new Hls({
+      const instance = new Hls({
         enableWorker: true,
       });
-      hlsInstance.loadSource(url);
-      hlsInstance.attachMedia(audio);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-        audio.play().catch(() => {});
+      hlsInstance = instance;
+      instance.loadSource(url);
+      instance.attachMedia(audio);
+      instance.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (hlsInstance === instance && shouldPlay) {
+          audio.play().catch(() => {});
+        }
       });
-      hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
+      instance.on(Hls.Events.ERROR, (_event, data) => {
+        if (hlsInstance !== instance) return;
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hlsInstance?.startLoad();
+              if (shouldPlay) instance.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              hlsInstance?.recoverMediaError();
+              instance.recoverMediaError();
               break;
             default:
-              hlsInstance?.destroy();
-              hlsInstance = null;
-              // Fallback to native audio element if HLS fails
+              destroyHls();
               audio.src = url;
-              audio.play().catch(() => {});
+              if (shouldPlay) {
+                audio.play().catch(() => {});
+              }
               break;
           }
         }
@@ -162,18 +200,24 @@ function loadAudioSource(audio: HTMLAudioElement, url: string) {
       return;
     } else if (audio.canPlayType("application/vnd.apple.mpegurl")) {
       audio.src = url;
-      audio.play().catch(() => {});
+      if (shouldPlay) {
+        audio.play().catch(() => {});
+      }
       return;
     }
   }
 
   audio.src = url;
-  audio.play().catch(() => {});
+  if (shouldPlay) {
+    audio.play().catch(() => {});
+  }
 }
 
 const TrackPlayer = {
   setupPlayer: async () => {
-    currentState = State.Ready;
+    if (currentState === State.None) {
+      currentState = State.Ready;
+    }
     return undefined;
   },
   updateOptions: async () => undefined,
@@ -185,11 +229,22 @@ const TrackPlayer = {
   setQueue: async (newQueue: any[]) => {
     queue = [...newQueue];
     activeIndex = 0;
+    loadedUrl = "";
+    destroyHls();
+    const audio = getAudio();
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+    }
+    if (queue.length > 0) {
+      emit(Event.PlaybackActiveTrackChanged, { track: queue[0], index: 0 });
+    }
     return undefined;
   },
   getQueue: async () => [...queue],
   getActiveTrack: async () => (queue.length > 0 ? queue[activeIndex] : undefined),
   getActiveTrackIndex: async () => (queue.length > 0 ? activeIndex : undefined),
+  getPlaybackState: async (): Promise<PlaybackState> => ({ state: currentState }),
   add: async (tracks: any[] | any, insertBeforeIndex?: number) => {
     const items = Array.isArray(tracks) ? tracks : [tracks];
     if (
@@ -228,49 +283,57 @@ const TrackPlayer = {
   skip: async (index: number) => {
     if (index >= 0 && index < queue.length) {
       activeIndex = index;
-      emit(Event.PlaybackActiveTrackChanged, { track: queue[activeIndex], index });
       const track = queue[activeIndex];
+      emit(Event.PlaybackActiveTrackChanged, { track, index });
       const audio = getAudio();
       if (audio && track?.url) {
-        loadAudioSource(audio, track.url);
+        loadAudioSource(audio, track.url, shouldPlay);
       }
     }
     return undefined;
   },
   skipToNext: async () => {
     if (activeIndex < queue.length - 1) {
+      shouldPlay = true;
       await TrackPlayer.skip(activeIndex + 1);
+      setPlaybackState(State.Playing);
     }
     return undefined;
   },
   skipToPrevious: async () => {
     if (activeIndex > 0) {
+      shouldPlay = true;
       await TrackPlayer.skip(activeIndex - 1);
+      setPlaybackState(State.Playing);
     }
     return undefined;
   },
   play: async () => {
+    shouldPlay = true;
+    setPlaybackState(State.Playing);
     const audio = getAudio();
     if (audio) {
-      if (hlsInstance) {
+      const targetUrl = queue[activeIndex]?.url || "";
+      if (targetUrl && loadedUrl !== targetUrl) {
+        loadAudioSource(audio, targetUrl, true);
+      } else if (hlsInstance) {
         hlsInstance.startLoad();
         await audio.play().catch(() => {});
-      } else if (!audio.src && queue[activeIndex]?.url) {
-        loadAudioSource(audio, queue[activeIndex].url);
-      } else {
+      } else if (audio.src) {
         await audio.play().catch(() => {});
       }
     }
-    currentState = State.Playing;
-    emit(Event.PlaybackState, { state: State.Playing });
   },
   pause: async () => {
+    shouldPlay = false;
+    setPlaybackState(State.Paused);
     const audio = getAudio();
-    if (audio) audio.pause();
-    currentState = State.Paused;
-    emit(Event.PlaybackState, { state: State.Paused });
+    if (audio) {
+      audio.pause();
+    }
   },
   stop: async () => {
+    shouldPlay = false;
     if (hlsInstance) {
       hlsInstance.stopLoad();
     }
@@ -279,8 +342,7 @@ const TrackPlayer = {
       audio.pause();
       audio.currentTime = 0;
     }
-    currentState = State.Stopped;
-    emit(Event.PlaybackState, { state: State.Stopped });
+    setPlaybackState(State.Stopped);
   },
   seekTo: async (position: number) => {
     const audio = getAudio();
@@ -302,11 +364,26 @@ const TrackPlayer = {
 
 export default TrackPlayer;
 
-export function usePlaybackState(): PlaybackState {
-  return { state: currentState };
-}
-
 import React, { useState, useEffect, useRef } from "react";
+
+export function usePlaybackState(): PlaybackState {
+  const [state, setState] = useState<State>(currentState);
+
+  useEffect(() => {
+    setState(currentState);
+    const listener = (e: any) => {
+      if (e.type === Event.PlaybackState && e.state !== undefined) {
+        setState(e.state);
+      }
+    };
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
+
+  return { state };
+}
 
 export function useProgress(updateInterval: number = 250) {
   const [progress, setProgress] = useState({

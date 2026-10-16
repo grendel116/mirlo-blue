@@ -142,7 +142,11 @@ function StationPlayButton({ station }: { station: RadioStation }) {
         name={isCurrent && isPlaying ? "pause" : "play"}
         size={24}
         color={theme.colors.playButtonIcon}
-        style={isCurrent && isPlaying ? undefined : { marginLeft: 3 }}
+        style={
+          isCurrent && isPlaying
+            ? undefined
+            : { transform: [{ translateX: 2 }] }
+        }
       />
     </TouchableOpacity>
   );

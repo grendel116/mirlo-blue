@@ -55,7 +55,13 @@ function AlbumPlayButton() {
   const isCurrentAlbum = Boolean(
     activeTrack &&
       playableTracks.length > 0 &&
-      activeTrack.trackGroup?.urlSlug === playableTracks[0]?.trackGroup?.urlSlug,
+      ((activeTrack.trackGroup?.urlSlug &&
+        activeTrack.trackGroup.urlSlug === playableTracks[0]?.trackGroup?.urlSlug) ||
+        playableTracks.some(
+          (t) =>
+            (t.id !== undefined && t.id === activeTrack.id) ||
+            (Boolean(t.url) && t.url === activeTrack.url),
+        )),
   );
 
   const togglePlayback = useCallback(async () => {
@@ -85,6 +91,11 @@ function AlbumPlayButton() {
         }
         size={24}
         color={theme.colors.playButtonIcon}
+        style={
+          playableTracks.length && isCurrentAlbum && isPlaying
+            ? undefined
+            : { transform: [{ translateX: 2 }] }
+        }
       />
     </TouchableOpacity>
   );

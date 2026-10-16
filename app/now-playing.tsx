@@ -36,8 +36,10 @@ import {
 
 export default function NowPlaying() {
   const { activeTrack, looping, skipNext } = usePlayer();
+  const progress = useProgress();
   const router = useRouter();
   const { t } = useTranslation();
+  const [slidingValue, setSlidingValue] = useState<number | null>(null);
   const { width } = useWindowDimensions();
 
   const albumArtSize = Math.min(width - 48, 380);
@@ -133,8 +135,7 @@ export default function NowPlaying() {
               <Pressable
                 onPress={() => {
                   if (!station) return;
-                  router.dismiss();
-                  router.navigate({ pathname: "/station/[id]", params: { id: station.id } });
+                  router.dismissTo({ pathname: "/station/[id]", params: { id: station.id } });
                 }}
                 style={styles.linkPressable}
               >
@@ -179,24 +180,33 @@ export default function NowPlaying() {
             <Pressable
               onPress={() => {
                 if (activeTrack?.podcastId) {
-                  router.dismiss();
-                  router.navigate({
+                  router.dismissTo({
                     pathname: "/podcast/[id]",
                     params: { id: activeTrack.podcastId },
                   });
                   return;
                 }
                 if (!activeTrack?.trackGroup) return;
-                router.dismiss();
                 if (activeTrack.downloadAlbum) {
-                  router.navigate(savedAlbumHref(activeTrack.downloadAlbum));
+                  router.dismissTo(savedAlbumHref(activeTrack.downloadAlbum));
                   return;
                 }
-                const albumSlug = String(activeTrack.trackGroup.urlSlug || "");
+                const albumSlug = String(
+                  activeTrack.trackGroup.urlSlug ||
+                    activeTrack.trackGroup.id ||
+                    activeTrack.trackGroupId ||
+                    "",
+                );
+                if (!albumSlug) return;
                 const artistRouteId =
                   fairplayerReleaseSlug.artistRouteId(albumSlug) ??
-                  String(activeTrack.trackGroup.artist?.urlSlug || activeTrack.trackGroup.artistId);
-                router.navigate({
+                  String(
+                    activeTrack.trackGroup.artist?.urlSlug ||
+                      activeTrack.trackGroup.artistId ||
+                      activeTrack.trackGroup.artist?.id ||
+                      albumSlug,
+                  );
+                router.dismissTo({
                   pathname: "/artist/[id]/album/[slug]/album-tracks",
                   params: {
                     id: artistRouteId,
@@ -230,7 +240,8 @@ export default function NowPlaying() {
                 onPress={() => {
                   if (!activeTrack?.trackGroup) return;
                   const artistPageId = fairplayerReleaseSlug.artistPageRouteId({
-                    artistId: activeTrack.trackGroup.artistId,
+                    artistId:
+                      activeTrack.trackGroup.artistId ?? activeTrack.trackGroup.artist?.id,
                     artist: {
                       name: activeTrack.trackGroup.artist?.name || activeTrack.artist,
                       urlSlug: activeTrack.trackGroup.artist?.urlSlug,
@@ -239,8 +250,7 @@ export default function NowPlaying() {
                     source: activeTrack.source || activeTrack.trackGroup.source,
                   });
                   if (!artistPageId) return;
-                  router.dismiss();
-                  router.navigate({
+                  router.dismissTo({
                     pathname: "/artist/[id]/artist-page",
                     params: { id: artistPageId },
                   });
@@ -258,7 +268,43 @@ export default function NowPlaying() {
 
         {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
         {(!isLive || hasSetTimer) && (
-          <NowPlayingProgress isLive={isLive} skipNext={skipNext} />
+          <View style={styles.progressContainer}>
+            <Slider
+              style={styles.progressBar}
+              value={
+                slidingValue ??
+                (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
+              }
+              minimumValue={0}
+              maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
+              thumbTintColor={theme.colors.primary}
+              minimumTrackTintColor={theme.colors.primary}
+              maximumTrackTintColor={theme.colors.progressTrack}
+              onValueChange={(val) => setSlidingValue(val)}
+              onSlidingComplete={async (val) => {
+                setSlidingValue(null);
+                if (isLive) {
+                  setRadioTimerElapsed(val, progress.position);
+                  if (val >= RADIO_SET_SECONDS) {
+                    await skipNext();
+                  }
+                } else {
+                  await TrackPlayer.seekTo(val);
+                }
+              }}
+            />
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>
+                {formatTime(
+                  slidingValue ??
+                    (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
+                )}
+              </Text>
+              <Text style={styles.timeText}>
+                {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
+              </Text>
+            </View>
+          </View>
         )}
 
         {/* Playback Controls */}
@@ -294,57 +340,6 @@ export default function NowPlaying() {
         ) : null}
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function NowPlayingProgress({
-  isLive,
-  skipNext,
-}: {
-  isLive: boolean;
-  skipNext: () => Promise<void>;
-}) {
-  const progress = useProgress(500);
-  const [slidingValue, setSlidingValue] = useState<number | null>(null);
-
-  return (
-    <View style={styles.progressContainer}>
-      <Slider
-        style={styles.progressBar}
-        value={
-          slidingValue ??
-          (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
-        }
-        minimumValue={0}
-        maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
-        thumbTintColor={theme.colors.primary}
-        minimumTrackTintColor={theme.colors.primary}
-        maximumTrackTintColor={theme.colors.progressTrack}
-        onValueChange={(val) => setSlidingValue(val)}
-        onSlidingComplete={async (val) => {
-          setSlidingValue(null);
-          if (isLive) {
-            setRadioTimerElapsed(val, progress.position);
-            if (val >= RADIO_SET_SECONDS) {
-              await skipNext();
-            }
-          } else {
-            await TrackPlayer.seekTo(val);
-          }
-        }}
-      />
-      <View style={styles.timeRow}>
-        <Text style={styles.timeText}>
-          {formatTime(
-            slidingValue ??
-              (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
-          )}
-        </Text>
-        <Text style={styles.timeText}>
-          {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
-        </Text>
-      </View>
-    </View>
   );
 }
 

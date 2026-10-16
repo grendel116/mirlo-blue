@@ -19,8 +19,6 @@ export type FaircampSaves = {
 const STORAGE_KEY = "mirlo_blue_faircamp_saves_v1";
 
 let saves: FaircampSaves = { tracks: [], albums: [] };
-let likedTrackKeys = new Set<string>();
-let isLoaded = false;
 let loaded: Promise<void> | null = null;
 const listeners = new Set<(saves: FaircampSaves) => void>();
 
@@ -32,42 +30,13 @@ function albumKey(album: AlbumProps): string {
   return album.urlSlug || String(album.id);
 }
 
-function rebuildIndex(): void {
-  likedTrackKeys = new Set(saves.tracks.map((saved) => trackKey(saved.track)));
-}
-
 function publish(): void {
-  rebuildIndex();
   listeners.forEach((listener) => listener(saves));
-}
-
-function sanitizeAlbum(album: AlbumProps): AlbumProps {
-  const { tracks: _tracks, ...cleanAlbum } = album;
-  return cleanAlbum;
-}
-
-function sanitizeTrack(track: RNTrack): RNTrack {
-  if (!track.trackGroup || typeof track.trackGroup !== "object") {
-    return track;
-  }
-  const { tracks: _tracks, ...cleanTrackGroup } = track.trackGroup as AlbumProps;
-  return {
-    ...track,
-    trackGroup: cleanTrackGroup,
-  };
 }
 
 async function persist(): Promise<void> {
   try {
-    const serialized = JSON.stringify(saves, (key, value) => {
-      if (key === "trackGroup" && value && typeof value === "object") {
-        const trackGroup = { ...value };
-        delete trackGroup.tracks;
-        return trackGroup;
-      }
-      return value;
-    });
-    await AsyncStorage.setItem(STORAGE_KEY, serialized);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saves));
   } catch (error) {
     console.error("Failed to save Faircamp likes and wishlists:", error);
   }
@@ -79,25 +48,13 @@ function load(): Promise<void> {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<FaircampSaves>;
         saves = {
-          tracks: Array.isArray(parsed.tracks)
-            ? parsed.tracks.map((item) => ({
-                ...item,
-                track: sanitizeTrack(item.track),
-              }))
-            : [],
-          albums: Array.isArray(parsed.albums)
-            ? parsed.albums.map((item) => ({
-                ...item,
-                album: sanitizeAlbum(item.album),
-              }))
-            : [],
+          tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [],
+          albums: Array.isArray(parsed.albums) ? parsed.albums : [],
         };
       }
-      isLoaded = true;
       publish();
     })
     .catch((error) => {
-      isLoaded = true;
       console.error("Failed to load Faircamp likes and wishlists:", error);
     });
   return loaded;
@@ -105,9 +62,10 @@ function load(): Promise<void> {
 
 export async function toggleFaircampTrackLike(track: RNTrack): Promise<void> {
   await load();
-  const cleanTrack = sanitizeTrack(track);
-  const key = trackKey(cleanTrack);
-  const exists = likedTrackKeys.has(key);
+  const key = trackKey(track);
+  const exists = saves.tracks.some((saved) => trackKey(saved.track) === key);
+  const { tracks: _tracks, ...cleanTrackGroup } = (track.trackGroup || {}) as AlbumProps;
+  const cleanTrack = track.trackGroup ? { ...track, trackGroup: cleanTrackGroup } : track;
   saves = {
     ...saves,
     tracks: exists
@@ -123,7 +81,7 @@ export async function toggleFaircampAlbumWishlist(
   displayedTracks: RNTrack[],
 ): Promise<void> {
   await load();
-  const cleanAlbum = sanitizeAlbum(album);
+  const { tracks: _tracks, ...cleanAlbum } = album;
   const key = albumKey(cleanAlbum);
   const exists = saves.albums.some((saved) => albumKey(saved.album) === key);
   const trackKeys = new Set(displayedTracks.map(trackKey));
@@ -132,8 +90,14 @@ export async function toggleFaircampAlbumWishlist(
       ? saves.tracks.filter((saved) => !trackKeys.has(trackKey(saved.track)))
       : [
           ...displayedTracks
-            .filter((track) => !likedTrackKeys.has(trackKey(track)))
-            .map((track) => ({ track: sanitizeTrack(track), likedAt: Date.now() })),
+            .filter(
+              (track) =>
+                !saves.tracks.some((saved) => trackKey(saved.track) === trackKey(track)),
+            )
+            .map((track) => ({
+              track: track.trackGroup ? { ...track, trackGroup: cleanAlbum } : track,
+              likedAt: Date.now(),
+            })),
           ...saves.tracks,
         ],
     albums: exists
@@ -145,18 +109,15 @@ export async function toggleFaircampAlbumWishlist(
 }
 
 export function isFaircampTrackLiked(track: RNTrack): boolean {
-  return likedTrackKeys.has(trackKey(track));
+  const key = trackKey(track);
+  return saves.tracks.some((saved) => trackKey(saved.track) === key);
 }
 
 export function useFaircampSaves(): FaircampSaves {
   const [current, setCurrent] = useState(saves);
   useEffect(() => {
     listeners.add(setCurrent);
-    if (isLoaded) {
-      setCurrent((prev) => (prev === saves ? prev : saves));
-    } else {
-      load();
-    }
+    load();
     return () => {
       listeners.delete(setCurrent);
     };

@@ -188,17 +188,7 @@ function toPlayerTrack(
   let cleanTrackGroup: RNTrack["trackGroup"] = undefined;
   if (t.trackGroup && typeof t.trackGroup === "object") {
     const { tracks: _tracks, ...restGroup } = t.trackGroup as AlbumProps;
-    const cleanArtist =
-      restGroup.artist && typeof restGroup.artist === "object"
-        ? {
-            ...restGroup.artist,
-            trackGroups: [],
-          }
-        : restGroup.artist;
-    cleanTrackGroup = {
-      ...restGroup,
-      artist: cleanArtist,
-    };
+    cleanTrackGroup = restGroup;
   }
 
   return {
@@ -262,7 +252,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const [queueSource, setQueueSource] = useState<string>("");
   const [activeTrack, setActiveTrack] = useState<RNTrack>();
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [playerState, setPlayerState] = useState<State | undefined>(undefined);
   const playBackState = usePlaybackState();
   const { user } = useAuthContext();
   const userRef = useRef(user);
@@ -285,19 +274,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     [disabledTrackIds],
   );
 
-  const activeTrackRef = useRef<RNTrack | undefined>(undefined);
-  const playingQueueRef = useRef<RNTrack[]>([]);
-  const activeIndexRef = useRef<number>(-1);
-  useEffect(() => {
-    activeTrackRef.current = activeTrack;
-  }, [activeTrack]);
-  useEffect(() => {
-    playingQueueRef.current = playingQueue;
-  }, [playingQueue]);
-  useEffect(() => {
-    activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
-
   const activeTrackOwnedRef = useRef<boolean>(false);
   const activeTrackIdRef = useRef<number | null>(null);
   const queueGenerationRef = useRef(0);
@@ -316,8 +292,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const refreshQueue = useCallback(async () => {
     const { queue, active } = await readPlayer();
-    playingQueueRef.current = queue;
-    activeIndexRef.current = active;
     setPlayingQueue(queue);
     setActiveIndex(active);
   }, []);
@@ -456,16 +430,13 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   useTrackPlayerEvents(
     [
       Event.PlaybackActiveTrackChanged,
-      Event.PlaybackState,
       Event.PlaybackProgressUpdated,
-      Event.PlaybackQueueEnded,
       Event.PlaybackError,
     ],
     async (event) => {
       if (event.type === Event.PlaybackError) {
         const currentTrack =
-          activeTrackRef.current ??
-          ((await TrackPlayer.getActiveTrack()) as RNTrack | undefined);
+          activeTrack ?? ((await TrackPlayer.getActiveTrack()) as RNTrack | undefined);
         const targetId = activeTrackIdRef.current ?? currentTrack?.id;
         const isFaircampError = Boolean(
           currentTrack?.fairplayerTrackId ||
@@ -497,15 +468,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           }
           return;
         }
-      }
-
-      if (event.type === Event.PlaybackState) {
-        setPlayerState(event.state);
-        return;
-      }
-
-      if (event.type === Event.PlaybackQueueEnded) {
-        return;
       }
 
       if (event.type === Event.PlaybackActiveTrackChanged) {
@@ -583,11 +545,15 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     },
   );
 
+  const isPlaying =
+    playBackState.state === State.Playing ||
+    playBackState.state === State.Buffering ||
+    playBackState.state === State.Loading;
+
   const togglePlayPause = useCallback(async () => {
     try {
       await ensureTrackPlayerInitialized();
-      const state = playBackState.state;
-      if (state === State.Playing || state === State.Buffering) {
+      if (isPlaying) {
         await TrackPlayer.pause();
       } else {
         await TrackPlayer.play();
@@ -595,11 +561,23 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Toggle playback error:", err);
     }
-  }, [playBackState.state]);
+  }, [isPlaying]);
 
   const playTrack = useCallback(
     async (track: RNTrack, albumTracks?: RNTrack[], source?: string) => {
       try {
+        // Tapping the song already loaded from this same playlist toggles play/pause. From a
+        // different playlist it starts over, with that playlist loaded behind it
+        const nextSource = source || track.trackGroup?.title || "";
+        if (
+          activeTrack &&
+          isSameTrack(activeTrack, track) &&
+          (!source || nextSource === queueSource)
+        ) {
+          await togglePlayPause();
+          return;
+        }
+
         await ensureTrackPlayerInitialized();
 
         const isExternal = Boolean(
@@ -621,26 +599,15 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        const currentActive = activeTrackRef.current;
-
-        // Tapping the song already loaded from this same playlist toggles play/pause. From a
-        // different playlist it starts over, with that playlist loaded behind it
-        const nextSource = source || track.trackGroup?.title || "";
-        if (currentActive && isSameTrack(currentActive, track) && nextSource === queueSource) {
-          await togglePlayPause();
-          return;
-        }
-
-        const queue = playingQueueRef.current;
         const isSameAlbum =
-          currentActive &&
+          activeTrack &&
           Boolean(track.trackGroup?.urlSlug) &&
-          currentActive.trackGroup?.urlSlug === track.trackGroup?.urlSlug &&
-          queue.length > 0;
+          activeTrack.trackGroup?.urlSlug === track.trackGroup?.urlSlug &&
+          playingQueue.length > 0;
 
         // Only skip within current queue if no fresh custom album/playlist tracks list was provided
         if (isSameAlbum && (!albumTracks || albumTracks.length === 0)) {
-          const indexInQueue = queue.findIndex(
+          const indexInQueue = playingQueue.findIndex(
             (t) =>
               (track.id !== undefined && t.id === track.id) ||
               (track.url && t.url === track.url)
@@ -687,8 +654,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         const startIndex = shuffled ? 0 : targetIndex;
 
         // Your Queue stays next in line after the song just picked
-        const loadedIndex = activeIndexRef.current;
-        const afterLoaded = loadedIndex >= 0 ? queue.slice(loadedIndex + 1) : [];
+        const afterLoaded = activeIndex >= 0 ? playingQueue.slice(activeIndex + 1) : [];
         const waiting = afterLoaded.slice(0, queuedCount(afterLoaded));
         const tracksToLoad = [
           ...ordered.slice(0, startIndex + 1),
@@ -696,11 +662,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           ...ordered.slice(startIndex + 1),
         ];
 
-        const nextActiveTrack = ordered[startIndex];
-        activeTrackRef.current = nextActiveTrack;
-        playingQueueRef.current = tracksToLoad;
-        activeIndexRef.current = startIndex;
-        setActiveTrack(nextActiveTrack);
+        setActiveTrack(ordered[startIndex]);
         setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
         setActiveIndex(startIndex);
@@ -735,7 +697,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [togglePlayPause, shuffled, jumpTo, queueSource, isTrackDisabled, user],
+    [activeTrack, playingQueue, activeIndex, togglePlayPause, shuffled, jumpTo, queueSource, isTrackDisabled, user],
   );
 
   const playFromUserQueue = useCallback(
@@ -807,8 +769,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     [activeIndex, refreshQueue],
   );
 
-  // Keeps playback going: discovery previews always wait after the playlist,
-  // topped up as they play (deferred slightly so track startup and UI transitions get priority)
+  // Keeps playback going: discovery previews always wait after the playlist, topped up as they play
   useEffect(() => {
     if (looping !== "none" || !activeTrack || playingQueue.length === 0) return;
     const activeIdx = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
@@ -817,43 +778,33 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     if (upcomingPreviews >= AUTOPLAY_THRESHOLD) return;
     if (autoplayFillingRef.current) return;
 
-    const timer = setTimeout(() => {
-      if (autoplayFillingRef.current) return;
-      autoplayFillingRef.current = true;
-      const generation = queueGenerationRef.current;
-      const currentQueue = playingQueueRef.current;
-      const knownIds = new Set(currentQueue.map((t) => t.id).filter((id) => id !== undefined));
-      const knownUrls = new Set(currentQueue.map((t) => t.url).filter(Boolean));
+    autoplayFillingRef.current = true;
+    const generation = queueGenerationRef.current;
+    const knownIds = new Set(playingQueue.map((t) => t.id).filter((id) => id !== undefined));
+    const knownUrls = new Set(playingQueue.map((t) => t.url).filter(Boolean));
 
-      (async () => {
-        try {
-          // Draw again when a random batch only holds songs already queued
-          let added: RNTrack[] = [];
-          for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
-            const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
-            if (batch.length === 0) break;
-            added = batch
-              .map((t) => toPlayerTrack(t))
-              .filter((t) => !knownIds.has(t.id) && (!t.url || !knownUrls.has(t.url)));
-          }
-          if (added.length === 0 || generation !== queueGenerationRef.current) return;
-
-          await TrackPlayer.add(added);
-          setPlayingQueue((prev) => {
-            const next = [...prev, ...added];
-            playingQueueRef.current = next;
-            return next;
-          });
-        } catch (err) {
-          console.error("Autoplay error:", err);
-        } finally {
-          autoplayFillingRef.current = false;
-          if (generation !== queueGenerationRef.current) setAutoplayRecheck((n) => n + 1);
+    (async () => {
+      try {
+        // Draw again when a random batch only holds songs already queued
+        let added: RNTrack[] = [];
+        for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
+          const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
+          if (batch.length === 0) break;
+          added = batch
+            .map((t) => toPlayerTrack(t))
+            .filter((t) => !knownIds.has(t.id) && (!t.url || !knownUrls.has(t.url)));
         }
-      })();
-    }, 1800);
+        if (added.length === 0 || generation !== queueGenerationRef.current) return;
 
-    return () => clearTimeout(timer);
+        await TrackPlayer.add(added);
+        setPlayingQueue((prev) => [...prev, ...added]);
+      } catch (err) {
+        console.error("Autoplay error:", err);
+      } finally {
+        autoplayFillingRef.current = false;
+        if (generation !== queueGenerationRef.current) setAutoplayRecheck((n) => n + 1);
+      }
+    })();
   }, [activeTrack, playingQueue, looping, autoplayRecheck]);
 
   // Shuffle reorders the playlist songs still coming up. Turning it off puts them back in
@@ -976,9 +927,6 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       console.error("Seek error:", err);
     }
   }, []);
-
-  const isPlaying =
-    playerState === State.Playing || playBackState.state === State.Playing;
 
   const value: PlayerContextType = useMemo(
     () => ({

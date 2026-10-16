@@ -37,7 +37,7 @@ export function formatBytes(bytes: number): string {
 // Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more.
 // `openAlbum` is an album key to show expanded, as when History links here
 export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
-  const { playTrack, activeTrack } = usePlayer();
+  const { playTrack, activeTrack, isPlaying, togglePlayPause } = usePlayer();
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
   const [expandedKey, setExpandedKey] = useState<string | null>(openAlbum ?? null);
@@ -134,6 +134,14 @@ export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
           renderItem={({ item: album }) => {
             const expanded = expandedKey === album.key;
             const toggle = () => setExpandedKey(expanded ? null : album.key);
+            const isAlbumActive = Boolean(
+              activeTrack &&
+                album.tracks.some(
+                  (t) =>
+                    (t.id !== undefined && t.id === activeTrack.id) ||
+                    (Boolean(t.url) && t.url === activeTrack.url),
+                ),
+            );
             return (
               <View style={[styles.card, expanded && styles.cardExpanded]}>
                 <View style={styles.header}>
@@ -166,11 +174,20 @@ export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
                   </Pressable>
 
                   <TouchableOpacity
-                    onPress={() => playAlbum(album)}
+                    onPress={() => (isAlbumActive ? togglePlayPause() : playAlbum(album))}
                     style={styles.playButton}
-                    accessibilityLabel={`Play ${album.title}`}
+                    accessibilityLabel={`${isAlbumActive && isPlaying ? "Pause" : "Play"} ${album.title}`}
                   >
-                    <Ionicons name="play" size={18} color={theme.colors.playButtonIcon} style={{ marginLeft: 2 }} />
+                    <Ionicons
+                      name={isAlbumActive && isPlaying ? "pause" : "play"}
+                      size={18}
+                      color={theme.colors.playButtonIcon}
+                      style={
+                        isAlbumActive && isPlaying
+                          ? undefined
+                          : { transform: [{ translateX: 1.5 }] }
+                      }
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={toggle}

@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ViewProps,
   Text,
-  useWindowDimensions,
   Platform,
   Pressable,
 } from "react-native";
@@ -13,7 +12,7 @@ import { useProgress } from "react-native-track-player";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import { Link, router, usePathname } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
 import {
@@ -21,28 +20,10 @@ import {
   resolveArtworkUrl,
 } from "@/scripts/utils";
 
-function MiniPlayerProgressBar({
-  isLiveSet,
-}: {
-  isLiveSet: boolean;
-}) {
-  const progress = useProgress(1000);
-  const duration = isLiveSet ? RADIO_SET_SECONDS : progress.duration;
-  const progressPercent =
-    duration > 0
-      ? Math.min(100, Math.max(0, (progress.position / duration) * 100))
-      : 0;
-
-  return (
-    <View style={styles.progressBarBg}>
-      <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-    </View>
-  );
-}
-
 export default function Footer({ style }: ViewProps) {
   const { bottom } = useSafeAreaInsets();
   const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
+  const progress = useProgress(1000);
   const pathname = usePathname();
 
   const isTrackScreen =
@@ -51,6 +32,11 @@ export default function Footer({ style }: ViewProps) {
     pathname.endsWith("/tracks");
 
   const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
+  const duration = isLiveSet ? RADIO_SET_SECONDS : progress.duration;
+  const progressPercent =
+    duration > 0
+      ? Math.min(100, Math.max(0, (progress.position / duration) * 100))
+      : 0;
 
   return (
     <View style={[styles.container, style]}>
@@ -58,19 +44,13 @@ export default function Footer({ style }: ViewProps) {
       {activeTrack && !isTrackScreen && (
         <View style={styles.miniPlayer}>
           {/* Progress bar line */}
-          <MiniPlayerProgressBar isLiveSet={isLiveSet} />
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          </View>
 
           <Pressable
             style={styles.miniPlayerContent}
-            onPress={() => {
-              router.navigate({
-                pathname: "/now-playing",
-                params: {
-                  id: activeTrack.trackGroup?.artistId,
-                  slug: activeTrack.trackGroup?.urlSlug,
-                },
-              });
-            }}
+            onPress={() => router.navigate("/now-playing")}
             accessibilityRole="button"
             accessibilityLabel="Open now playing"
           >
@@ -104,7 +84,7 @@ export default function Footer({ style }: ViewProps) {
                 name={isPlaying ? "pause" : "play"}
                 size={22}
                 color={theme.colors.playButtonIcon}
-                style={!isPlaying && { marginLeft: 2 }}
+                style={!isPlaying && { transform: [{ translateX: 2 }] }}
               />
             </TouchableOpacity>
             <TouchableOpacity
@@ -131,7 +111,9 @@ export default function Footer({ style }: ViewProps) {
       >
         {/* Tab 1: Home */}
         <Pressable
-          onPress={() => router.dismissTo("/")}
+          onPress={() => {
+            if (pathname !== "/") router.dismissTo("/");
+          }}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Home"
@@ -155,7 +137,8 @@ export default function Footer({ style }: ViewProps) {
         <Pressable
           onPress={() => {
             if (pathname === "/feed") return;
-            router.navigate("/feed");
+            if (pathname === "/") router.navigate("/feed");
+            else router.dismissTo("/feed");
           }}
           style={styles.navTab}
           accessibilityRole="button"
@@ -178,7 +161,8 @@ export default function Footer({ style }: ViewProps) {
         <Pressable
           onPress={() => {
             if (pathname === "/library") return;
-            router.navigate("/library");
+            if (pathname === "/") router.navigate("/library");
+            else router.dismissTo("/library");
           }}
           style={styles.navTab}
           accessibilityRole="button"

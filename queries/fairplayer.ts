@@ -6,7 +6,6 @@ import { SHARE_HUB_URL } from "@/queries/shareHub";
 const FAIRPLAYER_ROOT = "https://fairplayer.band";
 const FAIRPLAYER_ID_PREFIX = "fairplayer-";
 const FAIRPLAYER_ARTIST_PREFIX = "fairplayer-artist-";
-const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Domains with expired/invalid TLS certificates, non-standard ports, insecure HTTP, or dead 404 audio streams
 const BLOCKED_FAIRCAMP_DOMAINS = new Set<string>([
@@ -96,18 +95,6 @@ export function blockFaircampDomain(domainOrUrl?: string): void {
     }
   }
 }
-
-let cachedVerifiedCatalogs: {
-  fetchRef: typeof fetch;
-  promise: Promise<Map<string, string>>;
-  expiresAt: number;
-} | null = null;
-
-let cachedVerifiedDirectory: {
-  fetchRef: typeof fetch;
-  promise: Promise<AlbumProps[]>;
-  expiresAt: number;
-} | null = null;
 
 const knownAlbumsBySlug = new Map<string, AlbumProps>();
 const knownArtistsById = new Map<number, { name: string; sourceUrl?: string }>();
@@ -486,6 +473,12 @@ function fairplayerEndpoint(path: string): URL {
   return url;
 }
 
+let cachedVerifiedCatalogs: {
+  fetchRef: typeof fetch;
+  promise: Promise<Map<string, string>>;
+  expiresAt: number;
+} | null = null;
+
 export async function fetchVerifiedFaircampCatalogs(
   signal?: AbortSignal,
 ): Promise<Map<string, string>> {
@@ -517,7 +510,7 @@ export async function fetchVerifiedFaircampCatalogs(
   cachedVerifiedCatalogs = {
     fetchRef: currentFetch,
     promise,
-    expiresAt: now + CATALOG_CACHE_TTL_MS,
+    expiresAt: now + 5 * 60 * 1000,
   };
 
   promise.catch(() => {
@@ -585,45 +578,19 @@ export async function fetchFairplayerSongReleaseSlug(
 async function fetchVerifiedDirectoryAlbums(
   signal?: AbortSignal,
 ): Promise<AlbumProps[]> {
-  const now = Date.now();
-  if (
-    cachedVerifiedDirectory &&
-    cachedVerifiedDirectory.fetchRef === global.fetch &&
-    cachedVerifiedDirectory.expiresAt > now
-  ) {
-    return cachedVerifiedDirectory.promise;
+  const [html, verifiedCatalogs] = await Promise.all([
+    fetchFairplayerText("/fairplayer/player/all/releases", "text/html", signal),
+    fetchVerifiedFaircampCatalogs(signal),
+  ]);
+  const verifiedAlbums = parseReleaseCards(html, verifiedCatalogs);
+
+  if (verifiedAlbums.length === 0 && verifiedCatalogs.size > 0) {
+    throw new Error(
+      "Fairplayer release directory did not include verified Faircamp releases.",
+    );
   }
 
-  const currentFetch = global.fetch;
-  const promise = (async () => {
-    const [html, verifiedCatalogs] = await Promise.all([
-      fetchFairplayerText("/fairplayer/player/all/releases", "text/html", signal),
-      fetchVerifiedFaircampCatalogs(signal),
-    ]);
-    const verifiedAlbums = parseReleaseCards(html, verifiedCatalogs);
-
-    if (verifiedAlbums.length === 0 && verifiedCatalogs.size > 0) {
-      throw new Error(
-        "Fairplayer release directory did not include verified Faircamp releases.",
-      );
-    }
-
-    return verifiedAlbums;
-  })();
-
-  cachedVerifiedDirectory = {
-    fetchRef: currentFetch,
-    promise,
-    expiresAt: now + CATALOG_CACHE_TTL_MS,
-  };
-
-  promise.catch(() => {
-    if (cachedVerifiedDirectory?.promise === promise) {
-      cachedVerifiedDirectory = null;
-    }
-  });
-
-  return promise;
+  return verifiedAlbums;
 }
 
 export async function fetchFairplayerAlbums(
@@ -936,14 +903,7 @@ export async function fetchFairplayerDiscoveryTracks(
 export function queryFairplayerAlbums(take: number = 40) {
   return queryOptions({
     queryKey: ["fairplayerAlbums", take],
-    queryFn: async ({ signal }) => {
-      try {
-        return await fetchFairplayerAlbums(take, signal);
-      } catch (error) {
-        console.error("Fairplayer catalog discovery failed:", error);
-        throw error;
-      }
-    },
+    queryFn: ({ signal }) => fetchFairplayerAlbums(take, signal),
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   });

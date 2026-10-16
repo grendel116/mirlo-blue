@@ -176,7 +176,11 @@ export default function PodcastScreen() {
                     name={isShowPlaying && isPlaying ? "pause" : "play"}
                     size={24}
                     color={theme.colors.playButtonIcon}
-                    style={isShowPlaying && isPlaying ? undefined : { marginLeft: 3 }}
+                    style={
+                      isShowPlaying && isPlaying
+                        ? undefined
+                        : { transform: [{ translateX: 2 }] }
+                    }
                   />
                 </TouchableOpacity>
               </View>

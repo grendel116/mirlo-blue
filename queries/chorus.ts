@@ -524,14 +524,6 @@ export function queryChorusAlbums(options: ChorusQueryOptions = {}) {
   });
 }
 
-const CHORUS_CACHE_TTL_MS = 5 * 60 * 1000;
-let cachedFederatedChorusAlbums: {
-  fetchRef: typeof fetch;
-  key: string;
-  promise: Promise<AlbumProps[]>;
-  expiresAt: number;
-} | null = null;
-
 /**
  * Queries all configured Chorus catalogs in parallel, aggregating releases,
  * enforcing revocation compliance across all feeds, and updating discovered broadcasts and shows.
@@ -540,92 +532,63 @@ export async function fetchFederatedChorusAlbums(
   options: ChorusQueryOptions = {},
   signal?: AbortSignal,
 ): Promise<AlbumProps[]> {
-  const now = Date.now();
-  const cacheKey = `${options.take ?? 40}:${options.skip ?? ""}:${options.fromDate ?? ""}`;
-  if (
-    cachedFederatedChorusAlbums &&
-    cachedFederatedChorusAlbums.fetchRef === global.fetch &&
-    cachedFederatedChorusAlbums.key === cacheKey &&
-    cachedFederatedChorusAlbums.expiresAt > now
-  ) {
-    return cachedFederatedChorusAlbums.promise;
+  const results = await Promise.allSettled(
+    INNATE_CHORUS_FEEDS.map(async (feedInfo) => {
+      const feed = await fetchChorusFeed(
+        {
+          host: feedInfo.url,
+          endpoint: feedInfo.endpoint,
+          take: options.take ?? 40,
+          skip: options.skip,
+          fromDate: options.fromDate,
+        },
+        signal,
+      );
+      return { feed, feedInfo };
+    }),
+  );
+
+  const aggregatedAlbums: AlbumProps[] = [];
+  const allDeletedEntities: ChorusDeletedEntity[] = [];
+
+  for (const res of results) {
+    if (res.status === "fulfilled") {
+      const { feed, feedInfo } = res.value;
+      if (feed.deleted && feed.deleted.length > 0) {
+        allDeletedEntities.push(...feed.deleted);
+      }
+      const albums = chorusToAlbums(feed, feedInfo);
+      aggregatedAlbums.push(...albums);
+    } else {
+      console.warn("Federated Chorus feed fetch failed:", res.reason);
+    }
   }
 
-  const currentFetch = global.fetch;
-  const promise = (async () => {
-    const results = await Promise.allSettled(
-      INNATE_CHORUS_FEEDS.map(async (feedInfo) => {
-        const feed = await fetchChorusFeed(
-          {
-            host: feedInfo.url,
-            endpoint: feedInfo.endpoint,
-            take: options.take ?? 40,
-            skip: options.skip,
-            fromDate: options.fromDate,
-          },
-          signal,
-        );
-        return { feed, feedInfo };
-      }),
-    );
+  // Purge any revoked or deleted entities immediately
+  if (allDeletedEntities.length > 0) {
+    await purgeChorusDeletedEntities(allDeletedEntities);
+  }
 
-    const aggregatedAlbums: AlbumProps[] = [];
-    const allDeletedEntities: ChorusDeletedEntity[] = [];
+  // Deduplicate albums by title + artistName or URL slug
+  const seenKeys = new Set<string>();
+  const dedupedAlbums: AlbumProps[] = [];
 
-    for (const res of results) {
-      if (res.status === "fulfilled") {
-        const { feed, feedInfo } = res.value;
-        if (feed.deleted && feed.deleted.length > 0) {
-          allDeletedEntities.push(...feed.deleted);
-        }
-        const albums = chorusToAlbums(feed, feedInfo);
-        aggregatedAlbums.push(...albums);
-      } else {
-        console.warn("Federated Chorus feed fetch failed:", res.reason);
-      }
+  for (const album of aggregatedAlbums) {
+    const key = `${album.artist?.name || ""}:${album.title}`.toLowerCase();
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      dedupedAlbums.push(album);
     }
+  }
 
-    // Purge any revoked or deleted entities immediately
-    if (allDeletedEntities.length > 0) {
-      await purgeChorusDeletedEntities(allDeletedEntities);
-    }
-
-    // Deduplicate albums by title + artistName or URL slug
-    const seenKeys = new Set<string>();
-    const dedupedAlbums: AlbumProps[] = [];
-
-    for (const album of aggregatedAlbums) {
-      const key = `${album.artist?.name || ""}:${album.title}`.toLowerCase();
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        dedupedAlbums.push(album);
-      }
-    }
-
-    // Sort by releaseDate descending
-    dedupedAlbums.sort((a, b) => {
-      const da = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
-      const db = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
-      return db - da;
-    });
-
-    return dedupedAlbums;
-  })();
-
-  cachedFederatedChorusAlbums = {
-    fetchRef: currentFetch,
-    key: cacheKey,
-    promise,
-    expiresAt: now + CHORUS_CACHE_TTL_MS,
-  };
-
-  promise.catch(() => {
-    if (cachedFederatedChorusAlbums?.promise === promise) {
-      cachedFederatedChorusAlbums = null;
-    }
+  // Sort by releaseDate descending
+  dedupedAlbums.sort((a, b) => {
+    const da = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+    const db = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+    return db - da;
   });
 
-  return promise;
+  return dedupedAlbums;
 }
 
 /**
@@ -635,7 +598,7 @@ export function queryFederatedChorusAlbums(options: ChorusQueryOptions = {}) {
   return queryOptions({
     queryKey: ["federatedChorusAlbums", options],
     queryFn: ({ signal }) => fetchFederatedChorusAlbums(options, signal),
-    staleTime: CHORUS_CACHE_TTL_MS,
+    staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
 }

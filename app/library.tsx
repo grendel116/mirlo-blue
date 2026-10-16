@@ -473,11 +473,7 @@ export default function LibraryScreen() {
 
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>(getHistorySync);
   useEffect(() => {
-    getHistory().then((items) => {
-      setHistoryItems((prev) =>
-        prev.length === items.length && prev.every((item, i) => item === items[i]) ? prev : items,
-      );
-    });
+    getHistory().then(setHistoryItems);
     return subscribeHistory(setHistoryItems);
   }, []);
 
@@ -561,10 +557,6 @@ export default function LibraryScreen() {
       .map((desc) => queryAlbum({ slug: desc.slug, id: desc.id })),
   });
 
-  const albumQueriesSignature = albumQueries
-    .map((q) => `${q.data?.result?.id ?? ""}:${q.dataUpdatedAt}`)
-    .join("|");
-
   const fullAlbums = useMemo(() => {
     const list: AlbumProps[] = [];
     albumQueries.forEach((q) => {
@@ -573,7 +565,7 @@ export default function LibraryScreen() {
       }
     });
     return list;
-  }, [albumQueriesSignature]);
+  }, [albumQueries]);
 
   const purchaseDateByAlbumId = useMemo(() => {
     const map = new Map<number | string, string>();
