@@ -60,6 +60,9 @@ import {
 
 export const CAROUSEL_LIMIT = 12;
 
+// Keys for the empty cards a carousel shows while its releases load
+const EMPTY_CARD_KEYS = Array.from({ length: CAROUSEL_LIMIT }, (_, index) => `empty-${index}`);
+
 export function shuffleCarousel<T>(items: T[]): T[] {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
@@ -435,7 +438,20 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
               </View>
 
               {isRecentPending ? (
-                <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
+                <ScrollView
+                  horizontal
+                  scrollEnabled={false}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.carouselContent}
+                >
+                  {EMPTY_CARD_KEYS.map((key) => (
+                    <View key={key} style={[styles.albumCard, { width: cardWidth }]}>
+                      <View style={styles.cardImageContainer} />
+                      <View style={styles.emptyCardTitle} />
+                      <View style={styles.emptyCardArtist} />
+                    </View>
+                  ))}
+                </ScrollView>
               ) : (
                 <FlatList
                   horizontal
@@ -880,5 +896,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     fontWeight: "500",
+  },
+  emptyCardTitle: {
+    width: "75%",
+    height: 18,
+    marginTop: 8,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  emptyCardArtist: {
+    width: "50%",
+    height: 16,
+    marginTop: 2,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
   },
 });

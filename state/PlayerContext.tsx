@@ -561,17 +561,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const playTrack = useCallback(
     async (track: RNTrack, albumTracks?: RNTrack[], source?: string) => {
       try {
-        // Tapping the song already loaded from this same playlist toggles play/pause. From a
-        // different playlist it starts over, with that playlist loaded behind it
         const nextSource = source || track.trackGroup?.title || "";
-        if (
-          activeTrack &&
-          isSameTrack(activeTrack, track) &&
-          (!source || nextSource === queueSource)
-        ) {
-          await togglePlayPause();
-          return;
-        }
 
         await ensureTrackPlayerInitialized();
 
@@ -625,6 +615,19 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
             !(t.id && isTrackDisabled(t.id) && !isTrackOwned(t, t.trackGroup, user)),
         );
         if (rawTracks.length === 0) return;
+
+        // The picked song is already playing from this same list: keep it going
+        const loaded = playlistOrderRef.current;
+        if (
+          activeTrack &&
+          isSameTrack(activeTrack, track) &&
+          rawTracks.length === loaded.length &&
+          rawTracks.every((t, i) => isSameTrack(t, loaded[i]))
+        ) {
+          if (!isPlaying) await TrackPlayer.play();
+          return;
+        }
+
         const playlist = rawTracks.map((t) =>
           toPlayerTrack(t, { artwork: resolvedArtwork, artist: enrichedArtist }),
         );
@@ -672,7 +675,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [activeTrack, playingQueue, activeIndex, togglePlayPause, shuffled, jumpTo, queueSource, isTrackDisabled, user],
+    [activeTrack, playingQueue, activeIndex, isPlaying, shuffled, jumpTo, isTrackDisabled, user],
   );
 
   const playFromUserQueue = useCallback(
