@@ -3,13 +3,13 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 
-export default function DismissModalBar() {
+export default function DismissModalBar({ onPress }: { onPress?: () => void }) {
   const router = useRouter();
 
   return (
     <View style={styles.bar}>
       <Pressable
-        onPress={() => (router.canDismiss() ? router.dismiss() : router.replace("/"))}
+        onPress={onPress ?? (() => (router.canDismiss() ? router.dismiss() : router.replace("/")))}
         style={styles.pressable}
         accessibilityRole="button"
         accessibilityLabel="Dismiss modal"

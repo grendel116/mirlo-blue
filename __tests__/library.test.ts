@@ -54,7 +54,7 @@ jest.mock("expo-file-system", () => ({
   getInfoAsync: jest.fn().mockResolvedValue({ exists: false }),
 }));
 
-import { buildBookmarks, buildWishlistAlbums } from "@/app/library";
+import { buildBookmarks, buildWishlistAlbums } from "@/app/(tabs)/library";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
 import { createMockArtist } from "@/__mocks__/mockArtist";
 import { createMockUser } from "@/__mocks__/mockUser";

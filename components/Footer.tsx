@@ -9,9 +9,11 @@ import {
   Pressable,
 } from "react-native";
 import { useProgress } from "react-native-track-player";
+import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
+import { useMiniPlayerGesture } from "@/state/NowPlayingSheet";
 import { router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
@@ -23,13 +25,18 @@ import {
 export default function Footer({ style }: ViewProps) {
   const { bottom } = useSafeAreaInsets();
   const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
+  const miniPlayerGesture = useMiniPlayerGesture();
   const progress = useProgress(1000);
   const pathname = usePathname();
 
-  const isTrackScreen =
-    pathname === "/now-playing" ||
-    pathname.includes("/tracks/") ||
-    pathname.endsWith("/tracks");
+  const isTrackScreen = pathname.includes("/tracks/") || pathname.endsWith("/tracks");
+
+  // Tabs sit at the bottom of the stack: going to one closes any pages opened over them
+  const openTab = (href: "/" | "/feed" | "/library") => {
+    if (pathname === href) return;
+    if (router.canDismiss()) router.dismissAll();
+    router.navigate(href);
+  };
 
   const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
   const duration = isLiveSet ? RADIO_SET_SECONDS : progress.duration;
@@ -48,30 +55,33 @@ export default function Footer({ style }: ViewProps) {
             <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
           </View>
 
-          <Pressable
-            style={styles.miniPlayerContent}
-            onPress={() => router.navigate("/now-playing")}
-            accessibilityRole="button"
-            accessibilityLabel="Open now playing"
-          >
-            <Image
-              source={
-                isQualityArtwork(activeTrack.artwork)
-                  ? { uri: resolveArtworkUrl(activeTrack.artwork) }
-                  : undefined
-              }
-              style={styles.miniArtwork}
-            />
+          <GestureDetector gesture={miniPlayerGesture}>
+            <View
+              style={styles.miniPlayerContent}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Open now playing"
+              accessibilityHint="Drag up or tap to open"
+            >
+              <Image
+                source={
+                  isQualityArtwork(activeTrack.artwork)
+                    ? { uri: resolveArtworkUrl(activeTrack.artwork) }
+                    : undefined
+                }
+                style={styles.miniArtwork}
+              />
 
-            <View style={styles.miniTrackInfo}>
-              <Text style={styles.miniTitle} numberOfLines={1}>
-                {activeTrack.title}
-              </Text>
-              <Text style={styles.miniArtist} numberOfLines={1}>
-                {activeTrack.artist}
-              </Text>
+              <View style={styles.miniTrackInfo}>
+                <Text style={styles.miniTitle} numberOfLines={1}>
+                  {activeTrack.title}
+                </Text>
+                <Text style={styles.miniArtist} numberOfLines={1}>
+                  {activeTrack.artist}
+                </Text>
+              </View>
             </View>
-          </Pressable>
+          </GestureDetector>
 
           <View style={styles.miniControls}>
             <TouchableOpacity
@@ -111,9 +121,7 @@ export default function Footer({ style }: ViewProps) {
       >
         {/* Tab 1: Home */}
         <Pressable
-          onPress={() => {
-            if (pathname !== "/") router.dismissTo("/");
-          }}
+          onPress={() => openTab("/")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Home"
@@ -135,11 +143,7 @@ export default function Footer({ style }: ViewProps) {
 
         {/* Tab 2: Queue */}
         <Pressable
-          onPress={() => {
-            if (pathname === "/feed") return;
-            if (pathname === "/") router.navigate("/feed");
-            else router.dismissTo("/feed");
-          }}
+          onPress={() => openTab("/feed")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Queue"
@@ -159,11 +163,7 @@ export default function Footer({ style }: ViewProps) {
 
         {/* Tab 3: Consolidated Library (Likes, Wishlist & Purchases) */}
         <Pressable
-          onPress={() => {
-            if (pathname === "/library") return;
-            if (pathname === "/") router.navigate("/library");
-            else router.dismissTo("/library");
-          }}
+          onPress={() => openTab("/library")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Library"

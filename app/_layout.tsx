@@ -1,4 +1,5 @@
-import { Stack, usePathname } from "expo-router";
+import { Stack } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SearchContextProvider } from "@/state/SearchContext";
 import { PlayerContextProvider } from "@/state/PlayerContext";
 import { AuthContextProvider } from "@/state/AuthContext";
@@ -12,6 +13,8 @@ import { useFonts } from "expo-font";
 import { AppReadyContextProvider } from "@/state/AppReadyContext";
 import { useEffect, useState } from "react";
 import Footer from "@/components/Footer";
+import NowPlayingSheet from "@/components/NowPlayingSheet";
+import { NowPlayingSheetProvider } from "@/state/NowPlayingSheet";
 import "../i18n";
 import { checkForUpdates } from "../scripts/appVersionCheck";
 
@@ -19,7 +22,7 @@ SplashScreen.preventAutoHideAsync();
 
 // Keep the home screen under deep-linked routes: it is what hides the splash
 // once data loads, and Back then returns home instead of leaving the app
-export const unstable_settings = { anchor: "index" };
+export const unstable_settings = { anchor: "(tabs)" };
 
 SplashScreen.setOptions({
   duration: 500,
@@ -59,6 +62,7 @@ export default function RootLayout() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#070b14" }}>
     <AppReadyContextProvider
       value={{ isDataLoaded: isDataLoaded, setIsDataLoaded: setIsDataLoaded }}
     >
@@ -66,27 +70,18 @@ export default function RootLayout() {
         <AuthContextProvider>
           <PlayerContextProvider>
             <SearchContextProvider>
+              <NowPlayingSheetProvider>
               <Stack
                 screenOptions={{
                   animation: "none",
+                  // Screens underneath stop redrawing until they show again
+                  freezeOnBlur: true,
                   contentStyle: { backgroundColor: "#070b14" },
                 }}
               >
                 <Stack.Screen name="login" options={{ headerShown: false }} />
                 <Stack.Screen
-                  name="index"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="feed"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="library"
+                  name="(tabs)"
                   options={{
                     headerShown: false,
                   }}
@@ -107,9 +102,8 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="now-playing"
                   options={{
-                    animation: "slide_from_bottom",
-                    animationDuration: 100,
                     headerShown: false,
+                    presentation: "transparentModal",
                   }}
                 />
                 <Stack.Screen
@@ -222,6 +216,8 @@ export default function RootLayout() {
                 />
               </Stack>
               <Footer />
+              <NowPlayingSheet />
+              </NowPlayingSheetProvider>
               <StatusBar style="light" backgroundColor="#070b14" />
             </SearchContextProvider>
           </PlayerContextProvider>
@@ -229,5 +225,6 @@ export default function RootLayout() {
         {/* <DevToolsBubble onCopy={onCopy} /> */}
       </QueryClientWrapper>
     </AppReadyContextProvider>
+    </GestureHandlerRootView>
   );
 }

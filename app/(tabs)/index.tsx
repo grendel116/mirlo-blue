@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   View,
@@ -7,11 +7,11 @@ import {
   ScrollView,
   Image,
   Pressable,
+  RefreshControl,
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import { queryTrackGroups, queryTopSold } from "@/queries/queries";
 import {
@@ -97,15 +97,19 @@ export function blendCarouselReleases(
   return blended;
 }
 
+// Home's carousels keep their picks this long before drawing new ones
+const CAROUSEL_STALE_TIME = 15 * 60 * 1000;
+
 export default function Index() {
   const router = useRouter();
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [shuffleSeed, setShuffleSeed] = useState(0);
 
-  // Recent Releases: a random pick of released albums, like the website, drawn fresh each
-  // time Home comes into view. When this can't load, Mirlo is out of reach. It holds the
-  // splash screen, so it fails on the first timeout and Retry in the notice tries again
+  // Recent Releases: a random pick of released albums, like the website. The picks hold for a
+  // while so Home stays put as you come and go; pulling down draws new ones. When this can't
+  // load, Mirlo is out of reach. It holds the splash screen, so it fails on the first timeout
+  // and Retry in the notice tries again
   const {
     data: recentData,
     isPending: isRecentPending,
@@ -119,6 +123,7 @@ export default function Index() {
       distinctArtists: true,
       isReleased: "released",
     }),
+    staleTime: CAROUSEL_STALE_TIME,
     retry: false,
   });
 
@@ -127,12 +132,13 @@ export default function Index() {
     data: topSoldData,
     isPending: isTopSoldPending,
     refetch: refetchTopSold,
-  } = useQuery(
-    queryTopSold({
+  } = useQuery({
+    ...queryTopSold({
       take: 12,
       datePurchased: "pastMonth",
     }),
-  );
+    staleTime: CAROUSEL_STALE_TIME,
+  });
 
   // Query releases from the configured Mirlo Chorus catalog
   const {
@@ -160,14 +166,19 @@ export default function Index() {
     refetch: refetchDiscoveredPodcasts,
   } = useQuery(queryDiscoveredPodcasts(6));
 
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const retry = () => {
     setShuffleSeed((s) => s + 1);
-    refetchRecent();
-    refetchTopSold();
     refetchChorus();
     refetchFairplayer();
     refetchDiscoveredRadio();
     refetchDiscoveredPodcasts();
+    // The pull spinner waits for Mirlo's picks; the wider catalogs fill in as they arrive
+    return Promise.all([refetchRecent(), refetchTopSold()]);
+  };
+  const pullToRefresh = () => {
+    setIsPullRefreshing(true);
+    retry().finally(() => setIsPullRefreshing(false));
   };
 
   // Shuffled blend of Mirlo, Chorus, and Faircamp releases with fair artist representation
@@ -230,30 +241,6 @@ export default function Index() {
     };
   }, []);
 
-  // The first visit already loads a list; every return to Home draws a new one
-  const hasFocused = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      if (hasFocused.current) {
-        setShuffleSeed((s) => s + 1);
-        // Let a fetch already in flight finish rather than aborting and restarting it
-        const options = { cancelRefetch: false };
-        refetchRecent(options);
-        refetchChorus(options);
-        refetchFairplayer(options);
-        refetchDiscoveredRadio(options);
-        refetchDiscoveredPodcasts(options);
-      }
-      hasFocused.current = true;
-    }, [
-      refetchRecent,
-      refetchChorus,
-      refetchFairplayer,
-      refetchDiscoveredRadio,
-      refetchDiscoveredPodcasts,
-    ]),
-  );
-
   // Top 6 items for the "Viewing History" 2-column grid
   const quickAccessItems = historyItems.slice(0, 6);
 
@@ -300,6 +287,14 @@ export default function Index() {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isPullRefreshing}
+            onRefresh={pullToRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
       >
         {offline ? (
           <OfflineNotice retrying={isRecentFetching} onRetry={retry} onOpenLibrary={() => router.push("/library")} />
