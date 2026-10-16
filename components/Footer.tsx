@@ -21,24 +21,36 @@ import {
   resolveArtworkUrl,
 } from "@/scripts/utils";
 
+function MiniPlayerProgressBar({
+  isLiveSet,
+}: {
+  isLiveSet: boolean;
+}) {
+  const progress = useProgress(1000);
+  const duration = isLiveSet ? RADIO_SET_SECONDS : progress.duration;
+  const progressPercent =
+    duration > 0
+      ? Math.min(100, Math.max(0, (progress.position / duration) * 100))
+      : 0;
+
+  return (
+    <View style={styles.progressBarBg}>
+      <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+    </View>
+  );
+}
+
 export default function Footer({ style }: ViewProps) {
-  const progress = useProgress();
   const { bottom } = useSafeAreaInsets();
   const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
   const pathname = usePathname();
-  const { width } = useWindowDimensions();
 
   const isTrackScreen =
     pathname === "/now-playing" ||
     pathname.includes("/tracks/") ||
     pathname.endsWith("/tracks");
 
-  const duration =
-    activeTrack?.liveStation && looping !== "track" ? RADIO_SET_SECONDS : progress.duration;
-  const progressPercent =
-    duration > 0
-      ? Math.min(100, Math.max(0, (progress.position / duration) * 100))
-      : 0;
+  const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
 
   return (
     <View style={[styles.container, style]}>
@@ -46,9 +58,7 @@ export default function Footer({ style }: ViewProps) {
       {activeTrack && !isTrackScreen && (
         <View style={styles.miniPlayer}>
           {/* Progress bar line */}
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-          </View>
+          <MiniPlayerProgressBar isLiveSet={isLiveSet} />
 
           <Pressable
             style={styles.miniPlayerContent}

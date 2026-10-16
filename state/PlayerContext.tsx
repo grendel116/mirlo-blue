@@ -184,8 +184,25 @@ function toPlayerTrack(
     fallback.artist ||
     "";
 
+  let cleanTrackGroup: RNTrack["trackGroup"] = undefined;
+  if (t.trackGroup && typeof t.trackGroup === "object") {
+    const { tracks: _tracks, ...restGroup } = t.trackGroup as AlbumProps;
+    const cleanArtist =
+      restGroup.artist && typeof restGroup.artist === "object"
+        ? {
+            ...restGroup.artist,
+            trackGroups: [],
+          }
+        : restGroup.artist;
+    cleanTrackGroup = {
+      ...restGroup,
+      artist: cleanArtist,
+    };
+  }
+
   return {
     ...t,
+    trackGroup: cleanTrackGroup,
     _queueKey: t._queueKey || `qk-${nextQueueKeyId++}`,
     url: streamUrl,
     headers: saved ? {} : t.headers || { "mirlo-api-key": API_KEY },
@@ -267,6 +284,19 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     [disabledTrackIds],
   );
 
+  const activeTrackRef = useRef<RNTrack | undefined>(undefined);
+  const playingQueueRef = useRef<RNTrack[]>([]);
+  const activeIndexRef = useRef<number>(-1);
+  useEffect(() => {
+    activeTrackRef.current = activeTrack;
+  }, [activeTrack]);
+  useEffect(() => {
+    playingQueueRef.current = playingQueue;
+  }, [playingQueue]);
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
   const activeTrackOwnedRef = useRef<boolean>(false);
   const activeTrackIdRef = useRef<number | null>(null);
   const queueGenerationRef = useRef(0);
@@ -285,6 +315,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const refreshQueue = useCallback(async () => {
     const { queue, active } = await readPlayer();
+    playingQueueRef.current = queue;
+    activeIndexRef.current = active;
     setPlayingQueue(queue);
     setActiveIndex(active);
   }, []);
@@ -550,8 +582,16 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         await ensureTrackPlayerInitialized();
 
+        const isExternal = Boolean(
+          track.fairplayerTrackId ||
+            track.liveStation ||
+            track.podcastEpisodeId ||
+            (track.source && !String(track.source).toLowerCase().startsWith("mirlo")),
+        );
+
         // Pause and disable guard: Do not stream tracks whose preview limits or HTTP 402 were reached
         if (
+          !isExternal &&
           track.id &&
           (isTrackDisabled(track.id) ||
             (await reachedMaxPlays(track.id, track.trackGroup?.artist?.maxFreePlays))) &&
@@ -561,7 +601,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        const currentActive = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
+        const currentActive = activeTrackRef.current;
 
         // Tapping the song already loaded from this same playlist toggles play/pause. From a
         // different playlist it starts over, with that playlist loaded behind it
@@ -571,7 +611,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        const queue = (await TrackPlayer.getQueue()) as RNTrack[];
+        const queue = playingQueueRef.current;
         const isSameAlbum =
           currentActive &&
           Boolean(track.trackGroup?.urlSlug) &&
@@ -627,8 +667,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         const startIndex = shuffled ? 0 : targetIndex;
 
         // Your Queue stays next in line after the song just picked
-        const loadedIndex = (await TrackPlayer.getActiveTrackIndex()) ?? -1;
-        const afterLoaded = queue.slice(loadedIndex + 1);
+        const loadedIndex = activeIndexRef.current;
+        const afterLoaded = loadedIndex >= 0 ? queue.slice(loadedIndex + 1) : [];
         const waiting = afterLoaded.slice(0, queuedCount(afterLoaded));
         const tracksToLoad = [
           ...ordered.slice(0, startIndex + 1),
@@ -636,13 +676,21 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           ...ordered.slice(startIndex + 1),
         ];
 
+        const nextActiveTrack = ordered[startIndex];
+        activeTrackRef.current = nextActiveTrack;
+        playingQueueRef.current = tracksToLoad;
+        activeIndexRef.current = startIndex;
+        setActiveTrack(nextActiveTrack);
         setPlayableTracks(playlist);
         setPlayingQueue(tracksToLoad);
         setActiveIndex(startIndex);
         queueGenerationRef.current += 1;
         setQueueSource(nextSource);
+
         await TrackPlayer.setQueue(tracksToLoad);
-        await TrackPlayer.skip(startIndex);
+        if (startIndex > 0) {
+          await TrackPlayer.skip(startIndex);
+        }
         await TrackPlayer.play();
 
         // History opens the album again: a saved song's album in Downloads, or the Mirlo album
@@ -740,42 +788,52 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   // Keeps playback going: discovery previews always wait after the playlist,
-  // topped up as they play
+  // topped up as they play (deferred slightly so track startup and UI transitions get priority)
   useEffect(() => {
     if (looping !== "none" || !activeTrack || playingQueue.length === 0) return;
-    const activeIndex = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
-    if (activeIndex < 0) return;
-    const upcomingPreviews = playingQueue.slice(activeIndex + 1).filter((t) => t.autoplay).length;
+    const activeIdx = playingQueue.findIndex((t) => isSameTrack(t, activeTrack));
+    if (activeIdx < 0) return;
+    const upcomingPreviews = playingQueue.slice(activeIdx + 1).filter((t) => t.autoplay).length;
     if (upcomingPreviews >= AUTOPLAY_THRESHOLD) return;
     if (autoplayFillingRef.current) return;
 
-    autoplayFillingRef.current = true;
-    const generation = queueGenerationRef.current;
-    const knownIds = new Set(playingQueue.map((t) => t.id).filter((id) => id !== undefined));
-    const knownUrls = new Set(playingQueue.map((t) => t.url).filter(Boolean));
+    const timer = setTimeout(() => {
+      if (autoplayFillingRef.current) return;
+      autoplayFillingRef.current = true;
+      const generation = queueGenerationRef.current;
+      const currentQueue = playingQueueRef.current;
+      const knownIds = new Set(currentQueue.map((t) => t.id).filter((id) => id !== undefined));
+      const knownUrls = new Set(currentQueue.map((t) => t.url).filter(Boolean));
 
-    (async () => {
-      try {
-        // Draw again when a random batch only holds songs already queued
-        let added: RNTrack[] = [];
-        for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
-          const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
-          if (batch.length === 0) break;
-          added = batch
-            .map((t) => toPlayerTrack(t))
-            .filter((t) => !knownIds.has(t.id) && (!t.url || !knownUrls.has(t.url)));
+      (async () => {
+        try {
+          // Draw again when a random batch only holds songs already queued
+          let added: RNTrack[] = [];
+          for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
+            const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
+            if (batch.length === 0) break;
+            added = batch
+              .map((t) => toPlayerTrack(t))
+              .filter((t) => !knownIds.has(t.id) && (!t.url || !knownUrls.has(t.url)));
+          }
+          if (added.length === 0 || generation !== queueGenerationRef.current) return;
+
+          await TrackPlayer.add(added);
+          setPlayingQueue((prev) => {
+            const next = [...prev, ...added];
+            playingQueueRef.current = next;
+            return next;
+          });
+        } catch (err) {
+          console.error("Autoplay error:", err);
+        } finally {
+          autoplayFillingRef.current = false;
+          if (generation !== queueGenerationRef.current) setAutoplayRecheck((n) => n + 1);
         }
-        if (added.length === 0 || generation !== queueGenerationRef.current) return;
+      })();
+    }, 1800);
 
-        await TrackPlayer.add(added);
-        setPlayingQueue((prev) => [...prev, ...added]);
-      } catch (err) {
-        console.error("Autoplay error:", err);
-      } finally {
-        autoplayFillingRef.current = false;
-        if (generation !== queueGenerationRef.current) setAutoplayRecheck((n) => n + 1);
-      }
-    })();
+    return () => clearTimeout(timer);
   }, [activeTrack, playingQueue, looping, autoplayRecheck]);
 
   // Shuffle reorders the playlist songs still coming up. Turning it off puts them back in

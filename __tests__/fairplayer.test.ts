@@ -415,8 +415,11 @@ describe("Fairplayer Faircamp catalog integration", () => {
       expect(tracks[0].autoplay).toBe(true);
       expect(tracks[0].source).toBe("Faircamp");
       expect(tracks[0].url).toBe("https://sockpuppet.band/sjx/01-war-machine.opus");
+      expect(tracks[0].trackGroup?.tracks).toBeUndefined();
+      expect(() => JSON.stringify(tracks[0])).not.toThrow();
     } finally {
       global.fetch = originalFetch;
     }
   });
 });
+

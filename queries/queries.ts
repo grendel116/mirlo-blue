@@ -12,6 +12,7 @@ import {
   fairplayerReleaseSlug,
   fetchFairplayerAlbum,
   fetchFairplayerArtist,
+  isKnownFairplayerArtistId,
 } from "./fairplayer";
 
 type UserPurchase = UserTrackPurchase | UserTrackGroupPurchase;
@@ -115,6 +116,7 @@ export function queryUserPurchases(userId: number | undefined) {
     queryKey: ["fetchUserPurchases", { userId }],
     queryFn: fetchUserPurchases,
     enabled: !!userId,
+    staleTime: 2 * 60 * 1000,
   });
 }
 
@@ -126,11 +128,12 @@ const fetchUserCollection: QueryFunction<
 };
 
 export function queryUserCollection(userId: number | undefined) {
-    return queryOptions({
-        queryKey: ["fetchUserCollection", {userId}],
-        queryFn: fetchUserCollection,
-        enabled: !!userId,
-    })
+  return queryOptions({
+    queryKey: ["fetchUserCollection", { userId }],
+    queryFn: fetchUserCollection,
+    enabled: !!userId,
+    staleTime: 2 * 60 * 1000,
+  });
 }
 
 const fetchAlbum: QueryFunction<
@@ -197,6 +200,7 @@ export function queryAlbum(opts: {
     queryKey: ["fetchAlbum", opts],
     queryFn: fetchAlbum,
     enabled: !!opts.slug && !!opts.id,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -215,13 +219,16 @@ const fetchArtist: QueryFunction<
     });
     return response.result;
   } catch (err) {
-    try {
-      const fairArtist = await fetchFairplayerArtist(artistSlug, signal);
-      if (fairArtist) return fairArtist;
-    } catch {
-      // Ignore Fairplayer fallback error
+    const numericId = /^\d+$/.test(artistSlug) ? Number(artistSlug) : undefined;
+    if (numericId !== undefined && isKnownFairplayerArtistId(numericId)) {
+      try {
+        const fairArtist = await fetchFairplayerArtist(artistSlug, signal);
+        if (fairArtist) return fairArtist;
+      } catch {
+        // Ignore Fairplayer fallback error
+      }
     }
-    if (/^\d+$/.test(artistSlug)) {
+    if (numericId !== undefined) {
       try {
         const chorusArtist = await findChorusArtist(artistSlug, signal);
         if (chorusArtist) return chorusArtist;
@@ -243,6 +250,8 @@ export function queryArtist(opts: { artistSlug: string }) {
     ],
     queryFn: fetchArtist,
     enabled: !!opts.artistSlug,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }
 const fetchTags: QueryFunction<
@@ -295,5 +304,6 @@ export function queryWishlist(userId: number | undefined) {
     queryKey: ["fetchWishlist", { userId }],
     queryFn: fetchWishlist,
     enabled: !!userId,
+    staleTime: 2 * 60 * 1000,
   });
 }

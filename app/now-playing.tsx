@@ -36,11 +36,9 @@ import {
 
 export default function NowPlaying() {
   const { activeTrack, looping, skipNext } = usePlayer();
-  const progress = useProgress();
   const router = useRouter();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
-  const [slidingValue, setSlidingValue] = useState<number | null>(null);
 
   const albumArtSize = Math.min(width - 48, 380);
 
@@ -260,43 +258,7 @@ export default function NowPlaying() {
 
         {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
         {(!isLive || hasSetTimer) && (
-          <View style={styles.progressContainer}>
-            <Slider
-              style={styles.progressBar}
-              value={
-                slidingValue ??
-                (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
-              }
-              minimumValue={0}
-              maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
-              thumbTintColor={theme.colors.primary}
-              minimumTrackTintColor={theme.colors.primary}
-              maximumTrackTintColor={theme.colors.progressTrack}
-              onValueChange={(val) => setSlidingValue(val)}
-              onSlidingComplete={async (val) => {
-                setSlidingValue(null);
-                if (isLive) {
-                  setRadioTimerElapsed(val, progress.position);
-                  if (val >= RADIO_SET_SECONDS) {
-                    await skipNext();
-                  }
-                } else {
-                  await TrackPlayer.seekTo(val);
-                }
-              }}
-            />
-            <View style={styles.timeRow}>
-              <Text style={styles.timeText}>
-                {formatTime(
-                  slidingValue ??
-                    (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
-                )}
-              </Text>
-              <Text style={styles.timeText}>
-                {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
-              </Text>
-            </View>
-          </View>
+          <NowPlayingProgress isLive={isLive} skipNext={skipNext} />
         )}
 
         {/* Playback Controls */}
@@ -335,13 +297,68 @@ export default function NowPlaying() {
   );
 }
 
+function NowPlayingProgress({
+  isLive,
+  skipNext,
+}: {
+  isLive: boolean;
+  skipNext: () => Promise<void>;
+}) {
+  const progress = useProgress(500);
+  const [slidingValue, setSlidingValue] = useState<number | null>(null);
+
+  return (
+    <View style={styles.progressContainer}>
+      <Slider
+        style={styles.progressBar}
+        value={
+          slidingValue ??
+          (isLive ? getRadioTimerElapsed(progress.position) : progress.position)
+        }
+        minimumValue={0}
+        maximumValue={isLive ? RADIO_SET_SECONDS : (progress.duration || 1)}
+        thumbTintColor={theme.colors.primary}
+        minimumTrackTintColor={theme.colors.primary}
+        maximumTrackTintColor={theme.colors.progressTrack}
+        onValueChange={(val) => setSlidingValue(val)}
+        onSlidingComplete={async (val) => {
+          setSlidingValue(null);
+          if (isLive) {
+            setRadioTimerElapsed(val, progress.position);
+            if (val >= RADIO_SET_SECONDS) {
+              await skipNext();
+            }
+          } else {
+            await TrackPlayer.seekTo(val);
+          }
+        }}
+      />
+      <View style={styles.timeRow}>
+        <Text style={styles.timeText}>
+          {formatTime(
+            slidingValue ??
+              (isLive ? getRadioTimerElapsed(progress.position) : progress.position),
+          )}
+        </Text>
+        <Text style={styles.timeText}>
+          {formatTime(isLive ? RADIO_SET_SECONDS : progress.duration)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 // Artists with paid subscription tiers, album sales, or federated store links
 // can be supported directly via the slide-up purchase & support modal.
 function SupportArtistButton({ track }: { track: RNTrack }) {
   const router = useRouter();
   const artistId = track.trackGroup?.artistId;
   const albumSlug = track.trackGroup?.urlSlug;
-  const isFaircamp = Boolean(fairplayerReleaseSlug.decode(String(albumSlug || "")));
+  const isFaircamp = Boolean(
+    track.fairplayerTrackId ||
+      fairplayerReleaseSlug.decode(String(albumSlug || "")),
+  );
+  const isChorusExternal = Boolean(track.url?.includes("/stream/external/"));
   const source = track.source || track.trackGroup?.source || (isFaircamp ? "Faircamp" : undefined);
   const sourceUrl =
     track.trackGroup?.sourceUrl ||
@@ -351,10 +368,18 @@ function SupportArtistButton({ track }: { track: RNTrack }) {
     isFaircamp ||
       (source && source !== "Mirlo Space" && !sourceUrl?.includes("mirlo.space")),
   );
+  const knownArtistSlug =
+    track.trackGroup?.artist?.urlSlug &&
+    track.trackGroup.artist.urlSlug !== "fairplayer"
+      ? track.trackGroup.artist.urlSlug
+      : undefined;
+  const mirloArtistLookup =
+    !isExternalSource && !isChorusExternal
+      ? knownArtistSlug || (artistId ? String(artistId) : "")
+      : "";
   const { data: artist } = useQuery(
     queryArtist({
-      artistSlug:
-        !isExternalSource && artistId ? String(artistId) : "",
+      artistSlug: mirloArtistLookup,
     }),
   );
 

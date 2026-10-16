@@ -14,8 +14,18 @@ let cachedVerifiedCatalogs: {
   expiresAt: number;
 } | null = null;
 
+let cachedVerifiedDirectory: {
+  fetchRef: typeof fetch;
+  promise: Promise<AlbumProps[]>;
+  expiresAt: number;
+} | null = null;
+
 const knownAlbumsBySlug = new Map<string, AlbumProps>();
 const knownArtistsById = new Map<number, { name: string; sourceUrl?: string }>();
+
+export function isKnownFairplayerArtistId(artistId: number): boolean {
+  return knownArtistsById.has(artistId);
+}
 
 function shuffleItems<T>(items: T[]): T[] {
   const out = [...items];
@@ -235,8 +245,28 @@ function toAlbumProps(
   return album;
 }
 
-function parseReleaseCards(html: string): AlbumProps[] {
-  const root = parseHtml(html);
+function parseReleaseCards(
+  html: string,
+  verifiedCatalogs?: Map<string, string>,
+): AlbumProps[] {
+  const cardPattern =
+    /<a\b[^>]*\bhx-get\s*=\s*["']([^"']*\/player\/release\/[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi;
+  const matchedSnippets: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = cardPattern.exec(html)) !== null) {
+    const releaseId = getFaircampReleaseId(match[1] || "");
+    if (!releaseId) continue;
+    if (verifiedCatalogs) {
+      const domain = getFaircampDomain(releaseId);
+      if (!domain || !verifiedCatalogs.has(domain)) continue;
+    }
+    matchedSnippets.push(match[0]);
+  }
+
+  if (matchedSnippets.length === 0) return [];
+
+  const root = parseHtml(matchedSnippets.join(""));
   const anchors = findElements(
     root,
     (node) => node.tagName === "a" && Boolean(getAttribute(node, "hx-get")),
@@ -261,7 +291,15 @@ function parseReleaseCards(html: string): AlbumProps[] {
       ) || "";
 
     if (!title || !artistName) continue;
-    albums.push(toAlbumProps(releaseId, title, artistName, coverUrl));
+    const album = toAlbumProps(releaseId, title, artistName, coverUrl);
+    if (verifiedCatalogs) {
+      const domain = getFaircampDomain(releaseId);
+      if (domain && verifiedCatalogs.has(domain)) {
+        album.sourceUrl = verifiedCatalogs.get(domain);
+        recordKnownAlbum(album);
+      }
+    }
+    albums.push(album);
   }
 
   return albums;
@@ -295,7 +333,23 @@ function parseSearchResults(raw: unknown): AlbumProps[] {
 export function parseVerifiedFaircampCatalogs(
   html: string,
 ): Map<string, string> {
-  const root = parseHtml(html);
+  const linkPattern = /<a\b[^>]*\bhref\s*=\s*["'][^"']+["'][^>]*>[\s\S]*?<\/a>/gi;
+  const matchedLinks: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = linkPattern.exec(html)) !== null) {
+    const snippet = match[0];
+    if (
+      /faircamp/i.test(snippet) &&
+      (/bg-success/i.test(snippet) || /Verified/i.test(snippet))
+    ) {
+      matchedLinks.push(snippet);
+    }
+  }
+
+  if (matchedLinks.length === 0) return new Map<string, string>();
+
+  const root = parseHtml(matchedLinks.join(""));
   const catalogLinks = findElements(
     root,
     (node) =>
@@ -429,28 +483,55 @@ export async function fetchFairplayerSongReleaseSlug(
   return encodeReleaseSlug(releaseId);
 }
 
+async function fetchVerifiedDirectoryAlbums(
+  signal?: AbortSignal,
+): Promise<AlbumProps[]> {
+  const now = Date.now();
+  if (
+    cachedVerifiedDirectory &&
+    cachedVerifiedDirectory.fetchRef === global.fetch &&
+    cachedVerifiedDirectory.expiresAt > now
+  ) {
+    return cachedVerifiedDirectory.promise;
+  }
+
+  const currentFetch = global.fetch;
+  const promise = (async () => {
+    const [html, verifiedCatalogs] = await Promise.all([
+      fetchFairplayerText("/fairplayer/player/all/releases", "text/html", signal),
+      fetchVerifiedFaircampCatalogs(signal),
+    ]);
+    const verifiedAlbums = parseReleaseCards(html, verifiedCatalogs);
+
+    if (verifiedAlbums.length === 0 && verifiedCatalogs.size > 0) {
+      throw new Error(
+        "Fairplayer release directory did not include verified Faircamp releases.",
+      );
+    }
+
+    return verifiedAlbums;
+  })();
+
+  cachedVerifiedDirectory = {
+    fetchRef: currentFetch,
+    promise,
+    expiresAt: now + CATALOG_CACHE_TTL_MS,
+  };
+
+  promise.catch(() => {
+    if (cachedVerifiedDirectory?.promise === promise) {
+      cachedVerifiedDirectory = null;
+    }
+  });
+
+  return promise;
+}
+
 export async function fetchFairplayerAlbums(
   take: number = 40,
   signal?: AbortSignal,
 ): Promise<AlbumProps[]> {
-  const [html, verifiedCatalogs] = await Promise.all([
-    fetchFairplayerText("/fairplayer/player/all/releases", "text/html", signal),
-    fetchVerifiedFaircampCatalogs(signal),
-  ]);
-  const verifiedAlbums = parseReleaseCards(html).filter((album) => {
-    const releaseId = decodeReleaseSlug(album.urlSlug);
-    const domain = releaseId ? getFaircampDomain(releaseId) : undefined;
-    if (!domain || !verifiedCatalogs.has(domain)) return false;
-    album.sourceUrl = verifiedCatalogs.get(domain);
-    recordKnownAlbum(album);
-    return true;
-  });
-
-  if (verifiedAlbums.length === 0 && verifiedCatalogs.size > 0) {
-    throw new Error(
-      "Fairplayer release directory did not include verified Faircamp releases.",
-    );
-  }
+  const verifiedAlbums = await fetchVerifiedDirectoryAlbums(signal);
 
   const shuffled = shuffleItems(verifiedAlbums);
   const artistsSeen = new Map<string, number>();
@@ -533,6 +614,9 @@ export function parseFairplayerRelease(
       .map(getText)
       .find(Boolean) || "";
 
+  // Summary without tracks so track.trackGroup never creates a circular reference
+  const { tracks: _omittedTracks, ...trackGroupSummary } = album;
+
   album.tracks = songs.flatMap((song, index) => {
     const url = getAttribute(song, "data-url");
     const trackTitle = getAttribute(song, "data-title");
@@ -559,7 +643,6 @@ export function parseFairplayerRelease(
         ? durationValue
         : undefined;
 
-    const trackAlbum = album;
     const track: RNTrack = {
       id: trackId,
       title: trackTitle,
@@ -581,7 +664,7 @@ export function parseFairplayerRelease(
           : `${releaseId}#${index + 1}`,
       sourceUrl: album.sourceUrl,
       audio: { url, duration },
-      trackGroup: trackAlbum,
+      trackGroup: { ...trackGroupSummary },
     };
     return [track];
   });
@@ -620,6 +703,9 @@ export async function fetchFairplayerAlbum(
   album.sourceUrl = verifiedCatalogs.get(domain);
   album.tracks?.forEach((track) => {
     track.sourceUrl = album.sourceUrl;
+    if (track.trackGroup) {
+      track.trackGroup.sourceUrl = album.sourceUrl;
+    }
   });
   recordKnownAlbum(album);
   return album;

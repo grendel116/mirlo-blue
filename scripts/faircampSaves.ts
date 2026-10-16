@@ -41,6 +41,22 @@ function publish(): void {
   listeners.forEach((listener) => listener(saves));
 }
 
+function sanitizeAlbum(album: AlbumProps): AlbumProps {
+  const { tracks: _tracks, ...cleanAlbum } = album;
+  return cleanAlbum;
+}
+
+function sanitizeTrack(track: RNTrack): RNTrack {
+  if (!track.trackGroup || typeof track.trackGroup !== "object") {
+    return track;
+  }
+  const { tracks: _tracks, ...cleanTrackGroup } = track.trackGroup as AlbumProps;
+  return {
+    ...track,
+    trackGroup: cleanTrackGroup,
+  };
+}
+
 async function persist(): Promise<void> {
   try {
     const serialized = JSON.stringify(saves, (key, value) => {
@@ -63,8 +79,18 @@ function load(): Promise<void> {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<FaircampSaves>;
         saves = {
-          tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [],
-          albums: Array.isArray(parsed.albums) ? parsed.albums : [],
+          tracks: Array.isArray(parsed.tracks)
+            ? parsed.tracks.map((item) => ({
+                ...item,
+                track: sanitizeTrack(item.track),
+              }))
+            : [],
+          albums: Array.isArray(parsed.albums)
+            ? parsed.albums.map((item) => ({
+                ...item,
+                album: sanitizeAlbum(item.album),
+              }))
+            : [],
         };
       }
       isLoaded = true;
@@ -79,13 +105,14 @@ function load(): Promise<void> {
 
 export async function toggleFaircampTrackLike(track: RNTrack): Promise<void> {
   await load();
-  const key = trackKey(track);
+  const cleanTrack = sanitizeTrack(track);
+  const key = trackKey(cleanTrack);
   const exists = likedTrackKeys.has(key);
   saves = {
     ...saves,
     tracks: exists
       ? saves.tracks.filter((saved) => trackKey(saved.track) !== key)
-      : [{ track, likedAt: Date.now() }, ...saves.tracks],
+      : [{ track: cleanTrack, likedAt: Date.now() }, ...saves.tracks],
   };
   publish();
   await persist();
@@ -96,7 +123,8 @@ export async function toggleFaircampAlbumWishlist(
   displayedTracks: RNTrack[],
 ): Promise<void> {
   await load();
-  const key = albumKey(album);
+  const cleanAlbum = sanitizeAlbum(album);
+  const key = albumKey(cleanAlbum);
   const exists = saves.albums.some((saved) => albumKey(saved.album) === key);
   const trackKeys = new Set(displayedTracks.map(trackKey));
   saves = {
@@ -105,12 +133,12 @@ export async function toggleFaircampAlbumWishlist(
       : [
           ...displayedTracks
             .filter((track) => !likedTrackKeys.has(trackKey(track)))
-            .map((track) => ({ track, likedAt: Date.now() })),
+            .map((track) => ({ track: sanitizeTrack(track), likedAt: Date.now() })),
           ...saves.tracks,
         ],
     albums: exists
       ? saves.albums.filter((saved) => albumKey(saved.album) !== key)
-      : [{ album, savedAt: Date.now() }, ...saves.albums],
+      : [{ album: cleanAlbum, savedAt: Date.now() }, ...saves.albums],
   };
   publish();
   await persist();

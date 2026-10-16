@@ -157,7 +157,8 @@ export function buildCombinedLibraryTracks({
     if (!tg) return;
     const artwork = resolveArtwork(tg);
     const artist = resolveArtist(tg);
-    const entry = { artwork, artist, trackGroup: tg };
+    const { tracks: _tracks, ...cleanTg } = tg;
+    const entry = { artwork, artist, trackGroup: cleanTg };
     if (tg.id !== undefined) {
       albumLookup.set(tg.id, entry);
       albumLookup.set(String(tg.id), entry);
@@ -284,7 +285,7 @@ export function buildCombinedLibraryTracks({
       return;
     }
 
-    const trackGroup = t.trackGroup ||
+    const rawTrackGroup = t.trackGroup ||
       t.album ||
       matched?.trackGroup || {
         id: t.trackGroupId || 0,
@@ -296,6 +297,7 @@ export function buildCombinedLibraryTracks({
         urlSlug: "",
         cover: { sizes: { 300: artwork, 600: artwork, 120: artwork } as any },
       };
+    const { tracks: _tracks, ...trackGroup } = rawTrackGroup;
 
     trackMap.set(mapKey, {
       ...t,
@@ -324,10 +326,11 @@ export function buildCombinedLibraryTracks({
   // 1. Add tracks from full purchased albums
   fullAlbums.forEach((album) => {
     if (!album.tracks || !Array.isArray(album.tracks)) return;
+    const { tracks: _tracks, ...cleanAlbum } = album;
     const albumFallback = {
       artwork: resolveArtwork(album),
       artist: resolveArtist(album),
-      trackGroup: album,
+      trackGroup: cleanAlbum,
     };
     const purchaseDate =
       purchaseDateByAlbumId.get(album.id) ??
@@ -336,7 +339,7 @@ export function buildCombinedLibraryTracks({
     const added = timeOf(purchaseDate || album.releaseDate);
 
     album.tracks.forEach((t: RNTrack) => {
-      addTrackToMap({ ...t, trackGroup: album }, undefined, albumFallback, added);
+      addTrackToMap({ ...t, trackGroup: cleanAlbum }, undefined, albumFallback, added);
     });
   });
 
@@ -504,7 +507,13 @@ export default function LibraryScreen() {
   const purchasedAlbumDescriptors = useMemo(() => {
     const map = new Map<
       number | string,
-      { slug: string; id: string; albumId: number | string; datePurchased?: string }
+      {
+        slug: string;
+        id: string;
+        albumId: number | string;
+        datePurchased?: string;
+        needsFetch: boolean;
+      }
     >();
 
     purchases.forEach((p: any) => {
@@ -514,8 +523,15 @@ export default function LibraryScreen() {
       const albumKey = String(rawId);
       const slug = tg?.urlSlug ? String(tg.urlSlug) : albumKey;
       const id = tg?.artistId ? String(tg.artistId) : albumKey;
+      const hasTracks = Boolean(tg?.tracks && Array.isArray(tg.tracks) && tg.tracks.length > 0);
       if (!map.has(albumKey)) {
-        map.set(albumKey, { slug, id, albumId: rawId, datePurchased: p?.datePurchased });
+        map.set(albumKey, {
+          slug,
+          id,
+          albumId: rawId,
+          datePurchased: p?.datePurchased,
+          needsFetch: !hasTracks,
+        });
       }
     });
 
@@ -525,7 +541,12 @@ export default function LibraryScreen() {
         if (!rawId) return;
         const albumKey = String(rawId);
         if (!map.has(albumKey)) {
-          map.set(albumKey, { slug: albumKey, id: albumKey, albumId: rawId });
+          map.set(albumKey, {
+            slug: albumKey,
+            id: albumKey,
+            albumId: rawId,
+            needsFetch: true,
+          });
         }
       });
     }
@@ -533,11 +554,11 @@ export default function LibraryScreen() {
     return Array.from(map.values());
   }, [purchases, user?.userTrackGroupPurchases]);
 
-  // Fetch full album details (including track list) for all purchased albums
+  // Fetch full album details (including track list) only for purchased albums missing tracks
   const albumQueries = useQueries({
-    queries: purchasedAlbumDescriptors.map((desc) =>
-      queryAlbum({ slug: desc.slug, id: desc.id }),
-    ),
+    queries: purchasedAlbumDescriptors
+      .filter((desc) => desc.needsFetch)
+      .map((desc) => queryAlbum({ slug: desc.slug, id: desc.id })),
   });
 
   const albumQueriesSignature = albumQueries
