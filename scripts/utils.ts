@@ -1,6 +1,7 @@
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { API_ROOT } from "@/constants/api-root";
 import { getTrackPlaysSync, isTrackDisabledSync } from "@/scripts/trackPlayUtils";
+import { findDownload } from "@/scripts/downloadManager";
 import type { TrackType } from "react-native-track-player";
 
 // Mirlo serves every track's audio as an HLS playlist at this path.
@@ -89,6 +90,9 @@ export function isTrackPlayable(
 ): boolean {
   const user = context?.user;
   const trackGroup = context?.trackGroup ?? track.trackGroup;
+
+  // 0. A song saved on this phone always plays from its file
+  if (findDownload({ ...track, trackGroup })) return true;
 
   // 1. Preview tracks are playable unless explicitly disabled or play cap reached
   if (track.isPreview) {
@@ -258,18 +262,3 @@ export const ownsAlbum = (user: LoggedInUser | null | undefined, album: AlbumPro
     !!album.userTrackGroupPurchases?.some((p) => p.userId === user.id) ||
     !!user.userTrackGroupPurchases?.some((p) => p.trackGroupId === album.id));
 
-export const nameKey = (text?: string) =>
-  (text || "").toLowerCase().replace(/[^a-z0-9\u00c0-\uffff]/g, "");
-
-// Two albums are the same when the titles match and one artist name holds the other
-export function sameAlbum(
-  a: { title?: string; artist?: string },
-  b: { title?: string; artist?: string },
-): boolean {
-  const artistA = nameKey(a.artist);
-  const artistB = nameKey(b.artist);
-  return (
-    nameKey(a.title) === nameKey(b.title) &&
-    (artistA.includes(artistB) || artistB.includes(artistA))
-  );
-}

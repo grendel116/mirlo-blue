@@ -93,10 +93,38 @@ export function useDownloads(): DownloadedTrack[] {
   return tracks;
 }
 
-// The saved copy of a song, if there is one
-export function findDownload(trackId: number | undefined): DownloadedTrack | undefined {
-  if (trackId === undefined) return undefined;
-  return downloads.find((t) => t.id === trackId);
+export const nameKey = (text?: string) =>
+  (text || "").toLowerCase().replace(/[^a-z0-9\u00c0-\uffff]/g, "");
+
+// Two albums are the same when the titles match and one artist name holds the other
+export function sameAlbum(
+  a: { title?: string; artist?: string },
+  b: { title?: string; artist?: string },
+): boolean {
+  const artistA = nameKey(a.artist);
+  const artistB = nameKey(b.artist);
+  return (
+    nameKey(a.title) === nameKey(b.title) &&
+    (artistA.includes(artistB) || artistB.includes(artistA))
+  );
+}
+
+// The saved copy of a song: the same Mirlo track, or a phone file with the same title from the
+// same album
+export function findDownload(track: {
+  id?: number;
+  title?: string;
+  trackGroup?: { title?: string; artist?: { name?: string } };
+}): DownloadedTrack | undefined {
+  const byId = track.id === undefined ? undefined : downloads.find((t) => t.id === track.id);
+  if (byId || !track.title || !track.trackGroup?.title) return byId;
+  const album = { title: track.trackGroup.title, artist: track.trackGroup.artist?.name };
+  return downloads.find(
+    (t) =>
+      t.source === "file" &&
+      nameKey(t.title) === nameKey(track.title) &&
+      sameAlbum({ title: t.albumTitle, artist: t.artist }, album),
+  );
 }
 
 // A saved song as a player track
@@ -144,9 +172,59 @@ export function albumKeyOf(track: DownloadedTrack): string {
   return `album:${(track.albumTitle || "Imported Audio").trim().toLowerCase()}`;
 }
 
-// Where a saved album opens: Library > Downloads with the album expanded
-export function savedAlbumHref(albumKey: string) {
-  return { pathname: "/library", params: { tab: "downloads", album: albumKey } } as const;
+// Albums with no Mirlo or Faircamp page get one made from their files, and so do their
+// artists. Their route ids start with "saved-" and hold a short hash of the album key or
+// artist name, which stays safe in a URL
+export const SAVED_PREFIX = "saved-";
+export const SAVED_SOURCE = "On this phone";
+
+function shortHash(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  return (hash >>> 0).toString(36);
+}
+
+export const savedAlbumSlug = (albumKey: string) => SAVED_PREFIX + shortHash(albumKey);
+export const savedArtistSlug = (artist: string) => SAVED_PREFIX + shortHash(nameKey(artist));
+
+function savedAlbumPage(album: DownloadedAlbum): AlbumProps {
+  const art = album.artwork;
+  return {
+    id: album.tracks[0]?.id ?? 0,
+    trackGroupId: 0,
+    releaseDate: "",
+    title: album.title,
+    artistId: 0,
+    urlSlug: savedAlbumSlug(album.key),
+    artist: { name: album.artist, urlSlug: savedArtistSlug(album.artist) } as Artist,
+    cover: { sizes: { 120: art, 300: art, 600: art } } as any,
+    source: SAVED_SOURCE,
+    tracks: album.tracks.map((t) => ({
+      ...downloadToTrack(t),
+      trackArtists: t.artist !== album.artist ? [{ artistName: t.artist }] : undefined,
+    })),
+  } as AlbumProps;
+}
+
+export async function findSavedAlbumPage(slug: string): Promise<AlbumProps> {
+  const albums = groupTracksIntoAlbums(await getDownloadedTracks());
+  const album = albums.find((a) => savedAlbumSlug(a.key) === slug);
+  if (!album) throw new Error("This album is no longer on this phone");
+  return savedAlbumPage(album);
+}
+
+export async function findSavedArtistPage(slug: string): Promise<Artist> {
+  const albums = groupTracksIntoAlbums(await getDownloadedTracks()).filter(
+    (a) => savedArtistSlug(a.artist) === slug,
+  );
+  if (albums.length === 0) throw new Error("This artist is no longer on this phone");
+  return {
+    id: 0,
+    name: albums[0].artist,
+    bio: "",
+    urlSlug: slug,
+    trackGroups: albums.map(savedAlbumPage),
+  } as unknown as Artist;
 }
 
 // Newest albums first, each with its songs in album order

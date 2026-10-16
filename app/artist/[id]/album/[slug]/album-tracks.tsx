@@ -31,6 +31,7 @@ import DownloadAlbumButton from "@/components/DownloadAlbumButton";
 import { theme } from "@/constants/theme";
 import TagPill from "@/components/TagPill";
 import { recordHistoryItem } from "@/scripts/historyManager";
+import { SAVED_SOURCE } from "@/scripts/downloadManager";
 import LoadingScreen from "@/components/LoadingScreen";
 
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
@@ -122,17 +123,28 @@ export default function AlbumTracks() {
 
   useEffect(() => {
     if (!data?.result) return;
-    recordHistoryItem({
-      id: data.result.id,
-      artistId: data.result.artistId,
-      urlSlug: data.result.urlSlug,
-      title: data.result.title,
-      artistName: data.result.artist?.name || "",
-      coverUri:
-        data.result.cover?.sizes?.[300] ||
-        data.result.cover?.sizes?.[600] ||
-        data.result.cover?.sizes?.[120],
-    });
+    const coverUri =
+      data.result.cover?.sizes?.[300] ||
+      data.result.cover?.sizes?.[600] ||
+      data.result.cover?.sizes?.[120];
+    const savedAlbum = (data.result.tracks?.[0] as RNTrack | undefined)?.downloadAlbum;
+    recordHistoryItem(
+      data.result.source === SAVED_SOURCE && savedAlbum
+        ? {
+            downloadAlbum: savedAlbum,
+            title: data.result.title,
+            artistName: data.result.artist?.name || "",
+            coverUri,
+          }
+        : {
+            id: data.result.id,
+            artistId: data.result.artistId,
+            urlSlug: data.result.urlSlug,
+            title: data.result.title,
+            artistName: data.result.artist?.name || "",
+            coverUri,
+          },
+    );
   }, [data?.result]);
 
   const { allTracks: album, playableTracks } = useMemo(() => {
@@ -152,7 +164,7 @@ export default function AlbumTracks() {
 
       data.result.tracks?.forEach((track) => {
         const rawAudioUrl = track.audio?.url || track.url || "";
-        const streamUrl = rawAudioUrl.startsWith("http")
+        const streamUrl = /^(https?|file):\/\//.test(rawAudioUrl)
           ? rawAudioUrl
           : `${API_ROOT}${rawAudioUrl.startsWith("/") ? "" : "/"}${rawAudioUrl}`;
         const trackSource =
@@ -235,6 +247,7 @@ export default function AlbumTracks() {
   }
 
   const selectedAlbum = data.result;
+  const isSavedPage = selectedAlbum.source === SAVED_SOURCE;
   const albumSource =
     selectedAlbum?.source ||
     (selectedAlbum?.tracks?.[0]?.source) ||
@@ -312,17 +325,21 @@ export default function AlbumTracks() {
                   </View>
                 </View>
                 <View style={styles.albumActions}>
-                  <AddAlbumButton
-                    trackGroup={selectedAlbum}
-                    size={36}
-                  />
-                  <DownloadAlbumButton album={selectedAlbum} size={36} />
-                  <WishlistButton
-                    trackGroup={selectedAlbum}
-                    displayedTracks={album}
-                    size={36}
-                    style={{ marginHorizontal: 8 }}
-                  />
+                  {!isSavedPage && (
+                    <>
+                      <AddAlbumButton
+                        trackGroup={selectedAlbum}
+                        size={36}
+                      />
+                      <DownloadAlbumButton album={selectedAlbum} size={36} />
+                      <WishlistButton
+                        trackGroup={selectedAlbum}
+                        displayedTracks={album}
+                        size={36}
+                        style={{ marginHorizontal: 8 }}
+                      />
+                    </>
+                  )}
                   <MemoizedAlbumPlayButton playableTracks={playableTracks} />
                 </View>
               </View>

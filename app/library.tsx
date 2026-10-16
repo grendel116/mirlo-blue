@@ -10,12 +10,12 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useEffect, useMemo, type ComponentProps } from "react";
+import { useState, useMemo, type ComponentProps } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { usePlayer } from "@/state/PlayerContext";
 import { useQuery } from "@tanstack/react-query";
 import { queryUserCollection, queryWishlist } from "@/queries/queries";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
@@ -24,10 +24,11 @@ import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import {
   DownloadedTrack,
   groupTracksIntoAlbums,
+  sameAlbum,
   useDownloads,
 } from "@/scripts/downloadManager";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
-import { ownsAlbum, resolveArtworkUrl, sameAlbum } from "@/scripts/utils";
+import { ownsAlbum, resolveArtworkUrl } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { useFaircampSaves, FaircampSaves } from "@/scripts/faircampSaves";
@@ -142,25 +143,11 @@ export function buildBookmarks({
     .map(({ track }) => track);
 }
 
-export default function LibraryScreen({
-  openAlbum: openAlbumProp,
-  openAlbumTrigger,
-}: {
-  openAlbum?: string;
-  openAlbumTrigger?: number;
-} = {}) {
+export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { playTrack, activeTrack } = usePlayer();
-  // History links a saved album here: ?tab=downloads&album=<album key>
-  const params = useLocalSearchParams<{ tab?: string; album?: string }>();
-  const targetAlbum = openAlbumProp ?? params.album;
-  const [activeTab, setActiveTab] = useState<LibraryTab>(
-    targetAlbum || params.tab === "downloads" ? "downloads" : "wishlist",
-  );
-  useEffect(() => {
-    if (targetAlbum || params.tab === "downloads") setActiveTab("downloads");
-  }, [targetAlbum, openAlbumTrigger, params.tab]);
+  const [activeTab, setActiveTab] = useState<LibraryTab>("wishlist");
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();
   const podcastEpisodeLikes = usePodcastEpisodeLikes();
@@ -405,7 +392,7 @@ export default function LibraryScreen({
         {activeTab === "purchases" && renderPurchases()}
         {activeTab === "bookmarks" && renderBookmarks()}
         {activeTab === "downloads" && (
-          <DownloadsTab openAlbum={targetAlbum} openAlbumTrigger={openAlbumTrigger} />
+          <DownloadsTab />
         )}
       </View>
     </SafeAreaView>

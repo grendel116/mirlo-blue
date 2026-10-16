@@ -18,7 +18,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { usePlayer } from "@/state/PlayerContext";
-import { openSavedAlbum } from "@/components/Footer";
+import { openDownloadedAlbum, openDownloadedArtist } from "@/scripts/albumLookup";
 import Player from "@/components/Player";
 import { useRouter, type Href } from "expo-router";
 import TrackPlayer, { useProgress } from "react-native-track-player";
@@ -334,7 +334,7 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
                 if (!activeTrack?.trackGroup) return;
                 if (activeTrack.downloadAlbum) {
                   close();
-                  openSavedAlbum(activeTrack.downloadAlbum);
+                  openDownloadedAlbum(activeTrack.downloadAlbum);
                   return;
                 }
                 const albumSlug = String(
@@ -376,8 +376,8 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
                     .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
                     .trim() + " "}
             </Text>
-            {/* Saved songs and podcasts have no Mirlo artist page to open */}
-            {activeTrack?.downloadAlbum || activeTrack?.podcastId ? (
+            {/* Podcasts have no artist page to open */}
+            {activeTrack?.podcastId ? (
               <Text style={styles.infoLabel} numberOfLines={1}>
                 {activeTrack.artist}
               </Text>
@@ -385,6 +385,11 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
               <Pressable
                 onPress={() => {
                   if (!activeTrack?.trackGroup) return;
+                  if (activeTrack.downloadAlbum) {
+                    close();
+                    openDownloadedArtist(activeTrack.downloadAlbum);
+                    return;
+                  }
                   const artistPageId = fairplayerReleaseSlug.artistPageRouteId({
                     artistId:
                       activeTrack.trackGroup.artistId ?? activeTrack.trackGroup.artist?.id,

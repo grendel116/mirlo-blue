@@ -163,7 +163,7 @@ function toPlayerTrack(
   fallback: { artwork?: string; artist?: string } = {},
 ): RNTrack {
   const cover = t.trackGroup?.cover as any;
-  const saved = findDownload(t.id);
+  const saved = findDownload(t);
   const streamUrl = saved?.url ?? resolveStreamUrl(t.url || t.audio?.url || "");
   const artwork = resolveArtworkUrl(
     saved?.artwork ||

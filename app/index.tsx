@@ -29,10 +29,10 @@ import { theme } from "@/constants/theme";
 import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
 import {
   openMainTab,
-  openSavedAlbum,
   setMainTab,
   useMainTab,
 } from "@/components/Footer";
+import { openDownloadedAlbum } from "@/scripts/albumLookup";
 import QueueScreen from "@/app/feed";
 import LibraryScreen from "@/app/library";
 import {
@@ -119,7 +119,7 @@ const HOME_QUERIES = new Set([
 
 export default function Index() {
   const router = useRouter();
-  const { tab, savedAlbum, savedAlbumSeq } = useMainTab();
+  const { tab } = useMainTab();
 
   // Android Back returns to Home when on Queue or Library at the root of the stack
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function Index() {
       </View>
       {tab === "queue" && <QueueScreen />}
       {tab === "library" && (
-        <LibraryScreen openAlbum={savedAlbum} openAlbumTrigger={savedAlbumSeq} />
+        <LibraryScreen />
       )}
     </View>
   );
@@ -364,7 +364,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                         key={`${item.downloadAlbum ?? item.id}-${idx}`}
                         onPress={() =>
                           item.downloadAlbum
-                            ? openSavedAlbum(item.downloadAlbum)
+                            ? openDownloadedAlbum(item.downloadAlbum)
                             : router.push({
                                 pathname: "/artist/[id]/album/[slug]/album-tracks",
                                 params: {

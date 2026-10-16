@@ -6,6 +6,7 @@ import FavoriteTrackButton from "./FavoriteTrackButton";
 import AddToQueueButton from "./AddToQueueButton";
 import DownloadTrackButton from "./DownloadTrackButton";
 import { theme } from "@/constants/theme";
+import { SAVED_SOURCE } from "@/scripts/downloadManager";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -125,7 +126,7 @@ export default function PlayPauseWrapper({
           <AddToQueueButton track={trackObject} album={selectedAlbum} size={17} />
         )}
         <FavoriteTrackButton track={trackObject} size={17} />
-        {selectedAlbum && (
+        {selectedAlbum && selectedAlbum.source !== SAVED_SOURCE && (
           <DownloadTrackButton track={trackObject} album={selectedAlbum} />
         )}
         <Text

@@ -14,6 +14,7 @@ import {
   fetchFairplayerArtist,
   isKnownFairplayerArtistId,
 } from "./fairplayer";
+import { SAVED_PREFIX, findSavedAlbumPage, findSavedArtistPage } from "@/scripts/downloadManager";
 
 type UserPurchase = UserTrackPurchase | UserTrackGroupPurchase;
 
@@ -149,6 +150,10 @@ const fetchAlbum: QueryFunction<
   const safeSlug = Array.isArray(slug) ? slug[0] : slug;
   const safeId = Array.isArray(id) ? id[0] : id;
 
+  if (safeSlug.startsWith(SAVED_PREFIX)) {
+    return findSavedAlbumPage(safeSlug).then((result) => ({ result }));
+  }
+
   if (safeId === "fairplayer" || fairplayerReleaseSlug.decode(safeSlug)) {
     return fetchFairplayerAlbum(safeSlug, signal).then((result) => ({
       result,
@@ -200,7 +205,9 @@ export function queryAlbum(opts: {
     queryKey: ["fetchAlbum", opts],
     queryFn: fetchAlbum,
     enabled: !!opts.slug && !!opts.id,
-    staleTime: 5 * 60 * 1000,
+    // Pages made from saved files follow edits right away and load with no connection
+    staleTime: String(opts.slug).startsWith(SAVED_PREFIX) ? 0 : 5 * 60 * 1000,
+    networkMode: String(opts.slug).startsWith(SAVED_PREFIX) ? "always" : "online",
   });
 }
 
@@ -208,6 +215,7 @@ const fetchArtist: QueryFunction<
   Artist,
   ["fetchArtist", { artistSlug: string }]
 > = async ({ queryKey: [_, { artistSlug }], signal }) => {
+  if (artistSlug.startsWith(SAVED_PREFIX)) return findSavedArtistPage(artistSlug);
   if (fairplayerReleaseSlug.decodeArtist(artistSlug)) {
     const fairArtist = await fetchFairplayerArtist(artistSlug, signal);
     if (fairArtist) return fairArtist;
@@ -250,7 +258,8 @@ export function queryArtist(opts: { artistSlug: string }) {
     ],
     queryFn: fetchArtist,
     enabled: !!opts.artistSlug,
-    staleTime: 5 * 60 * 1000,
+    staleTime: opts.artistSlug.startsWith(SAVED_PREFIX) ? 0 : 5 * 60 * 1000,
+    networkMode: opts.artistSlug.startsWith(SAVED_PREFIX) ? "always" : "online",
     retry: false,
   });
 }

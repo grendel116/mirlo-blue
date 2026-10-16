@@ -25,8 +25,6 @@ import {
 export type MainTab = "home" | "queue" | "library";
 
 let currentTab: MainTab = "home";
-let currentSavedAlbum: string | undefined;
-let savedAlbumSeq = 0;
 const tabListeners = new Set<() => void>();
 
 export function setMainTab(tab: MainTab) {
@@ -42,16 +40,6 @@ export function openMainTab(tab: MainTab) {
   }
 }
 
-export function openSavedAlbum(albumKey: string) {
-  currentTab = "library";
-  currentSavedAlbum = albumKey;
-  savedAlbumSeq += 1;
-  tabListeners.forEach((listener) => listener());
-  if (router.canDismiss()) {
-    router.dismissAll();
-  }
-}
-
 export function useMainTab() {
   const [, rerender] = useState(0);
   useEffect(() => {
@@ -61,11 +49,7 @@ export function useMainTab() {
       tabListeners.delete(listener);
     };
   }, []);
-  return {
-    tab: currentTab,
-    savedAlbum: currentSavedAlbum,
-    savedAlbumSeq,
-  };
+  return { tab: currentTab };
 }
 
 function NavTab({

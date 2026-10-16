@@ -1,9 +1,11 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -11,16 +13,11 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import AlbumSongs from "@/components/AlbumSongs";
+import AlbumEditor, { confirmDeleteAlbum } from "@/components/AlbumEditor";
 import { showError } from "@/scripts/showError";
 import { theme } from "@/constants/theme";
-import { usePlayer } from "@/state/PlayerContext";
-import {
-  DownloadedAlbum,
-  downloadToTrack,
-  groupTracksIntoAlbums,
-  useDownloads,
-} from "@/scripts/downloadManager";
+import { DownloadedAlbum, groupTracksIntoAlbums, useDownloads } from "@/scripts/downloadManager";
+import { openDownloadedAlbum } from "@/scripts/albumLookup";
 import {
   OFFLINE_SUPPORTED,
   chooseAlbumCover,
@@ -34,46 +31,47 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
-// Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more.
-// `openAlbum` is an album key to show expanded, as when History links here
-export default memo(function DownloadsTab({
-  openAlbum,
-  openAlbumTrigger,
-}: {
-  openAlbum?: string;
-  openAlbumTrigger?: number;
-}) {
-  const { playTrack, activeTrack, isPlaying, togglePlayPause } = usePlayer();
+// Everything saved on this phone, one row per album like the other Library boxes. Tapping an
+// album opens its page; holding it offers the cover, editing, and delete
+export default memo(function DownloadsTab() {
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
-  const [expandedKey, setExpandedKey] = useState<string | null>(openAlbum ?? null);
-  useEffect(() => {
-    if (openAlbum) setExpandedKey(openAlbum);
-  }, [openAlbum, openAlbumTrigger]);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
   const [importing, setImporting] = useState<"files" | "folder" | null>(null);
 
-  const playAlbum = (album: DownloadedAlbum, start = album.tracks[0]) =>
-    playTrack(downloadToTrack(start), album.tracks.map(downloadToTrack), album.title);
-
-  const handleImportFiles = async () => {
-    setImporting("files");
+  const open = async (album: DownloadedAlbum) => {
+    setOpeningKey(album.key);
     try {
-      const key = await importFiles();
-      if (key) setExpandedKey(key);
-    } catch (err) {
-      showError("Couldn't add files")(err);
+      await openDownloadedAlbum(album.key);
     } finally {
-      setImporting(null);
+      setOpeningKey(null);
     }
   };
 
-  const handleImportFolder = async () => {
-    setImporting("folder");
+  const showTools = (album: DownloadedAlbum) =>
+    Alert.alert(
+      album.title,
+      undefined,
+      [
+        {
+          text: "Change cover",
+          onPress: () => chooseAlbumCover(album).catch(showError("Couldn't set cover")),
+        },
+        { text: "Edit", onPress: () => setEditingKey(album.key) },
+        { text: "Delete", style: "destructive", onPress: () => confirmDeleteAlbum(album) },
+        // Android shows three buttons at most and closes on a tap outside instead
+        ...(Platform.OS === "ios" ? [{ text: "Cancel", style: "cancel" as const }] : []),
+      ],
+      { cancelable: true },
+    );
+
+  const runImport = async (kind: "files" | "folder") => {
+    setImporting(kind);
     try {
-      const key = await importFolder();
-      if (key) setExpandedKey(key);
+      await (kind === "files" ? importFiles() : importFolder());
     } catch (err) {
-      showError("Couldn't add folder")(err);
+      showError(kind === "files" ? "Couldn't add files" : "Couldn't add folder")(err);
     } finally {
       setImporting(null);
     }
@@ -92,7 +90,7 @@ export default memo(function DownloadsTab({
         {OFFLINE_SUPPORTED && (
           <View style={styles.barActions}>
             <TouchableOpacity
-              onPress={handleImportFiles}
+              onPress={() => runImport("files")}
               disabled={importing !== null}
               style={styles.addButton}
               accessibilityLabel="Add audio or zip files from this phone"
@@ -105,7 +103,7 @@ export default memo(function DownloadsTab({
               <Text style={styles.addButtonText}>Add files</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={handleImportFolder}
+              onPress={() => runImport("folder")}
               disabled={importing !== null}
               style={styles.folderButton}
               accessibilityLabel="Add folder from this phone"
@@ -136,89 +134,54 @@ export default memo(function DownloadsTab({
           data={albums}
           keyExtractor={(album) => album.key}
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={5}
           contentContainerStyle={styles.list}
-          renderItem={({ item: album }) => {
-            const expanded = expandedKey === album.key;
-            const toggle = () => setExpandedKey(expanded ? null : album.key);
-            const isAlbumActive = Boolean(
-              activeTrack &&
-                album.tracks.some(
-                  (t) =>
-                    (t.id !== undefined && t.id === activeTrack.id) ||
-                    (Boolean(t.url) && t.url === activeTrack.url),
-                ),
-            );
-            return (
-              <View style={[styles.card, expanded && styles.cardExpanded]}>
-                <View style={styles.header}>
-                  <TouchableOpacity
-                    onPress={() => chooseAlbumCover(album).catch(showError("Couldn't set cover"))}
-                    style={styles.coverWrap}
-                    accessibilityLabel="Change album cover"
-                  >
-                    {album.artwork ? (
-                      <Image source={{ uri: album.artwork }} style={styles.cover} />
-                    ) : (
-                      <View style={[styles.cover, styles.coverEmpty]}>
-                        <Ionicons name="image-outline" size={22} color={theme.colors.primary} />
-                        <Text style={styles.coverHint}>+ Cover</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-
-                  <Pressable style={styles.meta} onPress={toggle}>
-                    <Text style={styles.albumTitle} numberOfLines={1}>
-                      {album.title}
-                    </Text>
-                    <Text style={styles.albumArtist} numberOfLines={1}>
-                      {album.artist}
-                    </Text>
-                    <Text style={styles.albumInfo}>
-                      {album.tracks.length} {album.tracks.length === 1 ? "song" : "songs"} •{" "}
-                      {formatBytes(album.totalBytes)}
-                    </Text>
-                  </Pressable>
-
-                  <TouchableOpacity
-                    onPress={() => (isAlbumActive ? togglePlayPause() : playAlbum(album))}
-                    style={styles.playButton}
-                    accessibilityLabel={`${isAlbumActive && isPlaying ? "Pause" : "Play"} ${album.title}`}
-                  >
-                    <Ionicons
-                      name={isAlbumActive && isPlaying ? "pause" : "play"}
-                      size={18}
-                      color={theme.colors.playButtonIcon}
-                      style={
-                        isAlbumActive && isPlaying
-                          ? undefined
-                          : { transform: [{ translateX: 1.5 }] }
-                      }
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={toggle}
-                    style={styles.chevron}
-                    accessibilityLabel={expanded ? "Collapse" : "Expand"}
-                  >
-                    <Ionicons
-                      name={expanded ? "chevron-up" : "chevron-down"}
-                      size={20}
-                      color={theme.colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                {expanded && (
-                  <AlbumSongs
-                    album={album}
-                    activeId={activeTrack?.id}
-                    onPlay={(track) => playAlbum(album, track)}
-                    onKeyChange={setExpandedKey}
-                  />
+          renderItem={({ item: album }) => (
+            <View style={[styles.card, editingKey === album.key && styles.cardEditing]}>
+              <Pressable
+                onPress={() => open(album)}
+                onLongPress={() => showTools(album)}
+                disabled={openingKey !== null}
+                style={styles.row}
+                accessibilityHint="Hold for cover, edit, and delete"
+              >
+                {album.artwork ? (
+                  <Image source={{ uri: album.artwork }} style={styles.thumb} />
+                ) : (
+                  <View style={[styles.thumb, styles.placeholder]}>
+                    <Ionicons name="musical-notes" size={20} color={theme.colors.primary} />
+                  </View>
                 )}
-              </View>
-            );
-          }}
+                <View style={styles.info}>
+                  <Text style={styles.title} numberOfLines={1}>
+                    {album.title}
+                  </Text>
+                  <Text style={styles.artist} numberOfLines={1}>
+                    {album.artist}
+                  </Text>
+                  <Text style={styles.meta}>
+                    {album.tracks.length} {album.tracks.length === 1 ? "song" : "songs"} •{" "}
+                    {formatBytes(album.totalBytes)}
+                  </Text>
+                </View>
+                {openingKey === album.key ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+                )}
+              </Pressable>
+
+              {editingKey === album.key && (
+                <AlbumEditor
+                  album={album}
+                  onKeyChange={setEditingKey}
+                  onDone={() => setEditingKey(null)}
+                />
+              )}
+            </View>
+          )}
         />
       )}
     </KeyboardAvoidingView>
@@ -265,43 +228,29 @@ const styles = StyleSheet.create({
   empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 10 },
   emptyTitle: { color: theme.colors.textPrimary, fontSize: 16, fontWeight: "700" },
   emptyText: { color: theme.colors.textSecondary, fontSize: 13, textAlign: "center" },
-  list: { padding: 12, paddingBottom: 40 },
+  list: { padding: 12, paddingBottom: 80 },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
-    padding: 12,
-    marginBottom: 10,
+    padding: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.surfaceCardBorder,
   },
-  cardExpanded: {
+  cardEditing: {
     borderColor: theme.colors.primary,
     backgroundColor: theme.colors.surfaceElevated,
   },
-  header: { flexDirection: "row", alignItems: "center" },
-  coverWrap: {
-    width: 60,
-    height: 60,
+  row: { flexDirection: "row", alignItems: "center" },
+  thumb: {
+    width: 48,
+    height: 48,
     borderRadius: theme.radius.sm,
-    overflow: "hidden",
     backgroundColor: theme.colors.surfaceElevated,
   },
-  cover: { width: "100%", height: "100%" },
-  coverEmpty: { justifyContent: "center", alignItems: "center" },
-  coverHint: { fontSize: 9, fontWeight: "700", color: theme.colors.primary, marginTop: 2 },
-  meta: { flex: 1, marginLeft: 12, justifyContent: "center" },
-  albumTitle: { color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" },
-  albumArtist: { color: theme.colors.textCyan, fontSize: 13, marginTop: 2 },
-  albumInfo: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 3 },
-  playButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    marginLeft: 8,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chevron: { padding: 6 },
+  placeholder: { justifyContent: "center", alignItems: "center" },
+  info: { flex: 1, marginLeft: 12 },
+  title: { color: theme.colors.textPrimary, fontSize: 14, fontWeight: "600" },
+  artist: { color: theme.colors.textCyan, fontSize: 12, marginTop: 2 },
+  meta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
 });
-

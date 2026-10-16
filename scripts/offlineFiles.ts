@@ -371,6 +371,32 @@ function safeFileName(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
 }
 
+// A phone file is the same file when its name and size match. Saved copies are named
+// `<time>-<index>-<original name>`, so files added earlier are recognized too
+function sourceKey(name: string, bytes: number | null | undefined): string {
+  return `${safeFileName(name)}:${bytes ?? ""}`;
+}
+
+async function addedFileKeys(): Promise<Set<string>> {
+  const tracks = await getDownloadedTracks();
+  return new Set(
+    tracks
+      .filter((t) => t.source === "file")
+      .map((t) => {
+        const savedName = decodeURIComponent(t.url.split("/").pop() || "");
+        return sourceKey(savedName.replace(/^\d+-\d+-/, ""), t.bytes);
+      }),
+  );
+}
+
+// True the first time a file is seen; later copies, in Downloads or in this pick, are skipped
+function isNewFile(known: Set<string>, name: string, bytes: number | null | undefined) {
+  const key = sourceKey(name, bytes);
+  if (known.has(key)) return false;
+  known.add(key);
+  return true;
+}
+
 // Moves a file the picker handed us into app storage, so no copy is left in the cache
 function adopt(pickedUri: string, destination: File): void {
   const source = new File(pickedUri);
@@ -437,9 +463,12 @@ async function ingestUnpackedDir(
   now: number,
   startIndex: number,
   covers: Map<string, string>,
+  known: Set<string>,
 ): Promise<DownloadedTrack[]> {
   const allFiles = filesIn(dir);
-  const audioFiles = allFiles.filter((f) => AUDIO_FILE.test(f.name));
+  const audioFiles = allFiles.filter(
+    (f) => AUDIO_FILE.test(f.name) && isNewFile(known, f.name, f.size),
+  );
   if (audioFiles.length === 0) return [];
 
   let folderCover: string | undefined;
@@ -488,6 +517,7 @@ export async function importFiles(): Promise<string | null> {
   const folder = downloadsFolder("files");
   const now = Date.now();
   const covers = new Map<string, string>();
+  const known = await addedFileKeys();
   const saved: DownloadedTrack[] = [];
   let index = 0;
 
@@ -505,6 +535,7 @@ export async function importFiles(): Promise<string | null> {
           now,
           index,
           covers,
+          known,
         );
         saved.push(...zipTracks);
         index += zipTracks.length + 1;
@@ -515,6 +546,10 @@ export async function importFiles(): Promise<string | null> {
       continue;
     }
 
+    if (!isNewFile(known, asset.name, asset.size)) {
+      deleteQuietly(asset.uri);
+      continue;
+    }
     const file = new File(
       folder,
       `${now}-${index}-${safeFileName(asset.name)}`,
@@ -541,6 +576,7 @@ export async function importFolder(): Promise<string | null> {
   const destFolder = downloadsFolder("files");
   const now = Date.now();
   const covers = new Map<string, string>();
+  const known = await addedFileKeys();
   const saved: DownloadedTrack[] = [];
   let index = 0;
 
@@ -560,7 +596,7 @@ export async function importFolder(): Promise<string | null> {
       }
       const name = cleanEntryName(entry.uri);
       if (AUDIO_FILE.test(name)) {
-        audioEntries.push(entry);
+        if (isNewFile(known, name, entry.size)) audioEntries.push(entry);
       } else if (ZIP_FILE.test(name)) {
         zipEntries.push(entry);
       } else if (!imageEntry && IMAGE_FILE.test(name)) {
@@ -621,6 +657,7 @@ export async function importFolder(): Promise<string | null> {
           now,
           index,
           covers,
+          known,
         );
         saved.push(...zipTracks);
         index += zipTracks.length + 1;
