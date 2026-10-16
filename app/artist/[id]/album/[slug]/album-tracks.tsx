@@ -163,6 +163,8 @@ export default function AlbumTracks() {
           resolveFeedSourceName(data.result.tracks?.[0]?.url || data.result.tracks?.[0]?.audio?.url);
         data.result.source = fallbackAlbumSource;
 
+        const resolvedAlbumId = data.result.id || data.result.trackGroupId;
+
         if (data.result.tracks) {
           data.result.tracks.forEach((track) => {
             const rawAudioUrl = track.audio?.url || track.url || "";
@@ -174,6 +176,7 @@ export default function AlbumTracks() {
               data.result.source ||
               (streamUrl.startsWith("http") ? resolveFeedSourceName(streamUrl) : "Mirlo Space");
             const trackSourceUrl = track.sourceUrl || data.result.sourceUrl;
+            const trackAlbumId = resolvedAlbumId || track.trackGroupId;
 
             const newTrack: RNTrack = {
               title: track.title,
@@ -184,7 +187,7 @@ export default function AlbumTracks() {
               id: track.id,
               trackArtists: track.trackArtists,
               queueIndex: track.order,
-              trackGroupId: data.result.trackGroupId,
+              trackGroupId: trackAlbumId,
               trackGroup: {
                 userTrackGroupPurchases: data.result.userTrackGroupPurchases,
                 artistId: data.result.artistId,
@@ -194,7 +197,7 @@ export default function AlbumTracks() {
                 artist: data.result.artist,
                 id: data.result.id,
                 releaseDate: data.result.releaseDate,
-                trackGroupId: data.result.trackGroupId,
+                trackGroupId: trackAlbumId,
                 source: trackSource,
                 sourceUrl: trackSourceUrl,
                 purchaseLinks: data.result.purchaseLinks,
@@ -284,7 +287,7 @@ export default function AlbumTracks() {
               />
             ) : null
           }
-          ListHeaderComponent={() => (
+          ListHeaderComponent={
             <View style={styles.headerSection}>
               <View style={styles.coverWrapper}>
                 <Image
@@ -340,8 +343,8 @@ export default function AlbumTracks() {
                 </View>
               </View>
             </View>
-          )}
-          ListFooterComponent={() => (
+          }
+          ListFooterComponent={
             <View style={styles.footerSection}>
               <Text style={styles.aboutHeader}>
                 {t("trackGroupDetails.about")}
@@ -404,7 +407,7 @@ export default function AlbumTracks() {
                 ))}
               </View>
             </View>
-          )}
+          }
         />
       </View>
     </SafeAreaView>

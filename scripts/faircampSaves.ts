@@ -60,20 +60,66 @@ function load(): Promise<void> {
   return loaded;
 }
 
+function trackBelongsToAlbum(track: RNTrack, targetAlbumKey: string): boolean {
+  if (track.trackGroup) {
+    return albumKey(track.trackGroup as AlbumProps) === targetAlbumKey;
+  }
+  if (track.trackGroupId !== undefined) {
+    return String(track.trackGroupId) === targetAlbumKey;
+  }
+  return false;
+}
+
 export async function toggleFaircampTrackLike(track: RNTrack): Promise<void> {
   await load();
   const key = trackKey(track);
   const exists = saves.tracks.some((saved) => trackKey(saved.track) === key);
+  const hasAlbum = Boolean(
+    track.trackGroup && (track.trackGroup.urlSlug || track.trackGroup.id),
+  );
   const { tracks: _tracks, ...cleanTrackGroup } = (track.trackGroup || {}) as AlbumProps;
-  const cleanTrack = track.trackGroup ? { ...track, trackGroup: cleanTrackGroup } : track;
+  const cleanTrack = hasAlbum ? { ...track, trackGroup: cleanTrackGroup } : track;
+  const nextTracks = exists
+    ? saves.tracks.filter((saved) => trackKey(saved.track) !== key)
+    : [{ track: cleanTrack, likedAt: Date.now() }, ...saves.tracks];
+
+  let nextAlbums = saves.albums;
+  if (hasAlbum) {
+    const targetAlbumKey = albumKey(cleanTrackGroup);
+    if (!exists) {
+      if (!saves.albums.some((saved) => albumKey(saved.album) === targetAlbumKey)) {
+        nextAlbums = [{ album: cleanTrackGroup, savedAt: Date.now() }, ...saves.albums];
+      }
+    } else {
+      const anyTrackStillLiked = nextTracks.some((saved) =>
+        trackBelongsToAlbum(saved.track, targetAlbumKey),
+      );
+      if (!anyTrackStillLiked) {
+        nextAlbums = saves.albums.filter(
+          (saved) => albumKey(saved.album) !== targetAlbumKey,
+        );
+      }
+    }
+  }
+
   saves = {
-    ...saves,
-    tracks: exists
-      ? saves.tracks.filter((saved) => trackKey(saved.track) !== key)
-      : [{ track: cleanTrack, likedAt: Date.now() }, ...saves.tracks],
+    tracks: nextTracks,
+    albums: nextAlbums,
   };
   publish();
   await persist();
+}
+
+export function isFaircampAlbumWishlisted(
+  album: { id?: number; urlSlug?: string },
+  currentSaves: FaircampSaves = saves,
+): boolean {
+  const key = album.urlSlug || String(album.id);
+  if (!key || key === "undefined") return false;
+  return (
+    currentSaves.albums.some((saved) => albumKey(saved.album) === key) ||
+    currentSaves.tracks.some((saved) => trackBelongsToAlbum(saved.track, key))
+  );
 }
 
 export async function toggleFaircampAlbumWishlist(
@@ -83,11 +129,15 @@ export async function toggleFaircampAlbumWishlist(
   await load();
   const { tracks: _tracks, ...cleanAlbum } = album;
   const key = albumKey(cleanAlbum);
-  const exists = saves.albums.some((saved) => albumKey(saved.album) === key);
+  const exists = isFaircampAlbumWishlisted(cleanAlbum, saves);
   const trackKeys = new Set(displayedTracks.map(trackKey));
   saves = {
     tracks: exists
-      ? saves.tracks.filter((saved) => !trackKeys.has(trackKey(saved.track)))
+      ? saves.tracks.filter(
+          (saved) =>
+            !trackKeys.has(trackKey(saved.track)) &&
+            !trackBelongsToAlbum(saved.track, key),
+        )
       : [
           ...displayedTracks
             .filter(
@@ -95,14 +145,17 @@ export async function toggleFaircampAlbumWishlist(
                 !saves.tracks.some((saved) => trackKey(saved.track) === trackKey(track)),
             )
             .map((track) => ({
-              track: track.trackGroup ? { ...track, trackGroup: cleanAlbum } : track,
+              track: { ...track, trackGroup: cleanAlbum },
               likedAt: Date.now(),
             })),
           ...saves.tracks,
         ],
     albums: exists
       ? saves.albums.filter((saved) => albumKey(saved.album) !== key)
-      : [{ album: cleanAlbum, savedAt: Date.now() }, ...saves.albums],
+      : [
+          { album: cleanAlbum, savedAt: Date.now() },
+          ...saves.albums.filter((saved) => albumKey(saved.album) !== key),
+        ],
   };
   publish();
   await persist();
@@ -130,7 +183,9 @@ export function isFaircampAlbum(album: {
   urlSlug?: string;
 }): boolean {
   return (
-    album.source === "Faircamp" || album.urlSlug?.startsWith("fairplayer-") === true
+    album.source === "Faircamp" ||
+    album.urlSlug?.startsWith("fairplayer-") === true ||
+    Boolean(album.source && album.source !== "Mirlo Space")
   );
 }
 
@@ -138,9 +193,10 @@ export function isFaircampTrack(track: {
   source?: string;
   trackGroup?: { source?: string; urlSlug?: string };
 }): boolean {
+  const source = track.source || track.trackGroup?.source;
   return (
-    track.source === "Faircamp" ||
-    track.trackGroup?.source === "Faircamp" ||
-    track.trackGroup?.urlSlug?.startsWith("fairplayer-") === true
+    source === "Faircamp" ||
+    track.trackGroup?.urlSlug?.startsWith("fairplayer-") === true ||
+    Boolean(source && source !== "Mirlo Space")
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -9,11 +10,10 @@ import {
   Pressable,
 } from "react-native";
 import { useProgress } from "react-native-track-player";
-import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import { useMiniPlayerGesture } from "@/state/NowPlayingSheet";
+import { openNowPlaying } from "@/components/NowPlaying";
 import { router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
@@ -22,23 +22,57 @@ import {
   resolveArtworkUrl,
 } from "@/scripts/utils";
 
-export default function Footer({ style }: ViewProps) {
-  const { bottom } = useSafeAreaInsets();
-  const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
-  const miniPlayerGesture = useMiniPlayerGesture();
-  const progress = useProgress(1000);
-  const pathname = usePathname();
+export type MainTab = "home" | "queue" | "library";
 
-  const isTrackScreen = pathname.includes("/tracks/") || pathname.endsWith("/tracks");
+let currentTab: MainTab = "home";
+let currentSavedAlbum: string | undefined;
+let savedAlbumSeq = 0;
+const tabListeners = new Set<() => void>();
 
-  // Tabs sit at the bottom of the stack: going to one closes any pages opened over them
-  const openTab = (href: "/" | "/feed" | "/library") => {
-    if (pathname === href) return;
-    if (router.canDismiss()) router.dismissAll();
-    router.navigate(href);
+export function setMainTab(tab: MainTab) {
+  if (currentTab === tab) return;
+  currentTab = tab;
+  tabListeners.forEach((listener) => listener());
+}
+
+export function openMainTab(tab: MainTab) {
+  if (currentTab !== tab) {
+    currentTab = tab;
+    tabListeners.forEach((listener) => listener());
+  }
+  if (router.canDismiss()) {
+    router.dismissAll();
+  }
+}
+
+export function openSavedAlbum(albumKey: string) {
+  currentTab = "library";
+  currentSavedAlbum = albumKey;
+  savedAlbumSeq += 1;
+  tabListeners.forEach((listener) => listener());
+  if (router.canDismiss()) {
+    router.dismissAll();
+  }
+}
+
+export function useMainTab() {
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    const listener = () => rerender((n) => n + 1);
+    tabListeners.add(listener);
+    return () => {
+      tabListeners.delete(listener);
+    };
+  }, []);
+  return {
+    tab: currentTab,
+    savedAlbum: currentSavedAlbum,
+    savedAlbumSeq,
   };
+}
 
-  const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
+function MiniPlayerProgressBar({ isLiveSet }: { isLiveSet: boolean }) {
+  const progress = useProgress(1000);
   const duration = isLiveSet ? RADIO_SET_SECONDS : progress.duration;
   const progressPercent =
     duration > 0
@@ -46,42 +80,61 @@ export default function Footer({ style }: ViewProps) {
       : 0;
 
   return (
+    <View style={styles.progressBarBg}>
+      <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+    </View>
+  );
+}
+
+export default function Footer({ style }: ViewProps) {
+  const { bottom } = useSafeAreaInsets();
+  const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
+  const { tab } = useMainTab();
+  const pathname = usePathname();
+
+  const isTrackScreen = pathname.includes("/tracks/") || pathname.endsWith("/tracks");
+  const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
+
+  const activeTab: MainTab | null =
+    pathname === "/"
+      ? tab
+      : pathname === "/feed"
+        ? "queue"
+        : pathname === "/library"
+          ? "library"
+          : null;
+
+  return (
     <View style={[styles.container, style]}>
       {/* Glossy Docked Mini-Player when a track is active and not on dedicated track / player screen */}
       {activeTrack && !isTrackScreen && (
         <View style={styles.miniPlayer}>
-          {/* Progress bar line */}
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-          </View>
+          <MiniPlayerProgressBar isLiveSet={isLiveSet} />
 
-          <GestureDetector gesture={miniPlayerGesture}>
-            <View
-              style={styles.miniPlayerContent}
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="Open now playing"
-              accessibilityHint="Drag up or tap to open"
-            >
-              <Image
-                source={
-                  isQualityArtwork(activeTrack.artwork)
-                    ? { uri: resolveArtworkUrl(activeTrack.artwork) }
-                    : undefined
-                }
-                style={styles.miniArtwork}
-              />
+          <Pressable
+            onPress={openNowPlaying}
+            style={styles.miniPlayerContent}
+            accessibilityRole="button"
+            accessibilityLabel="Open now playing"
+          >
+            <Image
+              source={
+                isQualityArtwork(activeTrack.artwork)
+                  ? { uri: resolveArtworkUrl(activeTrack.artwork) }
+                  : undefined
+              }
+              style={styles.miniArtwork}
+            />
 
-              <View style={styles.miniTrackInfo}>
-                <Text style={styles.miniTitle} numberOfLines={1}>
-                  {activeTrack.title}
-                </Text>
-                <Text style={styles.miniArtist} numberOfLines={1}>
-                  {activeTrack.artist}
-                </Text>
-              </View>
+            <View style={styles.miniTrackInfo}>
+              <Text style={styles.miniTitle} numberOfLines={1}>
+                {activeTrack.title}
+              </Text>
+              <Text style={styles.miniArtist} numberOfLines={1}>
+                {activeTrack.artist}
+              </Text>
             </View>
-          </GestureDetector>
+          </Pressable>
 
           <View style={styles.miniControls}>
             <TouchableOpacity
@@ -121,20 +174,23 @@ export default function Footer({ style }: ViewProps) {
       >
         {/* Tab 1: Home */}
         <Pressable
-          onPress={() => openTab("/")}
+          onPressIn={() => {
+            if (pathname === "/") setMainTab("home");
+          }}
+          onPress={() => openMainTab("home")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Home"
         >
           <Ionicons
-            name={pathname === "/" ? "home" : "home-outline"}
+            name={activeTab === "home" ? "home" : "home-outline"}
             size={24}
-            color={pathname === "/" ? theme.colors.primary : theme.colors.textSecondary}
+            color={activeTab === "home" ? theme.colors.primary : theme.colors.textSecondary}
           />
           <Text
             style={[
               styles.navLabel,
-              pathname === "/" && styles.navLabelActive,
+              activeTab === "home" && styles.navLabelActive,
             ]}
           >
             Home
@@ -143,18 +199,21 @@ export default function Footer({ style }: ViewProps) {
 
         {/* Tab 2: Queue */}
         <Pressable
-          onPress={() => openTab("/feed")}
+          onPressIn={() => {
+            if (pathname === "/") setMainTab("queue");
+          }}
+          onPress={() => openMainTab("queue")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Queue"
         >
           <StackedBoxesIcon
-            color={pathname === "/feed" ? theme.colors.primary : theme.colors.textSecondary}
+            color={activeTab === "queue" ? theme.colors.primary : theme.colors.textSecondary}
           />
           <Text
             style={[
               styles.navLabel,
-              pathname === "/feed" && styles.navLabelActive,
+              activeTab === "queue" && styles.navLabelActive,
             ]}
           >
             Queue
@@ -163,18 +222,21 @@ export default function Footer({ style }: ViewProps) {
 
         {/* Tab 3: Consolidated Library (Likes, Wishlist & Purchases) */}
         <Pressable
-          onPress={() => openTab("/library")}
+          onPressIn={() => {
+            if (pathname === "/") setMainTab("library");
+          }}
+          onPress={() => openMainTab("library")}
           style={styles.navTab}
           accessibilityRole="button"
           accessibilityLabel="Library"
         >
           <SimpleLibraryIcon
-            color={pathname === "/library" ? theme.colors.primary : theme.colors.textSecondary}
+            color={activeTab === "library" ? theme.colors.primary : theme.colors.textSecondary}
           />
           <Text
             style={[
               styles.navLabel,
-              pathname === "/library" && styles.navLabelActive,
+              activeTab === "library" && styles.navLabelActive,
             ]}
           >
             Library

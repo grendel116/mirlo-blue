@@ -9,6 +9,7 @@ import { AUTH_PROFILE_QUERY_KEY } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
 import {
   isFaircampAlbum,
+  isFaircampAlbumWishlisted,
   toggleFaircampAlbumWishlist,
   useFaircampSaves,
 } from "@/scripts/faircampSaves";
@@ -16,6 +17,7 @@ import {
 type WishlistButtonProps = {
   trackGroup: {
     id: number;
+    trackGroupId?: number;
     source?: string;
     urlSlug?: string;
     tracks?: RNTrack[];
@@ -58,10 +60,8 @@ function FaircampWishlistButton({
   style,
   size,
 }: WishlistButtonProps) {
-  const { albums } = useFaircampSaves();
-  const isInWishlist = albums.some(
-    (saved) => saved.album.urlSlug === trackGroup.urlSlug,
-  );
+  const saves = useFaircampSaves();
+  const isInWishlist = isFaircampAlbumWishlisted(trackGroup, saves);
   const tracks =
     displayedTracks && displayedTracks.length > 0
       ? displayedTracks
@@ -85,6 +85,15 @@ function FaircampWishlistButton({
   );
 }
 
+function favoriteAlbumId(fav: any): number | undefined {
+  return (
+    fav?.track?.trackGroupId ??
+    fav?.track?.trackGroup?.id ??
+    fav?.track?.trackGroup?.trackGroupId ??
+    fav?.trackGroupId
+  );
+}
+
 function MirloWishlistButton({
   trackGroup,
   displayedTracks,
@@ -96,8 +105,31 @@ function MirloWishlistButton({
   // Follows the account's wishlist; a tap shows right away until the account data refreshes
   const [tapped, setTapped] = useState<boolean | null>(null);
   useEffect(() => setTapped(null), [user]);
+
+  const albumId = trackGroup.id || trackGroup.trackGroupId;
+  const rawTracks =
+    displayedTracks && displayedTracks.length > 0
+      ? displayedTracks
+      : trackGroup.tracks || [];
+  const targetTracks = rawTracks.filter(
+    (t) => t && typeof t.id === "number" && t.id > 0,
+  );
+  const targetTrackIds = new Set(targetTracks.map((t) => t.id));
+
+  const hasLikedTrackOnAlbum = Boolean(
+    user?.trackFavorites?.some(
+      (f) =>
+        targetTrackIds.has(f.trackId) ||
+        (albumId !== undefined && favoriteAlbumId(f) === albumId),
+    ),
+  );
+
   const isInWishlist =
-    tapped ?? !!user?.wishlist?.some((w) => w.trackGroupId === trackGroup.id);
+    tapped ??
+    Boolean(
+      user?.wishlist?.some((w) => w.trackGroupId === albumId) ||
+        hasLikedTrackOnAlbum,
+    );
   const router = useRouter();
 
   const onPress = useCallback(async () => {
@@ -111,16 +143,6 @@ function MirloWishlistButton({
     const nextState = !isInWishlist;
     setTapped(nextState);
 
-    // Only target displayed tracks that are valid (or trackGroup.tracks as fallback)
-    const rawTracks =
-      displayedTracks && displayedTracks.length > 0
-        ? displayedTracks
-        : trackGroup.tracks || [];
-    const targetTracks = rawTracks.filter(
-      (t) => t && typeof t.id === "number" && t.id > 0,
-    );
-    const targetTrackIds = new Set(targetTracks.map((t) => t.id));
-
     // Optimistically update AUTH_PROFILE_QUERY_KEY so user.trackFavorites and user.wishlist update immediately
     queryClient.setQueryData<LoggedInUser | null>(
       AUTH_PROFILE_QUERY_KEY,
@@ -130,15 +152,15 @@ function MirloWishlistButton({
         // 1. Update wishlist
         let updatedWishlist = prevUser.wishlist ? [...prevUser.wishlist] : [];
         if (nextState) {
-          if (!updatedWishlist.some((w) => w.trackGroupId === trackGroup.id)) {
+          if (!updatedWishlist.some((w) => w.trackGroupId === albumId)) {
             updatedWishlist.push({
               userId: prevUser.id,
-              trackGroupId: trackGroup.id,
+              trackGroupId: albumId,
             });
           }
         } else {
           updatedWishlist = updatedWishlist.filter(
-            (w) => w.trackGroupId !== trackGroup.id,
+            (w) => w.trackGroupId !== albumId,
           );
         }
 
@@ -153,7 +175,11 @@ function MirloWishlistButton({
               updatedFavorites.push({
                 userId: prevUser.id,
                 trackId: track.id,
-                track,
+                track: {
+                  ...track,
+                  trackGroupId: albumId,
+                  trackGroup: track.trackGroup || (trackGroup as AlbumProps),
+                },
                 createdAt: new Date(),
               });
             }
@@ -162,8 +188,7 @@ function MirloWishlistButton({
           updatedFavorites = updatedFavorites.filter(
             (f) =>
               !targetTrackIds.has(f.trackId) &&
-              f.track?.trackGroupId !== trackGroup.id &&
-              (f as any).trackGroupId !== trackGroup.id,
+              favoriteAlbumId(f) !== albumId,
           );
         }
 
@@ -181,13 +206,13 @@ function MirloWishlistButton({
       (prev: any) => {
         if (!prev || !prev.results) return prev;
         if (nextState) {
-          if (!prev.results.some((r: any) => r.trackGroupId === trackGroup.id)) {
+          if (!prev.results.some((r: any) => r.trackGroupId === albumId)) {
             return {
               ...prev,
               results: [
                 {
                   userId: user.id,
-                  trackGroupId: trackGroup.id,
+                  trackGroupId: albumId,
                   trackGroup,
                   createdAt: new Date(),
                 },
@@ -200,7 +225,7 @@ function MirloWishlistButton({
           return {
             ...prev,
             results: prev.results.filter(
-              (r: any) => r.trackGroupId !== trackGroup.id,
+              (r: any) => r.trackGroupId !== albumId,
             ),
           };
         }
@@ -209,7 +234,7 @@ function MirloWishlistButton({
 
     try {
       const calls: Promise<unknown>[] = [
-        api.post(`/v1/trackGroups/${trackGroup.id}/wishlist`, {
+        api.post(`/v1/trackGroups/${albumId}/wishlist`, {
           wishlist: nextState,
         }),
       ];
@@ -218,10 +243,7 @@ function MirloWishlistButton({
       const tracksToSyncIds = new Set(targetTrackIds);
       if (!nextState && user.trackFavorites) {
         user.trackFavorites.forEach((f) => {
-          if (
-            f.track?.trackGroupId === trackGroup.id ||
-            (f as any).trackGroupId === trackGroup.id
-          ) {
+          if (favoriteAlbumId(f) === albumId) {
             tracksToSyncIds.add(f.trackId);
           }
         });
@@ -249,8 +271,10 @@ function MirloWishlistButton({
     }
   }, [
     isInWishlist,
+    albumId,
     trackGroup,
-    displayedTracks,
+    targetTracks,
+    targetTrackIds,
     user,
     queryClient,
     refreshLoggedInUser,

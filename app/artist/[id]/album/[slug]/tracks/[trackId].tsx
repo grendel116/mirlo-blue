@@ -59,6 +59,8 @@ export default function TrackView() {
         );
 
         if (filteredTrack) {
+          const resolvedAlbumId =
+            data.result.id || data.result.trackGroupId || filteredTrack.trackGroupId;
           filteredTrack.trackGroup = {
             userTrackGroupPurchases: data.result.userTrackGroupPurchases,
             artistId: data.result.artistId,
@@ -66,15 +68,15 @@ export default function TrackView() {
             cover: data.result.cover,
             title: data.result.title,
             artist: data.result.artist,
-            id: data.result.trackGroupId,
+            id: resolvedAlbumId,
             releaseDate: data.result.releaseDate,
-            trackGroupId: data.result.trackGroupId,
+            trackGroupId: resolvedAlbumId,
           };
           filteredTrack.artist = data.result.artist.name;
           filteredTrack.artwork = data.result.cover.sizes[600];
           filteredTrack.url = `${API_ROOT}${filteredTrack.audio.url}`;
           filteredTrack.queueIndex = 0; //Only displaying 1 track on this screen
-          filteredTrack.trackGroupId = data.result.trackGroupId;
+          filteredTrack.trackGroupId = resolvedAlbumId;
           filteredTrack.audio = {
             url: filteredTrack.audio.url,
             duration: filteredTrack.audio.duration,

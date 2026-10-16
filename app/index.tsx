@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   View,
   Text,
   FlatList,
@@ -26,7 +27,14 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
-import { savedAlbumHref } from "@/scripts/downloadManager";
+import {
+  openMainTab,
+  openSavedAlbum,
+  setMainTab,
+  useMainTab,
+} from "@/components/Footer";
+import QueueScreen from "@/app/feed";
+import LibraryScreen from "@/app/library";
 import {
   RADIO_STATIONS,
   RadioStation,
@@ -100,7 +108,49 @@ export function blendCarouselReleases(
 // Home's carousels keep their picks this long before drawing new ones
 const CAROUSEL_STALE_TIME = 15 * 60 * 1000;
 
+const MemoQueueScreen = memo(QueueScreen);
+const MemoLibraryScreen = memo(LibraryScreen);
+
 export default function Index() {
+  const router = useRouter();
+  const { tab, savedAlbum, savedAlbumSeq } = useMainTab();
+
+  // Android Back returns to Home when on Queue or Library at the root of the stack
+  useEffect(() => {
+    if (tab === "home") return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (router.canDismiss()) return false;
+      setMainTab("home");
+      return true;
+    });
+    return () => sub.remove();
+  }, [tab, router]);
+
+  return (
+    <View style={styles.root}>
+      <View
+        style={[styles.tabPane, tab !== "home" && styles.tabPaneHidden]}
+        pointerEvents={tab === "home" ? "auto" : "none"}
+      >
+        <HomePane />
+      </View>
+      <View
+        style={[styles.tabPane, tab !== "queue" && styles.tabPaneHidden]}
+        pointerEvents={tab === "queue" ? "auto" : "none"}
+      >
+        <MemoQueueScreen />
+      </View>
+      <View
+        style={[styles.tabPane, tab !== "library" && styles.tabPaneHidden]}
+        pointerEvents={tab === "library" ? "auto" : "none"}
+      >
+        <MemoLibraryScreen openAlbum={savedAlbum} openAlbumTrigger={savedAlbumSeq} />
+      </View>
+    </View>
+  );
+}
+
+const HomePane = memo(function HomePane() {
   const router = useRouter();
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -293,11 +343,12 @@ export default function Index() {
             onRefresh={pullToRefresh}
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
+            progressBackgroundColor={theme.colors.surfaceElevated}
           />
         }
       >
         {offline ? (
-          <OfflineNotice retrying={isRecentFetching} onRetry={retry} onOpenLibrary={() => router.push("/library")} />
+          <OfflineNotice retrying={isRecentFetching} onRetry={retry} onOpenLibrary={() => openMainTab("library")} />
         ) : (
           <>
             {/* Viewing History / Quick Access 2-Column Grid */}
@@ -313,7 +364,7 @@ export default function Index() {
                         key={`${item.downloadAlbum ?? item.id}-${idx}`}
                         onPress={() =>
                           item.downloadAlbum
-                            ? router.push(savedAlbumHref(item.downloadAlbum))
+                            ? openSavedAlbum(item.downloadAlbum)
                             : router.push({
                                 pathname: "/artist/[id]/album/[slug]/album-tracks",
                                 params: {
@@ -493,7 +544,7 @@ export default function Index() {
       </ScrollView>
     </SafeAreaView>
   );
-}
+});
 
 // A station in the Radio row, shaped like an album card: the cover and song are what's on
 // air now, and tapping opens the station's screen
@@ -570,6 +621,19 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  tabPane: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 1,
+    zIndex: 0,
+  },
+  tabPaneHidden: {
+    opacity: 0,
+    zIndex: -1,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,

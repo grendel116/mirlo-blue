@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -36,14 +36,20 @@ export function formatBytes(bytes: number): string {
 
 // Everything saved on this phone, shown as albums: play, expand, set a cover, delete, add more.
 // `openAlbum` is an album key to show expanded, as when History links here
-export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
+export default memo(function DownloadsTab({
+  openAlbum,
+  openAlbumTrigger,
+}: {
+  openAlbum?: string;
+  openAlbumTrigger?: number;
+}) {
   const { playTrack, activeTrack, isPlaying, togglePlayPause } = usePlayer();
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
   const [expandedKey, setExpandedKey] = useState<string | null>(openAlbum ?? null);
   useEffect(() => {
     if (openAlbum) setExpandedKey(openAlbum);
-  }, [openAlbum]);
+  }, [openAlbum, openAlbumTrigger]);
   const [importing, setImporting] = useState<"files" | "folder" | null>(null);
 
   const playAlbum = (album: DownloadedAlbum, start = album.tracks[0]) =>
@@ -217,7 +223,7 @@ export default function DownloadsTab({ openAlbum }: { openAlbum?: string }) {
       )}
     </KeyboardAvoidingView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   pane: { flex: 1 },

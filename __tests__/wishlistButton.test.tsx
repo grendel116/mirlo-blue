@@ -205,4 +205,116 @@ describe("<WishlistButton />", () => {
       { trackId: 200, userId: 42, track: { id: 200, trackGroupId: 99 } },
     ]);
   });
+
+  test("liking any track via FavoriteTrackButton adds its album to the wishlist even when track.trackGroupId is only on track.trackGroup.id", async () => {
+    const FavoriteTrackButton = require("@/components/FavoriteTrackButton").default;
+    mockUser = {
+      id: 42,
+      wishlist: [],
+      trackFavorites: [],
+    };
+
+    const track = {
+      id: 101,
+      title: "Track 1",
+      trackGroupId: undefined,
+      trackGroup: {
+        id: 10,
+        title: "Album 10",
+        urlSlug: "album-10",
+      },
+    } as any;
+
+    const { getByRole } = render(<FavoriteTrackButton track={track} />);
+
+    fireEvent.press(getByRole("button"));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith("/v1/tracks/101/favorite", {
+        favorite: true,
+      });
+      expect(mockPost).toHaveBeenCalledWith("/v1/trackGroups/10/wishlist", {
+        wishlist: true,
+      });
+    });
+
+    const updateProfileFn = mockSetQueryData.mock.calls.find(
+      (c) => c[0] === AUTH_PROFILE_QUERY_KEY,
+    )[1];
+    const updatedUser = updateProfileFn(mockUser);
+    expect(updatedUser.wishlist).toEqual([{ userId: 42, trackGroupId: 10 }]);
+    expect(updatedUser.trackFavorites).toHaveLength(1);
+    expect(updatedUser.trackFavorites[0].trackId).toBe(101);
+  });
+
+  test("unliking one track keeps the album on the wishlist while another track on the album is still liked, and unliking the last track removes it", async () => {
+    const FavoriteTrackButton = require("@/components/FavoriteTrackButton").default;
+    mockUser = {
+      id: 42,
+      wishlist: [{ userId: 42, trackGroupId: 10 }],
+      trackFavorites: [
+        { userId: 42, trackId: 101, track: { id: 101, trackGroupId: 10 } },
+        { userId: 42, trackId: 102, track: { id: 102, trackGroupId: 10 } },
+      ],
+    };
+
+    const track1 = {
+      id: 101,
+      title: "Track 1",
+      trackGroupId: 10,
+      trackGroup: { id: 10, title: "Album 10" },
+    } as any;
+
+    const { getByRole, unmount } = render(<FavoriteTrackButton track={track1} />);
+    fireEvent.press(getByRole("button"));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith("/v1/tracks/101/favorite", {
+        favorite: false,
+      });
+      // Album must stay on the wishlist because track 102 is still liked
+      expect(mockPost).not.toHaveBeenCalledWith(
+        "/v1/trackGroups/10/wishlist",
+        { wishlist: false },
+      );
+    });
+
+    const updateProfileFn1 = mockSetQueryData.mock.calls.find(
+      (c) => c[0] === AUTH_PROFILE_QUERY_KEY,
+    )[1];
+    const afterFirstUnlike = updateProfileFn1(mockUser);
+    expect(afterFirstUnlike.wishlist).toEqual([{ userId: 42, trackGroupId: 10 }]);
+    expect(afterFirstUnlike.trackFavorites.map((f: any) => f.trackId)).toEqual([102]);
+
+    unmount();
+    jest.clearAllMocks();
+    mockUser = afterFirstUnlike;
+
+    // Now unlike the last remaining liked track (102)
+    const track2 = {
+      id: 102,
+      title: "Track 2",
+      trackGroupId: 10,
+      trackGroup: { id: 10, title: "Album 10" },
+    } as any;
+
+    const rendered2 = render(<FavoriteTrackButton track={track2} />);
+    fireEvent.press(rendered2.getByRole("button"));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith("/v1/tracks/102/favorite", {
+        favorite: false,
+      });
+      expect(mockPost).toHaveBeenCalledWith("/v1/trackGroups/10/wishlist", {
+        wishlist: false,
+      });
+    });
+
+    const updateProfileFn2 = mockSetQueryData.mock.calls.find(
+      (c) => c[0] === AUTH_PROFILE_QUERY_KEY,
+    )[1];
+    const afterSecondUnlike = updateProfileFn2(mockUser);
+    expect(afterSecondUnlike.wishlist).toEqual([]);
+    expect(afterSecondUnlike.trackFavorites).toEqual([]);
+  });
 });

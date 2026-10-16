@@ -70,6 +70,9 @@ export function buildWishlistAlbums({
   };
 
   wishlist.forEach((w: any) => keep(w?.trackGroup, timeOf(w?.createdAt)));
+  user?.trackFavorites?.forEach((f: any) =>
+    keep(f?.track?.trackGroup, timeOf(f?.createdAt)),
+  );
   faircampSaves.albums.forEach(({ album, savedAt }) => keep(album, savedAt));
   faircampSaves.tracks.forEach(({ track, likedAt }) => keep(track.trackGroup, likedAt));
 
@@ -117,18 +120,25 @@ export function buildBookmarks({
     .map(({ track }) => track);
 }
 
-export default function LibraryScreen() {
+export default function LibraryScreen({
+  openAlbum: openAlbumProp,
+  openAlbumTrigger,
+}: {
+  openAlbum?: string;
+  openAlbumTrigger?: number;
+} = {}) {
   const router = useRouter();
   const { user } = useAuthContext();
   const { playTrack, activeTrack } = usePlayer();
   // History links a saved album here: ?tab=downloads&album=<album key>
   const params = useLocalSearchParams<{ tab?: string; album?: string }>();
+  const targetAlbum = openAlbumProp ?? params.album;
   const [activeTab, setActiveTab] = useState<LibraryTab>(
-    params.tab === "downloads" ? "downloads" : "wishlist",
+    targetAlbum || params.tab === "downloads" ? "downloads" : "wishlist",
   );
   useEffect(() => {
-    if (params.tab === "downloads") setActiveTab("downloads");
-  }, [params.tab, params.album]);
+    if (targetAlbum || params.tab === "downloads") setActiveTab("downloads");
+  }, [targetAlbum, openAlbumTrigger, params.tab]);
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();
   const podcastEpisodeLikes = usePodcastEpisodeLikes();
@@ -152,11 +162,6 @@ export default function LibraryScreen() {
 
   const isWishlistLoading = Boolean(userId) && isWishlistPending && wishlistAlbums.length === 0;
 
-  // Purchases live in the Mirlo account; the wishlist also holds Faircamp albums kept on the phone
-  const needsSignIn =
-    !user &&
-    (activeTab === "purchases" || (activeTab === "wishlist" && wishlistAlbums.length === 0));
-
   const tabs: { id: LibraryTab; label: string; icon: IconName; count: number }[] = [
     { id: "wishlist", label: "Wishlist", icon: "heart-outline", count: wishlistAlbums.length },
     { id: "purchases", label: "Purchases", icon: "bag-handle-outline", count: purchases.length },
@@ -177,8 +182,21 @@ export default function LibraryScreen() {
     </View>
   );
 
+  const renderSignIn = () => (
+    <View style={styles.guestContainer}>
+      <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
+      <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
+      <Text style={styles.guestSubtitle}>
+        Your purchases, wishlist, and favorited artists sync across all devices.
+      </Text>
+      <TouchableOpacity onPress={() => router.push("/login")} style={styles.loginBtn}>
+        <Text style={styles.loginBtnText}>Sign In</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   // Opens a release's page, where the listener can play or buy it
-  const openAlbum = (tg: any) => {
+  const openAlbumPage = (tg: any) => {
     if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
       router.push({
         pathname: "/artist/[id]/album/[slug]/album-tracks",
@@ -206,7 +224,7 @@ export default function LibraryScreen() {
         const tg = item.trackGroup;
         const coverUri = albumCover(tg);
         return (
-          <Pressable onPress={() => openAlbum(tg)} style={styles.card}>
+          <Pressable onPress={() => openAlbumPage(tg)} style={styles.card}>
             {coverUri ? (
               <Image source={{ uri: coverUri }} style={styles.thumb} />
             ) : (
@@ -229,51 +247,90 @@ export default function LibraryScreen() {
     />
   );
 
-  const renderBookmarks = () => (
-    <FlatList
-      data={bookmarks}
-      keyExtractor={(item) => `bookmark-${item.liveStation ?? item.podcastEpisodeId}`}
-      initialNumToRender={12}
-      maxToRenderPerBatch={10}
-      windowSize={5}
-      contentContainerStyle={styles.listContent}
-      renderItem={({ item }) => {
-        const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
-        return (
-          <Pressable
-            onPress={() => playTrack(item, bookmarks, "Bookmarks")}
-            style={[styles.card, isSelected && styles.selectedCard]}
-          >
-            {item.artwork ? (
-              <Image source={{ uri: item.artwork }} style={styles.thumb} />
-            ) : (
-              <View style={[styles.thumb, styles.placeholder]}>
-                <Ionicons name="radio-outline" size={20} color={theme.colors.primary} />
+  const wishlistContent = useMemo(() => {
+    if (!user && wishlistAlbums.length === 0) return renderSignIn();
+    if (isWishlistLoading) {
+      return <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />;
+    }
+    if (wishlistAlbums.length === 0) {
+      return renderEmpty(
+        "heart-outline",
+        "No saved albums",
+        "Tap the heart on any song or album to save its album to your wishlist.",
+      );
+    }
+    return renderAlbumList(wishlistAlbums, "Saved Album", "heart");
+  }, [user, isWishlistLoading, wishlistAlbums]);
+
+  const purchasesContent = useMemo(() => {
+    if (!user) return renderSignIn();
+    if (isCollectionPending) {
+      return <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />;
+    }
+    if (purchases.length === 0) {
+      return renderEmpty(
+        "bag-handle-outline",
+        "No purchases yet",
+        "Music you buy directly from artists on Mirlo will appear here.",
+      );
+    }
+    return renderAlbumList(purchases, "Purchased Item", "musical-notes");
+  }, [user, isCollectionPending, purchases]);
+
+  const bookmarksContent = useMemo(() => {
+    if (bookmarks.length === 0) {
+      return renderEmpty(
+        "bookmark-outline",
+        "No bookmarks yet",
+        "Like a radio station or podcast episode to keep it here.",
+      );
+    }
+    return (
+      <FlatList
+        data={bookmarks}
+        keyExtractor={(item) => `bookmark-${item.liveStation ?? item.podcastEpisodeId}`}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item }) => {
+          const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
+          return (
+            <Pressable
+              onPress={() => playTrack(item, bookmarks, "Bookmarks")}
+              style={[styles.card, isSelected && styles.selectedCard]}
+            >
+              {item.artwork ? (
+                <Image source={{ uri: item.artwork }} style={styles.thumb} />
+              ) : (
+                <View style={[styles.thumb, styles.placeholder]}>
+                  <Ionicons name="radio-outline" size={20} color={theme.colors.primary} />
+                </View>
+              )}
+              <View style={styles.cardInfo}>
+                <Text
+                  style={[
+                    styles.cardTitle,
+                    isSelected && { color: theme.colors.primary, fontWeight: "700" },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.title}
+                </Text>
+                <Text style={styles.cardArtist} numberOfLines={1}>
+                  {item.artist}
+                </Text>
               </View>
-            )}
-            <View style={styles.cardInfo}>
-              <Text
-                style={[
-                  styles.cardTitle,
-                  isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                ]}
-                numberOfLines={1}
-              >
-                {item.title}
-              </Text>
-              <Text style={styles.cardArtist} numberOfLines={1}>
-                {item.artist}
-              </Text>
-            </View>
-            <View style={styles.actionRow}>
-              <AddToQueueButton track={item} size={17} />
-              <FavoriteTrackButton track={item} size={17} />
-            </View>
-          </Pressable>
-        );
-      }}
-    />
-  );
+              <View style={styles.actionRow}>
+                <AddToQueueButton track={item} size={17} />
+                <FavoriteTrackButton track={item} size={17} />
+              </View>
+            </Pressable>
+          );
+        }}
+      />
+    );
+  }, [bookmarks, activeTrack?.url, playTrack]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -291,10 +348,12 @@ export default function LibraryScreen() {
           {tabs.map((tab) => {
             const active = activeTab === tab.id;
             return (
-              <TouchableOpacity
+              <Pressable
                 key={tab.id}
                 onPress={() => setActiveTab(tab.id)}
                 style={[styles.togglePill, active && styles.togglePillActive]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
               >
                 <Ionicons
                   name={tab.icon}
@@ -304,61 +363,39 @@ export default function LibraryScreen() {
                 <Text style={[styles.toggleText, active && styles.toggleTextActive]}>
                   {tab.label} ({tab.count})
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             );
           })}
         </ScrollView>
       </View>
 
-      {/* Content */}
-      {needsSignIn ? (
-        <View style={styles.guestContainer}>
-          <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
-          <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
-          <Text style={styles.guestSubtitle}>
-            Your purchases, wishlist, and favorited artists sync across all devices.
-          </Text>
-          <TouchableOpacity onPress={() => router.push("/login")} style={styles.loginBtn}>
-            <Text style={styles.loginBtnText}>Sign In</Text>
-          </TouchableOpacity>
+      {/* Pre-mounted Sub-Panes for Instant Tab Switching */}
+      <View style={styles.contentArea}>
+        <View
+          style={[styles.subPane, activeTab !== "wishlist" && styles.subPaneHidden]}
+          pointerEvents={activeTab === "wishlist" ? "auto" : "none"}
+        >
+          {wishlistContent}
         </View>
-      ) : activeTab === "wishlist" ? (
-        isWishlistLoading ? (
-          <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
-        ) : wishlistAlbums.length === 0 ? (
-          renderEmpty(
-            "heart-outline",
-            "No saved albums",
-            "Tap the heart on any song or album to save its album to your wishlist.",
-          )
-        ) : (
-          renderAlbumList(wishlistAlbums, "Saved Album", "heart")
-        )
-      ) : activeTab === "purchases" ? (
-        isCollectionPending ? (
-          <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
-        ) : purchases.length === 0 ? (
-          renderEmpty(
-            "bag-handle-outline",
-            "No purchases yet",
-            "Music you buy directly from artists on Mirlo will appear here.",
-          )
-        ) : (
-          renderAlbumList(purchases, "Purchased Item", "musical-notes")
-        )
-      ) : activeTab === "bookmarks" ? (
-        bookmarks.length === 0 ? (
-          renderEmpty(
-            "bookmark-outline",
-            "No bookmarks yet",
-            "Like a radio station or podcast episode to keep it here.",
-          )
-        ) : (
-          renderBookmarks()
-        )
-      ) : (
-        <DownloadsTab openAlbum={params.album} />
-      )}
+        <View
+          style={[styles.subPane, activeTab !== "purchases" && styles.subPaneHidden]}
+          pointerEvents={activeTab === "purchases" ? "auto" : "none"}
+        >
+          {purchasesContent}
+        </View>
+        <View
+          style={[styles.subPane, activeTab !== "bookmarks" && styles.subPaneHidden]}
+          pointerEvents={activeTab === "bookmarks" ? "auto" : "none"}
+        >
+          {bookmarksContent}
+        </View>
+        <View
+          style={[styles.subPane, activeTab !== "downloads" && styles.subPaneHidden]}
+          pointerEvents={activeTab === "downloads" ? "auto" : "none"}
+        >
+          <DownloadsTab openAlbum={targetAlbum} openAlbumTrigger={openAlbumTrigger} />
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -367,6 +404,19 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  contentArea: {
+    flex: 1,
+    position: "relative",
+  },
+  subPane: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 1,
+    zIndex: 0,
+  },
+  subPaneHidden: {
+    opacity: 0,
+    zIndex: -1,
   },
   header: {
     paddingHorizontal: 16,

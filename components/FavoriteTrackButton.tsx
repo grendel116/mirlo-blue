@@ -1,9 +1,10 @@
-import { Pressable } from "react-native";
+import { Pressable, ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useAuthContext } from "@/state/AuthContext";
-import { queryAuthProfile } from "@/queries/authQueries";
+import { AUTH_PROFILE_QUERY_KEY } from "@/queries/authQueries";
 import { queryWishlist } from "@/queries/queries";
 import { toggleStationLike, useStationLikes } from "@/scripts/stationLikes";
 import { togglePodcastEpisodeLike, usePodcastEpisodeLikes } from "@/scripts/podcastLikes";
@@ -14,9 +15,8 @@ import {
   useFaircampSaves,
 } from "@/scripts/faircampSaves";
 import * as api from "../queries/fetch/fetchWrapper";
-import { ViewStyle } from "react-native";
 
-type FavoriteTrackButton = {
+type FavoriteTrackButtonProps = {
   track: RNTrack;
   style?: ViewStyle;
   size?: number;
@@ -27,7 +27,11 @@ type HeartProps = { liked: boolean; onPress: () => void; style?: ViewStyle; size
 function Heart({ liked, onPress, style, size }: HeartProps) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={(e) => {
+        e?.stopPropagation?.();
+        onPress();
+      }}
+      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
       style={style}
       accessibilityRole="button"
       accessibilityLabel={liked ? "Unlike" : "Like"}
@@ -42,7 +46,11 @@ function Heart({ liked, onPress, style, size }: HeartProps) {
 }
 
 // Mirlo songs are account favorites; federated tracks, radio stations and podcast episodes are device-only
-export default function FavoriteTrackButton({ track, style, size }: FavoriteTrackButton) {
+export default function FavoriteTrackButton({
+  track,
+  style,
+  size,
+}: FavoriteTrackButtonProps) {
   if (track.liveStation) {
     return <StationHeart stationId={track.liveStation} style={style} size={size} />;
   }
@@ -53,13 +61,7 @@ export default function FavoriteTrackButton({ track, style, size }: FavoriteTrac
     return <FaircampTrackHeart track={track} style={style} size={size} />;
   }
   if (!track.id || track.id <= 0) return null;
-  return (
-    <SongHeart
-      track={{ id: track.id, trackGroupId: track.trackGroupId }}
-      style={style}
-      size={size}
-    />
-  );
+  return <SongHeart track={track} style={style} size={size} />;
 }
 
 function FaircampTrackHeart({
@@ -120,54 +122,177 @@ function PodcastEpisodeHeart({
   );
 }
 
-// The heart follows the account's favorites, so hearting a whole album fills every track's
-// heart. A tap shows right away and gives way to the account data once it refreshes.
-// The Mirlo wishlist holds an album while at least one of its songs is liked
+function favoriteAlbumId(fav: any): number | undefined {
+  return (
+    fav?.track?.trackGroupId ??
+    fav?.track?.trackGroup?.id ??
+    fav?.track?.trackGroup?.trackGroupId ??
+    fav?.trackGroupId
+  );
+}
+
+// Liking any track on an album adds the whole album to the wishlist;
+// unliking the last liked track on the album removes the album from the wishlist.
 function SongHeart({
   track,
   style,
   size,
 }: {
-  track: { id: number; trackGroupId?: number };
+  track: RNTrack;
   style?: ViewStyle;
   size?: number;
 }) {
-  const { user } = useAuthContext();
+  const { user, refreshLoggedInUser } = useAuthContext();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [tapped, setTapped] = useState<boolean | null>(null);
   useEffect(() => setTapped(null), [user]);
 
   const isInFavorites =
     tapped ?? !!user?.trackFavorites?.some((w) => w.trackId === track.id);
 
+  const albumId =
+    track.trackGroupId || track.trackGroup?.id || track.trackGroup?.trackGroupId;
+
   const onPress = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      router.push({
+        pathname: "/emailVerificationModal",
+      });
+      return;
+    }
+
     const next = !isInFavorites;
     setTapped(next);
-    await api.post(`/v1/tracks/${track.id}/favorite`, { favorite: next });
-    const fresh = await queryClient.fetchQuery({ ...queryAuthProfile(), staleTime: 0 });
 
-    const albumId = track.trackGroupId;
-    if (!fresh || !albumId) return;
-    const isListed = Boolean(fresh.wishlist?.some((w) => w.trackGroupId === albumId));
-    let shouldList = next;
-    if (!next && isListed) {
-      const { result: album } = await api.get<{ result: AlbumProps }>(
-        `/v1/trackGroups/${albumId}`,
-        {},
+    const wasListed = Boolean(
+      albumId && user.wishlist?.some((w) => w.trackGroupId === albumId),
+    );
+    const otherTrackStillLiked = Boolean(
+      albumId &&
+        user.trackFavorites?.some(
+          (f) => f.trackId !== track.id && favoriteAlbumId(f) === albumId,
+        ),
+    );
+    const shouldList = next ? true : otherTrackStillLiked;
+
+    // Optimistically update AUTH_PROFILE_QUERY_KEY so both the track heart and the album's
+    // big WishlistButton heart respond immediately
+    queryClient.setQueryData<LoggedInUser | null>(
+      AUTH_PROFILE_QUERY_KEY,
+      (prevUser) => {
+        if (!prevUser) return prevUser;
+
+        let updatedFavorites = prevUser.trackFavorites
+          ? [...prevUser.trackFavorites]
+          : [];
+        if (next) {
+          if (!updatedFavorites.some((f) => f.trackId === track.id)) {
+            updatedFavorites.push({
+              userId: prevUser.id,
+              trackId: track.id,
+              track: { ...track, trackGroupId: albumId ?? track.trackGroupId },
+              createdAt: new Date(),
+            });
+          }
+        } else {
+          updatedFavorites = updatedFavorites.filter((f) => f.trackId !== track.id);
+        }
+
+        let updatedWishlist = prevUser.wishlist ? [...prevUser.wishlist] : [];
+        if (albumId) {
+          const anyLikedAfter =
+            next ||
+            updatedFavorites.some((f) => favoriteAlbumId(f) === albumId);
+          if (anyLikedAfter) {
+            if (!updatedWishlist.some((w) => w.trackGroupId === albumId)) {
+              updatedWishlist.push({
+                userId: prevUser.id,
+                trackGroupId: albumId,
+              });
+            }
+          } else {
+            updatedWishlist = updatedWishlist.filter(
+              (w) => w.trackGroupId !== albumId,
+            );
+          }
+        }
+
+        return {
+          ...prevUser,
+          wishlist: updatedWishlist,
+          trackFavorites: updatedFavorites,
+        };
+      },
+    );
+
+    if (albumId) {
+      queryClient.setQueryData(
+        queryWishlist(user.id).queryKey,
+        (prev: any) => {
+          if (!prev || !prev.results) return prev;
+          if (shouldList) {
+            if (
+              track.trackGroup &&
+              !prev.results.some((r: any) => r.trackGroupId === albumId)
+            ) {
+              return {
+                ...prev,
+                results: [
+                  {
+                    userId: user.id,
+                    trackGroupId: albumId,
+                    trackGroup: track.trackGroup,
+                    createdAt: new Date(),
+                  },
+                  ...prev.results,
+                ],
+              };
+            }
+            return prev;
+          }
+          return {
+            ...prev,
+            results: prev.results.filter((r: any) => r.trackGroupId !== albumId),
+          };
+        },
       );
-      const liked = new Set(fresh.trackFavorites?.map((f) => f.trackId));
-      shouldList = Boolean(album.tracks?.some((t) => liked.has(t.id)));
     }
-    if (shouldList === isListed) return;
-    await api.post(`/v1/trackGroups/${albumId}/wishlist`, { wishlist: shouldList });
-    queryClient.invalidateQueries({ queryKey: queryAuthProfile().queryKey });
-    queryClient.invalidateQueries({ queryKey: queryWishlist(user.id).queryKey });
-  }, [user, isInFavorites, track.id, track.trackGroupId, queryClient]);
 
-  if (!user) {
-    return null;
-  }
+    try {
+      const calls: Promise<unknown>[] = [
+        api.post(`/v1/tracks/${track.id}/favorite`, { favorite: next }),
+      ];
+
+      if (albumId && (shouldList !== wasListed || next)) {
+        calls.push(
+          api.post(`/v1/trackGroups/${albumId}/wishlist`, {
+            wishlist: shouldList,
+          }),
+        );
+      }
+
+      await Promise.allSettled(calls);
+    } catch (err) {
+      console.error("Failed to update track favorite / wishlist:", err);
+    } finally {
+      queryClient.invalidateQueries({ queryKey: AUTH_PROFILE_QUERY_KEY });
+      if (albumId) {
+        queryClient.invalidateQueries({
+          queryKey: queryWishlist(user.id).queryKey,
+        });
+      }
+      refreshLoggedInUser();
+    }
+  }, [
+    user,
+    isInFavorites,
+    track,
+    albumId,
+    queryClient,
+    refreshLoggedInUser,
+    router,
+  ]);
 
   return <Heart liked={isInFavorites} onPress={onPress} style={style} size={size} />;
 }

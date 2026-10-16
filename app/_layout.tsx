@@ -13,8 +13,7 @@ import { useFonts } from "expo-font";
 import { AppReadyContextProvider } from "@/state/AppReadyContext";
 import { useEffect, useState } from "react";
 import Footer from "@/components/Footer";
-import NowPlayingSheet from "@/components/NowPlayingSheet";
-import { NowPlayingSheetProvider } from "@/state/NowPlayingSheet";
+import NowPlaying from "@/components/NowPlaying";
 import "../i18n";
 import { checkForUpdates } from "../scripts/appVersionCheck";
 
@@ -22,7 +21,7 @@ SplashScreen.preventAutoHideAsync();
 
 // Keep the home screen under deep-linked routes: it is what hides the splash
 // once data loads, and Back then returns home instead of leaving the app
-export const unstable_settings = { anchor: "(tabs)" };
+export const unstable_settings = { anchor: "index" };
 
 SplashScreen.setOptions({
   duration: 500,
@@ -70,18 +69,27 @@ export default function RootLayout() {
         <AuthContextProvider>
           <PlayerContextProvider>
             <SearchContextProvider>
-              <NowPlayingSheetProvider>
               <Stack
                 screenOptions={{
                   animation: "none",
-                  // Screens underneath stop redrawing until they show again
-                  freezeOnBlur: true,
                   contentStyle: { backgroundColor: "#070b14" },
                 }}
               >
                 <Stack.Screen name="login" options={{ headerShown: false }} />
                 <Stack.Screen
-                  name="(tabs)"
+                  name="index"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="feed"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="library"
                   options={{
                     headerShown: false,
                   }}
@@ -216,8 +224,7 @@ export default function RootLayout() {
                 />
               </Stack>
               <Footer />
-              <NowPlayingSheet />
-              </NowPlayingSheetProvider>
+              <NowPlaying />
               <StatusBar style="light" backgroundColor="#070b14" />
             </SearchContextProvider>
           </PlayerContextProvider>

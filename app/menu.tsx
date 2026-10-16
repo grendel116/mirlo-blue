@@ -6,6 +6,7 @@ import { useAuthContext } from "@/state/AuthContext";
 import { useLogoutMutation } from "@/queries/authQueries";
 import { useTranslation } from "react-i18next";
 import { theme } from "@/constants/theme";
+import { openMainTab } from "@/components/Footer";
 
 export default function Menu() {
   const router = useRouter();
@@ -56,8 +57,7 @@ export default function Menu() {
         <View style={styles.menuList}>
           <Pressable
             onPress={() => {
-              router.back();
-              router.navigate("/");
+              openMainTab("home");
             }}
             style={styles.menuItem}
           >
@@ -67,8 +67,7 @@ export default function Menu() {
 
           <Pressable
             onPress={() => {
-              router.back();
-              router.navigate("/library");
+              openMainTab("library");
             }}
             style={styles.menuItem}
           >

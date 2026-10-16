@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
+  BackHandler,
   Text,
   View,
   Image,
@@ -8,10 +9,16 @@ import {
   useWindowDimensions,
   ScrollView,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { usePlayer } from "@/state/PlayerContext";
-import { useNowPlayingSheet, useSheetGesture } from "@/state/NowPlayingSheet";
+import { openSavedAlbum } from "@/components/Footer";
 import Player from "@/components/Player";
 import { useRouter, type Href } from "expo-router";
 import TrackPlayer, { useProgress } from "react-native-track-player";
@@ -30,17 +37,151 @@ import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import { showPurchaseModal } from "@/components/AddAlbumButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
-import { savedAlbumHref } from "@/scripts/downloadManager";
 import { getRadioTimerElapsed, setRadioTimerElapsed } from "@/scripts/radioTimer";
 import {
   isQualityArtwork,
   resolveArtworkUrl,
 } from "@/scripts/utils";
 
+const SETTLE_MS = 220;
+const FLICK_VELOCITY = 600;
+
+let isSheetOpen = false;
+const sheetListeners = new Set<(open: boolean) => void>();
+
+export function openNowPlaying() {
+  isSheetOpen = true;
+  sheetListeners.forEach((listener) => listener(true));
+}
+
+export function closeNowPlaying() {
+  isSheetOpen = false;
+  sheetListeners.forEach((listener) => listener(false));
+}
+
 export default function NowPlaying() {
+  const { height: windowHeight } = useWindowDimensions();
+  const [visible, setVisible] = useState(isSheetOpen);
+  const [hasOpened, setHasOpened] = useState(isSheetOpen);
+  const translateY = useSharedValue(isSheetOpen ? 0 : windowHeight);
+  const heightSv = useSharedValue(windowHeight);
+  const scrollOffset = useSharedValue(0);
+  const startedAtTop = useSharedValue(true);
+
+  useEffect(() => {
+    heightSv.value = windowHeight;
+    if (!visible) {
+      translateY.value = windowHeight;
+    }
+  }, [windowHeight, visible, heightSv, translateY]);
+
+  const finishClose = useCallback(() => {
+    isSheetOpen = false;
+    setVisible(false);
+  }, []);
+
+  const close = useCallback(() => {
+    translateY.value = withTiming(heightSv.value, { duration: SETTLE_MS }, (finished) => {
+      if (finished) runOnJS(finishClose)();
+    });
+  }, [translateY, heightSv, finishClose]);
+
+  useEffect(() => {
+    const listener = (open: boolean) => {
+      if (open) {
+        setVisible(true);
+        setHasOpened(true);
+        translateY.value = withTiming(0, { duration: SETTLE_MS });
+      } else {
+        close();
+      }
+    };
+    sheetListeners.add(listener);
+    return () => {
+      sheetListeners.delete(listener);
+    };
+  }, [translateY, close]);
+
+  // Android Back closes the sheet before it leaves the screen underneath
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      close();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [visible, close]);
+
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollOffset.value = event.contentOffset.y;
+  });
+
+  const scrollGesture = useMemo(() => Gesture.Native(), []);
+
+  // Drag down to close Now Playing when scrolled to the top
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(10)
+        .failOffsetX([-16, 16])
+        .simultaneousWithExternalGesture(scrollGesture)
+        .onStart(() => {
+          startedAtTop.value = scrollOffset.value <= 0;
+        })
+        .onUpdate((event) => {
+          if (!startedAtTop.value) return;
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (!startedAtTop.value) return;
+          const shouldClose =
+            event.velocityY > FLICK_VELOCITY ||
+            (event.velocityY > -FLICK_VELOCITY && translateY.value > heightSv.value * 0.25);
+          translateY.value = withTiming(
+            shouldClose ? heightSv.value : 0,
+            { duration: SETTLE_MS },
+            (finished) => {
+              if (finished && shouldClose) runOnJS(finishClose)();
+            },
+          );
+        }),
+    [scrollGesture, scrollOffset, startedAtTop, translateY, heightSv, finishClose],
+  );
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: translateY.value >= heightSv.value ? 0 : 1,
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents={visible ? "auto" : "none"}
+      style={[styles.sheet, sheetStyle]}
+    >
+      {hasOpened && (
+        <GestureDetector gesture={panGesture}>
+          <SafeAreaView style={styles.container}>
+            <DismissModalBar onPress={close} />
+            <GestureDetector gesture={scrollGesture}>
+              <Animated.ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
+              >
+                <NowPlayingBody visible={visible} close={close} />
+              </Animated.ScrollView>
+            </GestureDetector>
+          </SafeAreaView>
+        </GestureDetector>
+      )}
+    </Animated.View>
+  );
+}
+
+function NowPlayingBody({ visible, close }: { visible: boolean; close: () => void }) {
   const { activeTrack, looping } = usePlayer();
-  const { visible, close } = useNowPlayingSheet();
-  const { panGesture, scrollGesture, scrollHandler } = useSheetGesture();
   const router = useRouter();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
@@ -78,90 +219,80 @@ export default function NowPlaying() {
     : undefined;
 
   return (
-    <GestureDetector gesture={panGesture}>
-    <SafeAreaView style={styles.container}>
-      <DismissModalBar onPress={close} />
-      <GestureDetector gesture={scrollGesture}>
-      <Animated.ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-      >
-        {/* Glossy Album Art Container */}
-        <View style={[styles.artworkContainer, { width: albumArtSize, height: albumArtSize }]}>
-          <Image
-            source={artworkSource}
-            style={styles.artworkImage}
-            resizeMode="cover"
-            onError={() => setImgError(true)}
-          />
-        </View>
+    <>
+      {/* Glossy Album Art Container */}
+      <View style={[styles.artworkContainer, { width: albumArtSize, height: albumArtSize }]}>
+        <Image
+          source={artworkSource}
+          style={styles.artworkImage}
+          resizeMode="cover"
+          onError={() => setImgError(true)}
+        />
+      </View>
 
-        {/* Track & Artist Info */}
-        {isLive ? (
-          <View style={styles.trackInfoSection}>
-            <View style={styles.titleRow}>
-              <ScrollView
-                key={onAir?.song || activeTrack?.title}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.titleScroll}
-                contentContainerStyle={styles.titleScrollContent}
-              >
-                <Text style={styles.trackTitle} numberOfLines={1}>
-                  {onAir?.song || activeTrack?.title}
-                </Text>
-              </ScrollView>
-              <View style={styles.titleActions}>
-                <View style={styles.actionIconGroup}>
-                  {activeTrack ? (
-                    <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
-                  ) : null}
-                  {activeTrack ? (
-                    <ShareTrackButton
-                      track={activeTrack}
-                      overrideTitle={onAir?.song}
-                      overrideArtist={onAir?.artist}
-                      overrideArtwork={onAir?.artwork}
-                    />
-                  ) : null}
-                </View>
-                <View style={styles.liveBadge}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>LIVE</Text>
-                </View>
+      {/* Track & Artist Info */}
+      {isLive ? (
+        <View style={styles.trackInfoSection}>
+          <View style={styles.titleRow}>
+            <ScrollView
+              key={onAir?.song || activeTrack?.title}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.titleScroll}
+              contentContainerStyle={styles.titleScrollContent}
+            >
+              <Text style={styles.trackTitle} numberOfLines={1}>
+                {onAir?.song || activeTrack?.title}
+              </Text>
+            </ScrollView>
+            <View style={styles.titleActions}>
+              <View style={styles.actionIconGroup}>
+                {activeTrack ? (
+                  <FavoriteTrackButton track={activeTrack} size={22} style={{ padding: 4 }} />
+                ) : null}
+                {activeTrack ? (
+                  <ShareTrackButton
+                    track={activeTrack}
+                    overrideTitle={onAir?.song}
+                    overrideArtist={onAir?.artist}
+                    overrideArtwork={onAir?.artwork}
+                  />
+                ) : null}
+              </View>
+              <View style={styles.liveBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
               </View>
             </View>
-
-            <View style={styles.artistGroupRow}>
-              <Text style={styles.infoLabel}>
-                {t("trackGroupDetails.byArtist")
-                  .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
-                  .trim() + " "}
-              </Text>
-              <Text style={styles.cyanLink} numberOfLines={1}>
-                {onAir?.artist || activeTrack?.artist}
-              </Text>
-            </View>
-
-            <View style={styles.artistGroupRow}>
-              <Text style={styles.infoLabel}>On </Text>
-              <Pressable
-                onPress={() => {
-                  if (!station) return;
-                  go({ pathname: "/station/[id]", params: { id: station.id } });
-                }}
-                style={styles.linkPressable}
-              >
-                <Text style={styles.cyanLink} numberOfLines={1}>
-                  {activeTrack?.title}
-                </Text>
-              </Pressable>
-            </View>
           </View>
-        ) : (
+
+          <View style={styles.artistGroupRow}>
+            <Text style={styles.infoLabel}>
+              {t("trackGroupDetails.byArtist")
+                .replace(/<[^>]*>.*?<\/[^>]*>/g, "")
+                .trim() + " "}
+            </Text>
+            <Text style={styles.cyanLink} numberOfLines={1}>
+              {onAir?.artist || activeTrack?.artist}
+            </Text>
+          </View>
+
+          <View style={styles.artistGroupRow}>
+            <Text style={styles.infoLabel}>On </Text>
+            <Pressable
+              onPress={() => {
+                if (!station) return;
+                go({ pathname: "/station/[id]", params: { id: station.id } });
+              }}
+              style={styles.linkPressable}
+            >
+              <Text style={styles.cyanLink} numberOfLines={1}>
+                {activeTrack?.title}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
         <View style={styles.trackInfoSection}>
           <View style={styles.titleRow}>
             <ScrollView
@@ -204,7 +335,8 @@ export default function NowPlaying() {
                 }
                 if (!activeTrack?.trackGroup) return;
                 if (activeTrack.downloadAlbum) {
-                  go(savedAlbumHref(activeTrack.downloadAlbum));
+                  close();
+                  openSavedAlbum(activeTrack.downloadAlbum);
                   return;
                 }
                 const albumSlug = String(
@@ -280,46 +412,43 @@ export default function NowPlaying() {
             )}
           </View>
         </View>
-        )}
+      )}
 
-        {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
-        {visible && (!isLive || hasSetTimer) && <ProgressSection isLive={isLive} />}
+      {/* Progress Slider (on live radio, sliding adjusts the 10-minute set countdown without altering audio playback) */}
+      {visible && (!isLive || hasSetTimer) && <ProgressSection isLive={isLive} />}
 
-        {/* Playback Controls */}
-        <View style={styles.playerWrapper}>
-          <Player />
-        </View>
+      {/* Playback Controls */}
+      <View style={styles.playerWrapper}>
+        <Player />
+      </View>
 
-        {/* Support actions: radio donation, podcast support, or Mirlo artist support */}
-        {station ? (
-          <Pressable
-            onPress={() => openInBrowser(station.donatePage)}
-            style={styles.donateButton}
-            accessibilityRole="button"
-            accessibilityLabel={`Donate to ${station.name}`}
-          >
-            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
-            <Text style={styles.donateText}>Donate to {station.name}</Text>
-          </Pressable>
-        ) : podcastShow?.supportUrl ? (
-          <Pressable
-            onPress={() => openInBrowser(podcastShow.supportUrl!)}
-            style={styles.donateButton}
-            accessibilityRole="button"
-            accessibilityLabel={`Support ${podcastShow.name}`}
-          >
-            <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
-            <Text style={styles.donateText} numberOfLines={1}>
-              Support {podcastShow.name}
-            </Text>
-          </Pressable>
-        ) : activeTrack ? (
-          <SupportArtistButton track={activeTrack} onOpen={close} />
-        ) : null}
-      </Animated.ScrollView>
-      </GestureDetector>
-    </SafeAreaView>
-    </GestureDetector>
+      {/* Support actions: radio donation, podcast support, or Mirlo artist support */}
+      {station ? (
+        <Pressable
+          onPress={() => openInBrowser(station.donatePage)}
+          style={styles.donateButton}
+          accessibilityRole="button"
+          accessibilityLabel={`Donate to ${station.name}`}
+        >
+          <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+          <Text style={styles.donateText}>Donate to {station.name}</Text>
+        </Pressable>
+      ) : podcastShow?.supportUrl ? (
+        <Pressable
+          onPress={() => openInBrowser(podcastShow.supportUrl!)}
+          style={styles.donateButton}
+          accessibilityRole="button"
+          accessibilityLabel={`Support ${podcastShow.name}`}
+        >
+          <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+          <Text style={styles.donateText} numberOfLines={1}>
+            Support {podcastShow.name}
+          </Text>
+        </Pressable>
+      ) : activeTrack ? (
+        <SupportArtistButton track={activeTrack} onOpen={close} />
+      ) : null}
+    </>
   );
 }
 
@@ -491,6 +620,10 @@ function formatTime(seconds: number) {
 }
 
 const styles = StyleSheet.create({
+  sheet: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.colors.background,
+  },
   donateButton: {
     flexDirection: "row",
     alignItems: "center",

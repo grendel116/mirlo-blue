@@ -1,0 +1,131 @@
+diff --git a/node_modules/react-native-gesture-handler/lib/commonjs/web/tools/PointerEventManager.js b/node_modules/react-native-gesture-handler/lib/commonjs/web/tools/PointerEventManager.js
+index 76eb808..6aa8bc5 100644
+--- a/node_modules/react-native-gesture-handler/lib/commonjs/web/tools/PointerEventManager.js
++++ b/node_modules/react-native-gesture-handler/lib/commonjs/web/tools/PointerEventManager.js
+@@ -36,7 +36,11 @@ class PointerEventManager extends _EventManager.default {
+     const adaptedEvent = this.mapEvent(event, _interfaces.EventTypes.DOWN);
+     const target = event.target;
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.setPointerCapture(adaptedEvent.pointerId);
++      try {
++        if (!target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.setPointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+     this.markAsInBounds(adaptedEvent.pointerId);
+     this.trackedPointers.add(adaptedEvent.pointerId);
+@@ -58,7 +62,11 @@ class PointerEventManager extends _EventManager.default {
+     const adaptedEvent = this.mapEvent(event, _interfaces.EventTypes.UP);
+     const target = event.target;
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.releasePointerCapture(adaptedEvent.pointerId);
++      try {
++        if (target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.releasePointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+     this.markAsOutOfBounds(adaptedEvent.pointerId);
+     this.trackedPointers.delete(adaptedEvent.pointerId);
+@@ -85,8 +93,10 @@ class PointerEventManager extends _EventManager.default {
+     // incorporating it here seems stupid), so we just call it again here, every time
+     // pointer moves until it succeeds.
+     // God, I do love web development.
+-    if (!target?.hasPointerCapture(event.pointerId) && !POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.setPointerCapture(event.pointerId);
++    if (!target?.hasPointerCapture?.(event.pointerId) && !POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
++      try {
++        target.setPointerCapture(event.pointerId);
++      } catch {}
+     }
+     const inBounds = (0, _utils.isPointerInBounds)(this.view, {
+       x: adaptedEvent.x,
+diff --git a/node_modules/react-native-gesture-handler/lib/module/web/tools/PointerEventManager.js b/node_modules/react-native-gesture-handler/lib/module/web/tools/PointerEventManager.js
+index 6ce3b8f..5c40e0a 100644
+--- a/node_modules/react-native-gesture-handler/lib/module/web/tools/PointerEventManager.js
++++ b/node_modules/react-native-gesture-handler/lib/module/web/tools/PointerEventManager.js
+@@ -31,7 +31,11 @@ export default class PointerEventManager extends EventManager {
+     const adaptedEvent = this.mapEvent(event, EventTypes.DOWN);
+     const target = event.target;
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.setPointerCapture(adaptedEvent.pointerId);
++      try {
++        if (!target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.setPointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+     this.markAsInBounds(adaptedEvent.pointerId);
+     this.trackedPointers.add(adaptedEvent.pointerId);
+@@ -53,7 +57,11 @@ export default class PointerEventManager extends EventManager {
+     const adaptedEvent = this.mapEvent(event, EventTypes.UP);
+     const target = event.target;
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.releasePointerCapture(adaptedEvent.pointerId);
++      try {
++        if (target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.releasePointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+     this.markAsOutOfBounds(adaptedEvent.pointerId);
+     this.trackedPointers.delete(adaptedEvent.pointerId);
+@@ -80,8 +88,10 @@ export default class PointerEventManager extends EventManager {
+     // incorporating it here seems stupid), so we just call it again here, every time
+     // pointer moves until it succeeds.
+     // God, I do love web development.
+-    if (!target?.hasPointerCapture(event.pointerId) && !POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.setPointerCapture(event.pointerId);
++    if (!target?.hasPointerCapture?.(event.pointerId) && !POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
++      try {
++        target.setPointerCapture(event.pointerId);
++      } catch {}
+     }
+     const inBounds = isPointerInBounds(this.view, {
+       x: adaptedEvent.x,
+diff --git a/node_modules/react-native-gesture-handler/src/web/tools/PointerEventManager.ts b/node_modules/react-native-gesture-handler/src/web/tools/PointerEventManager.ts
+index 18d3627..6148a45 100644
+--- a/node_modules/react-native-gesture-handler/src/web/tools/PointerEventManager.ts
++++ b/node_modules/react-native-gesture-handler/src/web/tools/PointerEventManager.ts
+@@ -40,7 +40,11 @@ export default class PointerEventManager extends EventManager<HTMLElement> {
+     const target = event.target as HTMLElement;
+ 
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.setPointerCapture(adaptedEvent.pointerId);
++      try {
++        if (!target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.setPointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+ 
+     this.markAsInBounds(adaptedEvent.pointerId);
+@@ -67,7 +71,11 @@ export default class PointerEventManager extends EventManager<HTMLElement> {
+     const target = event.target as HTMLElement;
+ 
+     if (!POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)) {
+-      target.releasePointerCapture(adaptedEvent.pointerId);
++      try {
++        if (target.hasPointerCapture?.(adaptedEvent.pointerId)) {
++          target.releasePointerCapture(adaptedEvent.pointerId);
++        }
++      } catch {}
+     }
+ 
+     this.markAsOutOfBounds(adaptedEvent.pointerId);
+@@ -98,10 +106,12 @@ export default class PointerEventManager extends EventManager<HTMLElement> {
+     // pointer moves until it succeeds.
+     // God, I do love web development.
+     if (
+-      !target?.hasPointerCapture(event.pointerId) &&
++      !target?.hasPointerCapture?.(event.pointerId) &&
+       !POINTER_CAPTURE_EXCLUDE_LIST.has(target.tagName)
+     ) {
+-      target.setPointerCapture(event.pointerId);
++      try {
++        target.setPointerCapture(event.pointerId);
++      } catch {}
+     }
+ 
+     const inBounds: boolean = isPointerInBounds(this.view, {

@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer, QueueSlot } from "@/state/PlayerContext";
+import { openMainTab } from "@/components/Footer";
 import { theme } from "@/constants/theme";
 import { AUTOPLAY_SOURCE } from "@/scripts/autoplay";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
@@ -373,7 +374,7 @@ export default function QueueScreen() {
       {/* Top Header with Back Button */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : openMainTab("home"))}
           style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Back"
@@ -592,7 +593,7 @@ export default function QueueScreen() {
         {!activeTrack && userQueue.length === 0 && upcomingTracks.length === 0 && (
           <View style={styles.fullEmptyContainer}>
             <TouchableOpacity
-              onPress={() => router.push("/")}
+              onPress={() => openMainTab("home")}
               style={styles.exploreButton}
               accessibilityRole="button"
               accessibilityLabel="Explore Music"

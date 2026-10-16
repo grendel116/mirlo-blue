@@ -51,12 +51,23 @@ describe("device-only Faircamp saves", () => {
         duration: 252,
       },
     };
-    album.tracks = [track];
+    const track2: RNTrack = {
+      ...track,
+      id: 10484,
+      title: "Second Song",
+      url: "https://sockpuppet.band/sjx/02-second-song.opus",
+      order: 2,
+      audio: {
+        url: "https://sockpuppet.band/sjx/02-second-song.opus",
+        duration: 180,
+      },
+    };
+    album.tracks = [track, track2];
 
+    // Liking any single track adds the whole album to the wishlist
     await toggleFaircampTrackLike(track);
-    await toggleFaircampAlbumWishlist(album, [track]);
 
-    const stored = JSON.parse(
+    let stored = JSON.parse(
       (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
     );
     expect(stored.tracks).toHaveLength(1);
@@ -64,7 +75,33 @@ describe("device-only Faircamp saves", () => {
     expect(stored.albums).toHaveLength(1);
     expect(stored.albums[0].album.urlSlug).toBe(album.urlSlug);
 
-    await toggleFaircampAlbumWishlist(album, [track]);
+    // Unliking the only liked track removes the album from the wishlist
+    await toggleFaircampTrackLike(track);
+    stored = JSON.parse(
+      (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
+    );
+    expect(stored.tracks).toHaveLength(0);
+    expect(stored.albums).toHaveLength(0);
+
+    // Liking the big album heart likes all tracks and adds the album to the wishlist
+    await toggleFaircampAlbumWishlist(album, [track, track2]);
+    stored = JSON.parse(
+      (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
+    );
+    expect(stored.tracks).toHaveLength(2);
+    expect(stored.albums).toHaveLength(1);
+
+    // Unliking one track while another is still liked keeps the album in the wishlist
+    await toggleFaircampTrackLike(track);
+    stored = JSON.parse(
+      (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
+    );
+    expect(stored.tracks).toHaveLength(1);
+    expect(stored.tracks[0].track.url).toBe(track2.url);
+    expect(stored.albums).toHaveLength(1);
+
+    // Toggling the big album heart off removes all remaining track likes and removes the album
+    await toggleFaircampAlbumWishlist(album, [track, track2]);
     const removed = JSON.parse(
       (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
     );
