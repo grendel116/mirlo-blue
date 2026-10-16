@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo } from "react";
+import { memo, useState, useEffect, useMemo, useDeferredValue } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryTrackGroups, queryTopSold } from "@/queries/queries";
 import {
   distributeFairChorusAlbums,
@@ -108,6 +108,19 @@ export function blendCarouselReleases(
 // Home's carousels keep their picks this long before drawing new ones
 const CAROUSEL_STALE_TIME = 15 * 60 * 1000;
 
+// Queries behind Home's carousels
+const HOME_QUERIES = new Set([
+  "fetchTrackGroups",
+  "fetchTopSold",
+  "federatedChorusAlbums",
+  "fairplayerAlbums",
+  "discoveredRadioStations",
+  "castopodPodcasts",
+  "discussionLatestDates",
+  "fetchRadioPlays",
+  "podcastEpisodes",
+]);
+
 const MemoQueueScreen = memo(QueueScreen);
 const MemoLibraryScreen = memo(LibraryScreen);
 
@@ -132,7 +145,7 @@ export default function Index() {
         style={[styles.tabPane, tab !== "home" && styles.tabPaneHidden]}
         pointerEvents={tab === "home" ? "auto" : "none"}
       >
-        <HomePane />
+        <HomePane active={tab === "home"} />
       </View>
       <View
         style={[styles.tabPane, tab !== "queue" && styles.tabPaneHidden]}
@@ -150,7 +163,7 @@ export default function Index() {
   );
 }
 
-const HomePane = memo(function HomePane() {
+const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   const router = useRouter();
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -217,6 +230,18 @@ const HomePane = memo(function HomePane() {
   } = useQuery(queryDiscoveredPodcasts(6));
 
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+
+  // Leaving Home stops its refresh: refreshes in flight are cancelled and Home keeps the
+  // releases it already has. First loads carry on, since Home has nothing to show without them
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (active) return;
+    setIsPullRefreshing(false);
+    queryClient.cancelQueries({
+      predicate: (query) =>
+        HOME_QUERIES.has(String(query.queryKey[0])) && query.state.data !== undefined,
+    });
+  }, [active, queryClient]);
   const retry = () => {
     setShuffleSeed((s) => s + 1);
     refetchChorus();
@@ -268,6 +293,13 @@ const HomePane = memo(function HomePane() {
     () => shuffleCarousel(topSoldData?.results || []),
     [topSoldData?.results, shuffleSeed],
   );
+
+  // Menu taps outrank carousel renders: new releases, stations, and shows draw at low priority,
+  // so a tap interrupts them instead of waiting for them to finish
+  const shownReleases = useDeferredValue(recentReleases);
+  const shownPurchases = useDeferredValue(popularPurchases);
+  const shownStations = useDeferredValue(radioStations);
+  const shownShows = useDeferredValue(podcastShows);
 
   // The splash screen stays up until Home has its first content (or an error to show)
   const { setIsDataLoaded } = useAppIsReadyContext();
@@ -409,7 +441,7 @@ const HomePane = memo(function HomePane() {
               ) : (
                 <FlatList
                   horizontal
-                  data={recentReleases}
+                  data={shownReleases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
@@ -467,7 +499,7 @@ const HomePane = memo(function HomePane() {
               ) : (
                 <FlatList
                   horizontal
-                  data={popularPurchases}
+                  data={shownPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.carouselContent}
@@ -517,11 +549,13 @@ const HomePane = memo(function HomePane() {
               </View>
               <FlatList
                 horizontal
-                data={radioStations}
+                data={shownStations}
                 keyExtractor={(station) => station.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
-                renderItem={({ item }) => <StationCard station={item} cardWidth={cardWidth} />}
+                renderItem={({ item }) => (
+                  <StationCard station={item} cardWidth={cardWidth} active={active} />
+                )}
               />
             </View>
 
@@ -532,7 +566,7 @@ const HomePane = memo(function HomePane() {
               </View>
               <FlatList
                 horizontal
-                data={podcastShows}
+                data={shownShows}
                 keyExtractor={(show) => show.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.carouselContent}
@@ -548,9 +582,21 @@ const HomePane = memo(function HomePane() {
 
 // A station in the Radio row, shaped like an album card: the cover and song are what's on
 // air now, and tapping opens the station's screen
-function StationCard({ station, cardWidth }: { station: RadioStation; cardWidth: number }) {
+// Stations refresh their song every minute only while Home is on screen
+function StationCard({
+  station,
+  cardWidth,
+  active,
+}: {
+  station: RadioStation;
+  cardWidth: number;
+  active: boolean;
+}) {
   const router = useRouter();
-  const { data: plays } = useQuery(queryRadioPlays(station));
+  const { data: plays } = useQuery({
+    ...queryRadioPlays(station),
+    refetchInterval: active ? 60_000 : false,
+  });
   const onAir = plays?.[0];
   const [failedArtwork, setFailedArtwork] = useState<string>();
   const onAirArtwork = onAir?.artwork;
@@ -706,7 +752,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 30,
+    paddingBottom: 80,
   },
   section: {
     marginTop: 22,

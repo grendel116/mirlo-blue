@@ -51,10 +51,10 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (isDataLoaded && (fontsLoaded || fontError)) {
+    if (fontsLoaded || fontError) {
       SplashScreen.hide();
     }
-  }, [isDataLoaded, fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) {
     return null;
