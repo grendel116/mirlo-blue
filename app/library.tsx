@@ -34,7 +34,7 @@ import { useFaircampSaves, FaircampSaves } from "@/scripts/faircampSaves";
 import { findStation, liveTrack } from "@/queries/radio";
 import { hashString } from "@/queries/podcast";
 
-type LibraryTab = "wishlist" | "purchases" | "bookmarks" | "downloads";
+type LibraryTab = "wishlist" | "purchases" | "downloads" | "bookmarks";
 type IconName = ComponentProps<typeof Ionicons>["name"];
 
 const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
@@ -50,8 +50,10 @@ function albumCover(tg: any): string {
 
 export type WishlistAlbum = { trackGroup: AlbumProps; savedAt: number };
 
-// Faircamp has no purchase record, so a downloaded album counts as owned: its files carry a
-// title and artist, and a wishlist album with the same title and artist is that album
+// One record, one box: an album moves from Wishlist to Purchases to Downloads and sits only in
+// the furthest box it has reached. Downloaded files carry a title and artist, and an album with
+// the same title and artist is that album, which also covers Faircamp, where there is no
+// purchase record
 function downloadedAlbumMatcher(downloads: DownloadedTrack[]) {
   const saved = groupTracksIntoAlbums(downloads);
   return (trackGroup: any) =>
@@ -170,7 +172,10 @@ export default function LibraryScreen({
   );
   const { data: wishlistData, isPending: isWishlistPending } = useQuery(queryWishlist(userId));
 
-  const purchases = useMemo(() => collectionData?.results || [], [collectionData?.results]);
+  const purchases = useMemo(() => {
+    const isDownloaded = downloadedAlbumMatcher(downloadedTracks);
+    return (collectionData?.results || []).filter((p: any) => !isDownloaded(p.trackGroup));
+  }, [collectionData?.results, downloadedTracks]);
   const wishlistAlbums = useMemo(
     () =>
       buildWishlistAlbums({
@@ -191,13 +196,13 @@ export default function LibraryScreen({
   const tabs: { id: LibraryTab; label: string; icon: IconName; count: number }[] = [
     { id: "wishlist", label: "Wishlist", icon: "heart-outline", count: wishlistAlbums.length },
     { id: "purchases", label: "Purchases", icon: "bag-handle-outline", count: purchases.length },
-    { id: "bookmarks", label: "Bookmarks", icon: "bookmark-outline", count: bookmarks.length },
     {
       id: "downloads",
       label: "Downloads",
       icon: "download-outline",
-      count: downloadedTracks.length,
+      count: groupTracksIntoAlbums(downloadedTracks).length,
     },
+    { id: "bookmarks", label: "Bookmarks", icon: "bookmark-outline", count: bookmarks.length },
   ];
 
   const renderEmpty = (icon: IconName, title: string, subtitle: string) => (
@@ -363,7 +368,7 @@ export default function LibraryScreen({
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Your Library</Text>
-        <Text style={styles.subtitle}>Your wishlist, purchases, bookmarks & downloads</Text>
+        <Text style={styles.subtitle}>Your wishlist, purchases, downloads & bookmarks</Text>
 
         {/* Scrollable Segmented Toggle Pills */}
         <ScrollView
