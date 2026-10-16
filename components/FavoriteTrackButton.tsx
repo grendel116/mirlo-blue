@@ -121,7 +121,8 @@ function PodcastEpisodeHeart({
 }
 
 // The heart follows the account's favorites, so hearting a whole album fills every track's
-// heart. A tap shows right away and gives way to the account data once it refreshes
+// heart. A tap shows right away and gives way to the account data once it refreshes.
+// The Mirlo wishlist holds an album while at least one of its songs is liked
 function SongHeart({
   track,
   style,
@@ -146,17 +147,20 @@ function SongHeart({
     await api.post(`/v1/tracks/${track.id}/favorite`, { favorite: next });
     const fresh = await queryClient.fetchQuery({ ...queryAuthProfile(), staleTime: 0 });
 
-    // Hearting the last unhearted track on an album adds the album to your wishlist
     const albumId = track.trackGroupId;
-    if (!next || !fresh || !albumId) return;
-    if (fresh.wishlist?.some((w) => w.trackGroupId === albumId)) return;
-    const { result: album } = await api.get<{ result: AlbumProps }>(
-      `/v1/trackGroups/${albumId}`,
-      {},
-    );
-    const hearted = new Set(fresh.trackFavorites?.map((f) => f.trackId));
-    if (!album.tracks?.length || !album.tracks.every((t) => hearted.has(t.id))) return;
-    await api.post(`/v1/trackGroups/${albumId}/wishlist`, { wishlist: true });
+    if (!fresh || !albumId) return;
+    const isListed = Boolean(fresh.wishlist?.some((w) => w.trackGroupId === albumId));
+    let shouldList = next;
+    if (!next && isListed) {
+      const { result: album } = await api.get<{ result: AlbumProps }>(
+        `/v1/trackGroups/${albumId}`,
+        {},
+      );
+      const liked = new Set(fresh.trackFavorites?.map((f) => f.trackId));
+      shouldList = Boolean(album.tracks?.some((t) => liked.has(t.id)));
+    }
+    if (shouldList === isListed) return;
+    await api.post(`/v1/trackGroups/${albumId}/wishlist`, { wishlist: shouldList });
     queryClient.invalidateQueries({ queryKey: queryAuthProfile().queryKey });
     queryClient.invalidateQueries({ queryKey: queryWishlist(user.id).queryKey });
   }, [user, isInFavorites, track.id, track.trackGroupId, queryClient]);

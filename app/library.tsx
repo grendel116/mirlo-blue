@@ -11,7 +11,7 @@ import {
   TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ComponentProps, type ReactElement } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { usePlayer } from "@/state/PlayerContext";
 import { useQuery, useQueries } from "@tanstack/react-query";
@@ -28,18 +28,24 @@ import { theme } from "@/constants/theme";
 import AddToQueueButton from "@/components/AddToQueueButton";
 import DownloadsTab from "@/components/DownloadsTab";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
-import { downloadToTrack, useDownloads } from "@/scripts/downloadManager";
+import { DownloadedTrack, downloadToTrack, useDownloads } from "@/scripts/downloadManager";
 import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
-import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
+import {
+  audioTrackType,
+  isTrackOwnedOrPreview,
+  resolveArtworkUrl,
+  trackStreamPath,
+} from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { useFaircampSaves, FaircampSavedTrack } from "@/scripts/faircampSaves";
 import { findStation, liveTrack } from "@/queries/radio";
 import { hashString } from "@/queries/podcast";
 
+type LibraryTab = "library" | "purchases" | "wishlist" | "bookmarks" | "downloads";
 type LibrarySort = "newest" | "title" | "artist" | "album";
 const SORT_OPTIONS: { id: LibrarySort; label: string }[] = [
   { id: "newest", label: "Newest" },
@@ -110,55 +116,25 @@ function resolveAudioStreamUrl(rawUrl?: string): string {
   return `${API_ROOT}/${trimmed}`;
 }
 
-export interface BuildCombinedLibraryTracksParams {
-  user?: LoggedInUser | null;
-  purchases: any[];
-  wishlist: any[];
-  fullAlbums: AlbumProps[];
-  purchaseDateByAlbumId: Map<number | string, string>;
-  catalogData?: { results: AlbumProps[] };
-  topSoldData?: { results: AlbumProps[] };
-  historyItems: HistoryItem[];
-  downloadedTracks: any[];
-  stationLikes: { stationId: string; likedAt: number }[];
-  podcastEpisodeLikes?: PodcastEpisodeLike[];
-  faircampTracks?: FaircampSavedTrack[];
+type AlbumEntry = { artwork: string; artist: string; trackGroup: any };
+type ShelfKey = number | string;
+
+const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
+
+function albumEntry(tg: any): AlbumEntry {
+  const { tracks: _tracks, ...trackGroup } = tg;
+  return { artwork: resolveArtwork(tg), artist: resolveArtist(tg), trackGroup };
 }
 
-export function buildCombinedLibraryTracks({
-  user,
-  purchases,
-  wishlist,
-  fullAlbums,
-  purchaseDateByAlbumId,
-  catalogData,
-  topSoldData,
-  historyItems,
-  downloadedTracks,
-  stationLikes,
-  podcastEpisodeLikes,
-  faircampTracks = [],
-}: BuildCombinedLibraryTracksParams): RNTrack[] {
-  const trackMap = new Map<number | string, RNTrack>();
-  // When each track joined the library; a track found in several places keeps the latest date
-  const addedAt = new Map<number | string, number>();
-  const timeOf = (date: unknown) => (date ? new Date(date as string).getTime() || 0 : 0);
-  const markAdded = (id: number | string, time: number) => {
-    addedAt.set(id, Math.max(addedAt.get(id) || 0, time));
-  };
+// Cover, artist, and album details from every album we know of, so a song that arrives
+// without them borrows them from its album
+function createAlbumLookup(albums: any[], historyItems: HistoryItem[] = []) {
+  const albumLookup = new Map<ShelfKey, AlbumEntry>();
 
-  // Build album lookup map (by id, trackGroupId, slug, title) from all available sources
-  const albumLookup = new Map<
-    number | string,
-    { artwork: string; artist: string; trackGroup: any }
-  >();
-
-  const indexAlbum = (tg: any) => {
+  albums.forEach((item: any) => {
+    const tg = item?.trackGroup || item;
     if (!tg) return;
-    const artwork = resolveArtwork(tg);
-    const artist = resolveArtist(tg);
-    const { tracks: _tracks, ...cleanTg } = tg;
-    const entry = { artwork, artist, trackGroup: cleanTg };
+    const entry = albumEntry(tg);
     if (tg.id !== undefined) {
       albumLookup.set(tg.id, entry);
       albumLookup.set(String(tg.id), entry);
@@ -173,13 +149,7 @@ export function buildCombinedLibraryTracks({
     if (tg.title) {
       albumLookup.set(tg.title.toLowerCase().trim(), entry);
     }
-  };
-
-  purchases.forEach((p: any) => indexAlbum(p?.trackGroup || p));
-  wishlist.forEach((w: any) => indexAlbum(w?.trackGroup || w));
-  fullAlbums.forEach(indexAlbum);
-  (catalogData?.results || []).forEach(indexAlbum);
-  (topSoldData?.results || []).forEach(indexAlbum);
+  });
 
   historyItems.forEach((h: HistoryItem) => {
     if (h && h.downloadAlbum === undefined) {
@@ -204,7 +174,7 @@ export function buildCombinedLibraryTracks({
     }
   });
 
-  const matchAlbum = (t: any, fav?: any) => {
+  return (t: any, fav?: any): AlbumEntry | undefined => {
     const candidateIds = [
       t?.trackGroupId,
       t?.trackGroup?.id,
@@ -243,19 +213,36 @@ export function buildCombinedLibraryTracks({
 
     return undefined;
   };
+}
 
-  const addTrackToMap = (
-    t: any,
-    fav?: any,
-    albumFallback?: { artwork: string; artist: string; trackGroup: any },
-    added = 0,
-  ) => {
+// Songs gathered from several places, each listed once. A song found in several places keeps
+// the latest date it joined; songs listed under `exclude` stay off the shelf
+function createShelf(
+  matchAlbum: (t: any, fav?: any) => AlbumEntry | undefined,
+  exclude: Set<ShelfKey> = new Set(),
+) {
+  const tracks = new Map<ShelfKey, RNTrack>();
+  const addedAt = new Map<ShelfKey, number>();
+
+  const markAdded = (key: ShelfKey, time: number) => {
+    addedAt.set(key, Math.max(addedAt.get(key) || 0, time));
+  };
+
+  // A ready-made track under its own key
+  const put = (key: ShelfKey, track: RNTrack, added = 0) => {
+    if (exclude.has(key)) return;
+    markAdded(key, added);
+    if (!tracks.has(key)) tracks.set(key, track);
+  };
+
+  // A Mirlo or Faircamp song in any shape the API sends, filled out from its album
+  const add = (t: any, added = 0, fav?: any, albumFallback?: AlbumEntry) => {
     if (!t) return;
     const trackId = t.id ?? fav?.trackId ?? t.trackId;
     if (!trackId) return;
-    const mapKey =
-      t.source === "Faircamp" && t.url ? `faircamp:${t.url}` : trackId;
-    markAdded(mapKey, added);
+    const key: ShelfKey = t.source === "Faircamp" && t.url ? `faircamp:${t.url}` : trackId;
+    if (exclude.has(key)) return;
+    markAdded(key, added);
 
     const matched = matchAlbum(t, fav) || albumFallback;
     const rawAudio = t.audio?.url || t.url || trackStreamPath(trackId);
@@ -277,7 +264,7 @@ export function buildCombinedLibraryTracks({
       matched?.artist ||
       "";
 
-    const existing = trackMap.get(mapKey);
+    const existing = tracks.get(key);
     if (existing) {
       if (!existing.artwork && artwork) existing.artwork = artwork;
       if (!existing.artist && artist) existing.artist = artist;
@@ -299,7 +286,7 @@ export function buildCombinedLibraryTracks({
       };
     const { tracks: _tracks, ...trackGroup } = rawTrackGroup;
 
-    trackMap.set(mapKey, {
+    tracks.set(key, {
       ...t,
       id: trackId,
       title: t.title || fav?.title || "Unknown Track",
@@ -323,119 +310,192 @@ export function buildCombinedLibraryTracks({
     });
   };
 
-  // 1. Add tracks from full purchased albums
+  // Newest additions first; songs added together keep their album order
+  const list = (): RNTrack[] =>
+    Array.from(tracks.entries())
+      .sort(([keyA, a], [keyB, b]) => {
+        const timeDiff = (addedAt.get(keyB) || 0) - (addedAt.get(keyA) || 0);
+        if (timeDiff !== 0) return timeDiff;
+        const aAlbumId = a.trackGroupId || a.trackGroup?.id;
+        const bAlbumId = b.trackGroupId || b.trackGroup?.id;
+        if (aAlbumId && bAlbumId && aAlbumId === bAlbumId) {
+          return (a.order || 0) - (b.order || 0);
+        }
+        return 0;
+      })
+      .map(([, track]) => track);
+
+  return { tracks, add, put, markAdded, list };
+}
+
+// Imported files carry no Mirlo id; the artist and title in their tags name the song
+function songIdentity(artist?: string, title?: string): string {
+  const a = (artist || "").trim().toLowerCase();
+  const t = (title || "").trim().toLowerCase();
+  return a && t ? `${a}|${t}` : "";
+}
+
+export interface BuildLibraryTracksParams {
+  purchases: any[];
+  fullAlbums: AlbumProps[];
+  purchaseDateByAlbumId: Map<number | string, string>;
+  downloadedTracks: DownloadedTrack[];
+}
+
+// Tracks: every song the listener fully owns — purchases and the songs saved on the phone
+export function buildLibraryTracks({
+  purchases,
+  fullAlbums,
+  purchaseDateByAlbumId,
+  downloadedTracks,
+}: BuildLibraryTracksParams): RNTrack[] {
+  const shelf = createShelf(createAlbumLookup([...purchases, ...fullAlbums]));
+
+  // 1. Tracks from full purchased albums
   fullAlbums.forEach((album) => {
     if (!album.tracks || !Array.isArray(album.tracks)) return;
-    const { tracks: _tracks, ...cleanAlbum } = album;
-    const albumFallback = {
-      artwork: resolveArtwork(album),
-      artist: resolveArtist(album),
-      trackGroup: cleanAlbum,
-    };
+    const entry = albumEntry(album);
     const purchaseDate =
       purchaseDateByAlbumId.get(album.id) ??
       purchaseDateByAlbumId.get(album.trackGroupId) ??
       purchaseDateByAlbumId.get(album.urlSlug);
     const added = timeOf(purchaseDate || album.releaseDate);
-
     album.tracks.forEach((t: RNTrack) => {
-      addTrackToMap({ ...t, trackGroup: cleanAlbum }, undefined, albumFallback, added);
+      shelf.add({ ...t, trackGroup: entry.trackGroup }, added, undefined, entry);
     });
   });
 
-  // 2. Add individual track purchases or any purchases where tracks were already attached
+  // 2. Individual track purchases, and purchases that arrive with their tracks attached
   purchases.forEach((p: any) => {
     const tg = p?.trackGroup || p;
-    const albumFallback = tg ? albumLookup.get(tg.id) : undefined;
+    const entry = tg ? albumEntry(tg) : undefined;
     const added = timeOf(p?.datePurchased);
     if (tg?.tracks && Array.isArray(tg.tracks)) {
-      tg.tracks.forEach((t: RNTrack) => addTrackToMap(t, undefined, albumFallback, added));
+      tg.tracks.forEach((t: RNTrack) => shelf.add(t, added, undefined, entry));
     } else if (p.track) {
-      addTrackToMap(p.track, p, albumFallback, added);
+      shelf.add(p.track, added, p, entry);
     }
   });
 
-  // 3. Add tracks from user's explicit track favorites
-  if (user?.trackFavorites) {
-    user.trackFavorites.forEach((fav: any) => {
-      addTrackToMap(fav?.track || fav, fav, undefined, timeOf(fav?.createdAt));
-    });
-  }
-
-  // 4. Add downloaded songs; ones already listed keep their Mirlo entry and play the saved file
-  downloadedTracks.forEach((dl) => {
-    markAdded(dl.id, dl.downloadedAt);
-    if (!trackMap.has(dl.id)) trackMap.set(dl.id, downloadToTrack(dl));
+  // 3. Songs saved on the phone. A Mirlo download shares its purchase's id and plays the saved
+  // file; an imported file of a purchased song joins that purchase and plays the file
+  const purchasedBySong = new Map<string, ShelfKey>();
+  shelf.tracks.forEach((t, key) => {
+    const identity = songIdentity(t.artist, t.title);
+    if (identity) purchasedBySong.set(identity, key);
   });
 
-  // 5. Add liked radio stations, kept on the phone
+  downloadedTracks.forEach((dl) => {
+    const purchasedKey = shelf.tracks.has(dl.id)
+      ? dl.id
+      : dl.source === "file"
+        ? purchasedBySong.get(songIdentity(dl.artist, dl.title))
+        : undefined;
+
+    if (purchasedKey === undefined) {
+      shelf.put(dl.id, downloadToTrack(dl), dl.downloadedAt);
+      return;
+    }
+    shelf.markAdded(purchasedKey, dl.downloadedAt);
+    if (purchasedKey !== dl.id) {
+      const purchased = shelf.tracks.get(purchasedKey)!;
+      purchased.url = dl.url;
+      purchased.audio = { ...purchased.audio, url: dl.url };
+      purchased.headers = {};
+    }
+  });
+
+  return shelf.list();
+}
+
+export interface BuildWishlistTracksParams {
+  user?: LoggedInUser | null;
+  wishlist: any[];
+  catalogData?: { results: AlbumProps[] };
+  topSoldData?: { results: AlbumProps[] };
+  historyItems: HistoryItem[];
+  faircampTracks?: FaircampSavedTrack[];
+  ownedIds: Set<ShelfKey>;
+}
+
+// Wishlist: liked Mirlo and Faircamp songs, leaving out songs the listener already owns.
+// Wishlisted albums and catalog releases fill in each song's cover and artist
+export function buildWishlistTracks({
+  user,
+  wishlist,
+  catalogData,
+  topSoldData,
+  historyItems,
+  faircampTracks = [],
+  ownedIds,
+}: BuildWishlistTracksParams): RNTrack[] {
+  const shelf = createShelf(
+    createAlbumLookup(
+      [...wishlist, ...(catalogData?.results || []), ...(topSoldData?.results || [])],
+      historyItems,
+    ),
+    ownedIds,
+  );
+
+  user?.trackFavorites?.forEach((fav: any) => {
+    shelf.add(fav?.track || fav, timeOf(fav?.createdAt), fav);
+  });
+  faircampTracks.forEach(({ track, likedAt }) => shelf.add(track, likedAt));
+
+  return shelf.list();
+}
+
+function episodeTrack(ep: PodcastEpisodeLike): RNTrack {
+  return {
+    id: -(Math.abs(hashString(`ep-${ep.episodeId}`)) || 600000),
+    title: ep.title,
+    artist: ep.artist,
+    artwork: ep.artwork || "",
+    url: ep.url,
+    type: "default",
+    duration: ep.duration,
+    order: 1,
+    queueIndex: 0,
+    allowIndividualSale: false,
+    isPreview: false,
+    audio: {
+      url: ep.url,
+      duration: ep.duration,
+    },
+    trackGroupId: 0,
+    podcastId: ep.showId,
+    podcastEpisodeId: ep.episodeId,
+  } as RNTrack;
+}
+
+export interface BuildBookmarksParams {
+  stationLikes: { stationId: string; likedAt: number }[];
+  podcastEpisodeLikes?: PodcastEpisodeLike[];
+}
+
+// Bookmarks: liked radio stations and podcast episodes, kept on the phone
+export function buildBookmarks({
+  stationLikes,
+  podcastEpisodeLikes = [],
+}: BuildBookmarksParams): RNTrack[] {
+  const shelf = createShelf(() => undefined);
   stationLikes.forEach(({ stationId, likedAt }) => {
     const station = findStation(stationId);
-    if (!station) return;
-    const key = `station:${stationId}`;
-    markAdded(key, likedAt);
-    trackMap.set(key, liveTrack(station));
+    if (station) shelf.put(`station:${stationId}`, liveTrack(station), likedAt);
   });
-
-  // 6. Add liked podcast episodes, kept on the phone
-  podcastEpisodeLikes?.forEach((ep) => {
-    const key = `episode:${ep.episodeId}`;
-    markAdded(key, ep.likedAt);
-    trackMap.set(key, {
-      id: -(Math.abs(hashString(`ep-${ep.episodeId}`)) || 600000),
-      title: ep.title,
-      artist: ep.artist,
-      artwork: ep.artwork || "",
-      url: ep.url,
-      type: "default",
-      duration: ep.duration,
-      order: 1,
-      queueIndex: 0,
-      allowIndividualSale: false,
-      isPreview: false,
-      audio: {
-        url: ep.url,
-        duration: ep.duration,
-      },
-      trackGroupId: 0,
-      podcastId: ep.showId,
-      podcastEpisodeId: ep.episodeId,
-    } as RNTrack);
+  podcastEpisodeLikes.forEach((ep) => {
+    shelf.put(`episode:${ep.episodeId}`, episodeTrack(ep), ep.likedAt);
   });
-
-  // 7. Add liked Faircamp tracks, kept on the phone
-  faircampTracks.forEach(({ track, likedAt }) => {
-    addTrackToMap(track, undefined, undefined, likedAt);
-  });
-
-  // Newest additions first; tracks added together keep their album order
-  const keyOf = (t: RNTrack) =>
-    t.source === "Faircamp" && t.url
-      ? `faircamp:${t.url}`
-      : t.liveStation
-      ? `station:${t.liveStation}`
-      : t.podcastEpisodeId
-        ? `episode:${t.podcastEpisodeId}`
-        : t.id;
-  return Array.from(trackMap.values()).sort((a, b) => {
-    const timeDiff = (addedAt.get(keyOf(b)) || 0) - (addedAt.get(keyOf(a)) || 0);
-    if (timeDiff !== 0) return timeDiff;
-    const aAlbumId = a.trackGroupId || a.trackGroup?.id;
-    const bAlbumId = b.trackGroupId || b.trackGroup?.id;
-    if (aAlbumId && bAlbumId && aAlbumId === bAlbumId) {
-      return (a.order || 0) - (b.order || 0);
-    }
-    return 0;
-  });
+  return shelf.list();
 }
 
 export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
-  const { playTrack, activeTrack } = usePlayer();
+  const { playTrack, activeTrack, disabledTrackIds } = usePlayer();
   // History links a saved album here: ?tab=downloads&album=<album key>
   const params = useLocalSearchParams<{ tab?: string; album?: string }>();
-  const [activeTab, setActiveTab] = useState<"library" | "purchases" | "wishlist" | "downloads">(
+  const [activeTab, setActiveTab] = useState<LibraryTab>(
     params.tab === "downloads" ? "downloads" : "library",
   );
   useEffect(() => {
@@ -478,26 +538,7 @@ export default function LibraryScreen() {
   }, []);
 
   const purchases = useMemo(() => collectionData?.results || [], [collectionData?.results]);
-  const remoteWishlist = useMemo(() => wishlistData?.results || [], [wishlistData?.results]);
-  const wishlist = useMemo(
-    () => [
-      ...remoteWishlist,
-      ...faircampSaves.albums
-        .filter(
-          ({ album }) =>
-            !remoteWishlist.some(
-              (item: any) => item?.trackGroup?.urlSlug === album.urlSlug,
-            ),
-        )
-        .map(({ album, savedAt }) => ({
-          userId: user?.id || 0,
-          trackGroupId: album.id,
-          trackGroup: album,
-          createdAt: new Date(savedAt),
-        })),
-    ],
-    [remoteWishlist, faircampSaves.albums, user?.id],
-  );
+  const wishlist = useMemo(() => wishlistData?.results || [], [wishlistData?.results]);
 
   // Unique album descriptors for purchased albums that need their full tracks fetched
   const purchasedAlbumDescriptors = useMemo(() => {
@@ -579,37 +620,44 @@ export default function LibraryScreen() {
     return map;
   }, [purchasedAlbumDescriptors]);
 
-  // Combined tracks (sans duplicates) across purchased albums and favorited tracks
+  // Tracks: purchases and songs saved on the phone, each listed once
   const combinedTracks = useMemo(
     () =>
-      buildCombinedLibraryTracks({
-        user,
+      buildLibraryTracks({
         purchases,
-        wishlist,
         fullAlbums,
         purchaseDateByAlbumId,
+        downloadedTracks,
+      }),
+    [purchases, fullAlbums, purchaseDateByAlbumId, downloadedTracks],
+  );
+
+  // Wishlist, song by song, leaving out songs already in Tracks
+  const wishlistTracks = useMemo(
+    () =>
+      buildWishlistTracks({
+        user,
+        wishlist,
         catalogData,
         topSoldData,
         historyItems,
-        downloadedTracks,
-        stationLikes,
-        podcastEpisodeLikes,
         faircampTracks: faircampSaves.tracks,
+        ownedIds: new Set(combinedTracks.map((t) => t.id)),
       }),
     [
       user,
-      purchases,
       wishlist,
-      fullAlbums,
-      purchaseDateByAlbumId,
       catalogData,
       topSoldData,
       historyItems,
-      downloadedTracks,
-      stationLikes,
-      podcastEpisodeLikes,
       faircampSaves.tracks,
+      combinedTracks,
     ],
+  );
+
+  const bookmarks = useMemo(
+    () => buildBookmarks({ stationLikes, podcastEpisodeLikes }),
+    [stationLikes, podcastEpisodeLikes],
   );
 
   const isPurchasedAlbumsPending = albumQueries.some((q) => q.isPending);
@@ -640,12 +688,144 @@ export default function LibraryScreen() {
     return [...matches].sort((a, b) => key(a).localeCompare(key(b)));
   }, [combinedTracks, librarySearch, librarySort]);
 
+  const isWishlistLoading = Boolean(userId) && isWishlistPending && wishlistTracks.length === 0;
+
+  // Purchases live in the Mirlo account; the other tabs also hold music kept on the phone
+  const needsSignIn =
+    !user &&
+    (activeTab === "purchases" ||
+      (activeTab === "library" && combinedTracks.length === 0) ||
+      (activeTab === "wishlist" && wishlistTracks.length === 0));
+
+  const tabs: {
+    id: LibraryTab;
+    label: string;
+    icon: ComponentProps<typeof Ionicons>["name"];
+    count: number;
+  }[] = [
+    { id: "library", label: "Tracks", icon: "musical-notes", count: combinedTracks.length },
+    { id: "purchases", label: "Purchases", icon: "bag-handle-outline", count: purchases.length },
+    { id: "wishlist", label: "Wishlist", icon: "heart-outline", count: wishlistTracks.length },
+    { id: "bookmarks", label: "Bookmarks", icon: "bookmark-outline", count: bookmarks.length },
+    {
+      id: "downloads",
+      label: "Downloads",
+      icon: "download-outline",
+      count: downloadedTracks.length,
+    },
+  ];
+
+  const renderEmpty = (
+    icon: ComponentProps<typeof Ionicons>["name"],
+    title: string,
+    subtitle: string,
+  ) => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name={icon} size={48} color={theme.colors.textMuted} />
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+    </View>
+  );
+
+  // Opens a release's page, where the listener can play or buy it
+  const openAlbum = (tg: any) => {
+    if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
+      router.push({
+        pathname: "/artist/[id]/album/[slug]/album-tracks",
+        params: {
+          id:
+            fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
+            String(tg.artist?.urlSlug || tg.artistId),
+          slug: String(tg.urlSlug),
+        },
+      });
+    }
+  };
+
+  // Songs that fail `canPlay` show dimmed with a lock and open their album instead of playing
+  const renderTrackList = (
+    tracks: RNTrack[],
+    queueName: string,
+    {
+      listEmpty,
+      canPlay = () => true,
+    }: { listEmpty?: ReactElement; canPlay?: (track: RNTrack) => boolean } = {},
+  ) => {
+    const playable = tracks.filter(canPlay);
+    return (
+      <FlatList
+        data={tracks}
+        keyExtractor={(item, index) =>
+          `track-${item.liveStation ?? item.podcastEpisodeId ?? item.url ?? item.id}-${index}`
+        }
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={listEmpty}
+        renderItem={({ item }) => {
+          const isPlayable = canPlay(item);
+          const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
+          return (
+            <Pressable
+              onPress={() =>
+                isPlayable ? playTrack(item, playable, queueName) : openAlbum(item.trackGroup)
+              }
+              style={[
+                styles.card,
+                isSelected && styles.selectedCard,
+                !isPlayable && styles.lockedCard,
+              ]}
+              accessibilityHint={isPlayable ? undefined : "Opens the album to buy this song"}
+            >
+              {item.artwork ? (
+                <Image source={{ uri: item.artwork }} style={styles.thumb} />
+              ) : (
+                <View style={[styles.thumb, styles.placeholder]}>
+                  <Ionicons name="musical-notes" size={20} color={theme.colors.primary} />
+                </View>
+              )}
+              <View style={styles.cardInfo}>
+                <Text
+                  style={[
+                    styles.cardTitle,
+                    isSelected && { color: theme.colors.primary, fontWeight: "700" },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.title}
+                </Text>
+                <Text style={styles.cardArtist} numberOfLines={1}>
+                  {item.artist}
+                </Text>
+              </View>
+              <View style={styles.actionRow}>
+                {isPlayable ? (
+                  <AddToQueueButton track={item} size={17} />
+                ) : (
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={17}
+                    color={theme.colors.textMuted}
+                    accessibilityLabel="Buy to play"
+                  />
+                )}
+                <FavoriteTrackButton track={item} size={17} />
+              </View>
+            </Pressable>
+          );
+        }}
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Your Library</Text>
-        <Text style={styles.subtitle}>All music, offline downloads, purchases & likes</Text>
+        <Text style={styles.subtitle}>Your music, wishlist, bookmarks & downloads</Text>
 
         {/* Scrollable Segmented Toggle Pills */}
         <ScrollView
@@ -653,81 +833,30 @@ export default function LibraryScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.toggleRow}
         >
-          {/* Section 1: Library (All combined tracks sans duplicates) */}
-          <TouchableOpacity
-            onPress={() => setActiveTab("library")}
-            style={[styles.togglePill, activeTab === "library" && styles.togglePillActive]}
-          >
-            <Ionicons
-              name="musical-notes"
-              size={15}
-              color={
-                activeTab === "library" ? theme.colors.playButtonIcon : theme.colors.textSecondary
-              }
-            />
-            <Text style={[styles.toggleText, activeTab === "library" && styles.toggleTextActive]}>
-              Tracks ({combinedTracks.length})
-            </Text>
-          </TouchableOpacity>
-
-          {/* Section 2: Purchases */}
-          <TouchableOpacity
-            onPress={() => setActiveTab("purchases")}
-            style={[styles.togglePill, activeTab === "purchases" && styles.togglePillActive]}
-          >
-            <Ionicons
-              name="bag-handle-outline"
-              size={15}
-              color={
-                activeTab === "purchases" ? theme.colors.playButtonIcon : theme.colors.textSecondary
-              }
-            />
-            <Text style={[styles.toggleText, activeTab === "purchases" && styles.toggleTextActive]}>
-              Purchases ({purchases.length})
-            </Text>
-          </TouchableOpacity>
-
-          {/* Section 3: Wishlist */}
-          <TouchableOpacity
-            onPress={() => setActiveTab("wishlist")}
-            style={[styles.togglePill, activeTab === "wishlist" && styles.togglePillActive]}
-          >
-            <Ionicons
-              name="heart-outline"
-              size={15}
-              color={
-                activeTab === "wishlist" ? theme.colors.playButtonIcon : theme.colors.textSecondary
-              }
-            />
-            <Text style={[styles.toggleText, activeTab === "wishlist" && styles.toggleTextActive]}>
-              Wishlist ({wishlist.length})
-            </Text>
-          </TouchableOpacity>
-
-          {/* Section 4: Downloads (On device offline files) */}
-          <TouchableOpacity
-            onPress={() => setActiveTab("downloads")}
-            style={[styles.togglePill, activeTab === "downloads" && styles.togglePillActive]}
-          >
-            <Ionicons
-              name="download-outline"
-              size={15}
-              color={
-                activeTab === "downloads" ? theme.colors.playButtonIcon : theme.colors.textSecondary
-              }
-            />
-            <Text style={[styles.toggleText, activeTab === "downloads" && styles.toggleTextActive]}>
-              Downloads ({downloadedTracks.length})
-            </Text>
-          </TouchableOpacity>
+          {tabs.map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => setActiveTab(tab.id)}
+                style={[styles.togglePill, active && styles.togglePillActive]}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={15}
+                  color={active ? theme.colors.playButtonIcon : theme.colors.textSecondary}
+                />
+                <Text style={[styles.toggleText, active && styles.toggleTextActive]}>
+                  {tab.label} ({tab.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
       {/* Content */}
-      {!user &&
-      activeTab !== "downloads" &&
-      !(activeTab === "library" && combinedTracks.length > 0) &&
-      !(activeTab === "wishlist" && faircampSaves.albums.length > 0) ? (
+      {needsSignIn ? (
         <View style={styles.guestContainer}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
           <Text style={styles.guestTitle}>Sign in to access your cloud library</Text>
@@ -742,14 +871,11 @@ export default function LibraryScreen() {
         isLibraryLoading ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
         ) : combinedTracks.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="musical-notes-outline" size={48} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTitle}>Your library is empty</Text>
-            <Text style={styles.emptySubtitle}>
-              Favorited songs, purchases, and on-device downloaded audio files will appear here
-              together.
-            </Text>
-          </View>
+          renderEmpty(
+            "musical-notes-outline",
+            "Your library is empty",
+            "Songs you buy and audio files saved on this phone will appear here together.",
+          )
         ) : (
           <View style={styles.libraryPane}>
             <View style={styles.searchBox}>
@@ -785,70 +911,34 @@ export default function LibraryScreen() {
                 );
               })}
             </View>
-            <FlatList
-              data={visibleTracks}
-              keyExtractor={(item, index) =>
-                `track-${item.liveStation ?? item.podcastEpisodeId ?? item.url ?? item.id}-${index}`
-              }
-              initialNumToRender={12}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              contentContainerStyle={styles.listContent}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={
+            {renderTrackList(visibleTracks, "Your Library", {
+              listEmpty: (
                 <Text style={styles.emptySubtitle}>No songs match "{librarySearch}"</Text>
-              }
-              renderItem={({ item }) => {
-                const isSelected = Boolean(activeTrack?.url && activeTrack.url === item.url);
-                return (
-                  <Pressable
-                    onPress={() => playTrack(item, visibleTracks, "Your Library")}
-                    style={[styles.card, isSelected && styles.selectedCard]}
-                  >
-                    {item.artwork ? (
-                      <Image source={{ uri: item.artwork }} style={styles.thumb} />
-                    ) : (
-                      <View style={[styles.thumb, styles.placeholder]}>
-                        <Ionicons name="musical-notes" size={20} color={theme.colors.primary} />
-                      </View>
-                    )}
-                    <View style={styles.cardInfo}>
-                      <Text
-                        style={[
-                          styles.cardTitle,
-                          isSelected && { color: theme.colors.primary, fontWeight: "700" },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {item.title}
-                      </Text>
-                      <Text style={styles.cardArtist} numberOfLines={1}>
-                        {item.artist}
-                      </Text>
-                    </View>
-                    <View style={styles.actionRow}>
-                      <AddToQueueButton track={item} size={17} />
-                      <FavoriteTrackButton track={item} size={17} />
-                    </View>
-                  </Pressable>
-                );
-              }}
-            />
+              ),
+            })}
           </View>
         )
       ) : activeTab === "downloads" ? (
         <DownloadsTab openAlbum={params.album} />
+      ) : activeTab === "bookmarks" ? (
+        bookmarks.length === 0 ? (
+          renderEmpty(
+            "bookmark-outline",
+            "No bookmarks yet",
+            "Like a radio station or podcast episode to keep it here.",
+          )
+        ) : (
+          renderTrackList(bookmarks, "Bookmarks")
+        )
       ) : activeTab === "purchases" ? (
         isCollectionPending ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
         ) : purchases.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="bag-handle-outline" size={48} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTitle}>No purchases yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Music you buy directly from artists on Mirlo will appear here.
-            </Text>
-          </View>
+          renderEmpty(
+            "bag-handle-outline",
+            "No purchases yet",
+            "Music you buy directly from artists on Mirlo will appear here.",
+          )
         ) : (
           <FlatList
             data={purchases}
@@ -864,19 +954,7 @@ export default function LibraryScreen() {
               const coverUri = tg?.cover?.sizes?.[300] || tg?.cover?.sizes?.[120];
               return (
                 <Pressable
-                  onPress={() => {
-                    if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
-                      router.push({
-                        pathname: "/artist/[id]/album/[slug]/album-tracks",
-                        params: {
-                          id:
-                            fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
-                            String(tg.artist?.urlSlug || tg.artistId),
-                          slug: String(tg.urlSlug),
-                        },
-                      });
-                    }
-                  }}
+                  onPress={() => openAlbum(tg)}
                   style={styles.card}
                 >
                   {coverUri ? (
@@ -900,66 +978,18 @@ export default function LibraryScreen() {
             }}
           />
         )
-      ) : user && isWishlistPending ? (
+      ) : isWishlistLoading ? (
         <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 40 }} />
-      ) : wishlist.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="heart-outline" size={48} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>No saved items</Text>
-          <Text style={styles.emptySubtitle}>
-            Tap the heart on any album to save it to your wishlist.
-          </Text>
-        </View>
+      ) : wishlistTracks.length === 0 ? (
+        renderEmpty(
+          "heart-outline",
+          "No saved songs",
+          "Tap the heart on any song or album to save it to your wishlist.",
+        )
       ) : (
-        <FlatList
-          data={wishlist}
-          keyExtractor={(item) =>
-            String((item as any).trackGroup?.urlSlug || item.trackGroupId)
-          }
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => {
-            const tg = (item as any).trackGroup;
-            const coverUri = tg?.cover?.sizes?.[300] || tg?.cover?.sizes?.[120];
-            return (
-              <Pressable
-                onPress={() => {
-                  if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
-                    router.push({
-                      pathname: "/artist/[id]/album/[slug]/album-tracks",
-                      params: {
-                        id:
-                          fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
-                          String(tg.artist?.urlSlug || tg.artistId),
-                        slug: String(tg.urlSlug),
-                      },
-                    });
-                  }
-                }}
-                style={styles.card}
-              >
-                {coverUri ? (
-                  <Image source={{ uri: coverUri }} style={styles.thumb} />
-                ) : (
-                  <View style={[styles.thumb, styles.placeholder]}>
-                    <Ionicons name="heart" size={20} color={theme.colors.primary} />
-                  </View>
-                )}
-                <View style={styles.cardInfo}>
-                  <Text style={styles.cardTitle} numberOfLines={1}>
-                    {tg?.title || "Saved Album"}
-                  </Text>
-                  <Text style={styles.cardArtist} numberOfLines={1}>
-                    {tg?.artist?.name || "Artist"}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-              </Pressable>
-            );
-          }}
-        />
+        renderTrackList(wishlistTracks, "Wishlist", {
+          canPlay: (t) => isTrackOwnedOrPreview(t, user, undefined, disabledTrackIds),
+        })
       )}
     </SafeAreaView>
   );
@@ -1059,6 +1089,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.surfaceCardBorder,
+  },
+  lockedCard: {
+    opacity: 0.45,
   },
   selectedCard: {
     backgroundColor: theme.colors.surfaceElevated,

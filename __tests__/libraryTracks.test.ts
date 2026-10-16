@@ -54,21 +54,18 @@ jest.mock("expo-file-system", () => ({
   getInfoAsync: jest.fn().mockResolvedValue({ exists: false }),
 }));
 
-import { buildCombinedLibraryTracks } from "@/app/library";
+import { buildBookmarks, buildLibraryTracks, buildWishlistTracks } from "@/app/library";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
 import { createMockUser } from "@/__mocks__/mockUser";
 import { createMockArtist } from "@/__mocks__/mockArtist";
+import { DownloadedTrack } from "@/scripts/downloadManager";
 
-describe("buildCombinedLibraryTracks", () => {
+describe("buildLibraryTracks", () => {
   const baseParams = {
-    user: null,
     purchases: [],
-    wishlist: [],
     fullAlbums: [],
     purchaseDateByAlbumId: new Map<number | string, string>(),
-    historyItems: [],
     downloadedTracks: [],
-    stationLikes: [],
   };
 
   test("populates all individual tracks from fullAlbums (purchased albums)", () => {
@@ -102,7 +99,7 @@ describe("buildCombinedLibraryTracks", () => {
     const purchaseDates = new Map<number | string, string>();
     purchaseDates.set(101, "2025-06-01T12:00:00.000Z");
 
-    const tracks = buildCombinedLibraryTracks({
+    const tracks = buildLibraryTracks({
       ...baseParams,
       fullAlbums: [fullAlbum],
       purchaseDateByAlbumId: purchaseDates,
@@ -145,7 +142,7 @@ describe("buildCombinedLibraryTracks", () => {
     const purchaseDates = new Map<number | string, string>();
     purchaseDates.set(202, "2025-01-01T00:00:00.000Z");
 
-    const tracks = buildCombinedLibraryTracks({
+    const tracks = buildLibraryTracks({
       ...baseParams,
       fullAlbums: [fullAlbum],
       purchaseDateByAlbumId: purchaseDates,
@@ -184,7 +181,7 @@ describe("buildCombinedLibraryTracks", () => {
     purchaseDates.set(301, "2023-06-01T00:00:00.000Z");
     purchaseDates.set(302, "2025-06-01T00:00:00.000Z");
 
-    const tracks = buildCombinedLibraryTracks({
+    const tracks = buildLibraryTracks({
       ...baseParams,
       fullAlbums: [albumOld, albumNew],
       purchaseDateByAlbumId: purchaseDates,
@@ -195,19 +192,7 @@ describe("buildCombinedLibraryTracks", () => {
     expect(tracks[1].title).toBe("Old Song");
   });
 
-  test("ingests individual track purchases and user favorites without duplication", () => {
-    const user = createMockUser({
-      id: 1,
-      trackFavorites: [
-        {
-          userId: 1,
-          trackId: 501,
-          track: createMockRNTrack({ id: 501, title: "Favorited Track" }),
-          createdAt: new Date("2025-02-01T00:00:00.000Z"),
-        },
-      ],
-    });
-
+  test("ingests individual track purchases", () => {
     const purchases = [
       {
         trackId: 502,
@@ -216,57 +201,138 @@ describe("buildCombinedLibraryTracks", () => {
       },
     ];
 
-    const tracks = buildCombinedLibraryTracks({
-      ...baseParams,
-      user,
-      purchases,
-    });
+    const tracks = buildLibraryTracks({ ...baseParams, purchases });
 
-    expect(tracks).toHaveLength(2);
-    const titles = tracks.map((t) => t.title);
-    expect(titles).toContain("Favorited Track");
-    expect(titles).toContain("Single Purchase");
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].title).toBe("Single Purchase");
   });
 
-  test("deduplicates tracks that appear in both fullAlbums and user favorites", () => {
+  const purchasedSong = () => [
+    {
+      trackId: 601,
+      track: createMockRNTrack({ id: 601, title: "Harbor Lights", artist: "Tidewater" }),
+      datePurchased: "2025-03-01T00:00:00.000Z",
+    },
+  ];
+
+  const download = (overrides: Partial<DownloadedTrack>): DownloadedTrack => ({
+    id: -1,
+    title: "Harbor Lights",
+    artist: "Tidewater",
+    url: "file:///music/Tidewater - Harbor Lights.flac",
+    downloadedAt: Date.parse("2025-04-01T00:00:00.000Z"),
+    source: "file",
+    ...overrides,
+  });
+
+  test("lists a Mirlo download of a purchase once", () => {
+    const tracks = buildLibraryTracks({
+      ...baseParams,
+      purchases: purchasedSong(),
+      downloadedTracks: [download({ id: 601, source: "mirlo" })],
+    });
+
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe(601);
+  });
+
+  test("an imported file of a purchased song joins the purchase and plays the file", () => {
+    const tracks = buildLibraryTracks({
+      ...baseParams,
+      purchases: purchasedSong(),
+      downloadedTracks: [download({ title: " harbor lights ", artist: "TIDEWATER" })],
+    });
+
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe(601);
+    expect(tracks[0].url).toBe("file:///music/Tidewater - Harbor Lights.flac");
+  });
+
+  test("lists imported files of other songs on their own", () => {
+    const tracks = buildLibraryTracks({
+      ...baseParams,
+      purchases: purchasedSong(),
+      downloadedTracks: [download({ title: "Field Recording" })],
+    });
+
+    expect(tracks.map((t) => t.title).sort()).toEqual(["Field Recording", "Harbor Lights"]);
+  });
+
+  test("leaves liked songs out of Tracks", () => {
+    const tracks = buildLibraryTracks(baseParams);
+    expect(tracks).toHaveLength(0);
+  });
+});
+
+describe("buildWishlistTracks", () => {
+  const baseParams = {
+    user: null,
+    wishlist: [],
+    historyItems: [],
+    ownedIds: new Set<number | string>(),
+  };
+
+  test("lists liked Mirlo and Faircamp songs, newest first, without expanding albums", () => {
     const artist = createMockArtist({ name: "Duo" });
-    const fullAlbum: AlbumProps = {
-      id: 401,
-      trackGroupId: 401,
-      title: "Shared Album",
+    const wishlistedAlbum = {
+      id: 701,
+      trackGroupId: 701,
+      title: "Wished Album",
       artist,
       artistId: 10,
-      urlSlug: "shared-album",
-      releaseDate: "2025-01-01T00:00:00.000Z",
-      cover: { sizes: { 60: "", 120: "", 300: "", 600: "", 960: "", 1200: "", 1500: "" } },
-      tracks: [createMockRNTrack({ id: 4001, title: "Shared Song", order: 1, trackGroupId: 401 })],
+      urlSlug: "wished-album",
+      tracks: [createMockRNTrack({ id: 7001, title: "Wished One", trackGroupId: 701 })],
     };
+    const user = createMockUser({
+      id: 1,
+      trackFavorites: [
+        {
+          userId: 1,
+          trackId: 801,
+          track: createMockRNTrack({ id: 801, title: "Liked Song" }),
+          createdAt: new Date("2025-02-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    const faircampTrack = createMockRNTrack({
+      id: 901,
+      title: "Faircamp Song",
+      source: "Faircamp",
+      url: "https://faircamp.example/song.mp3",
+    });
 
+    const tracks = buildWishlistTracks({
+      ...baseParams,
+      user,
+      wishlist: [{ userId: 1, trackGroupId: 701, trackGroup: wishlistedAlbum }],
+      faircampTracks: [{ track: faircampTrack, likedAt: Date.parse("2025-04-01T00:00:00.000Z") }],
+    });
+
+    expect(tracks.map((t) => t.title)).toEqual(["Faircamp Song", "Liked Song"]);
+  });
+
+  test("leaves out songs the listener already owns", () => {
     const user = createMockUser({
       id: 1,
       trackFavorites: [
         {
           userId: 1,
           trackId: 4001,
-          track: createMockRNTrack({ id: 4001, title: "Shared Song" }),
+          track: createMockRNTrack({ id: 4001, title: "Owned Song" }),
           createdAt: new Date("2025-04-01T00:00:00.000Z"),
         },
       ],
     });
 
-    const tracks = buildCombinedLibraryTracks({
-      ...baseParams,
-      user,
-      fullAlbums: [fullAlbum],
-    });
+    const tracks = buildWishlistTracks({ ...baseParams, user, ownedIds: new Set([4001]) });
 
-    expect(tracks).toHaveLength(1);
-    expect(tracks[0].id).toBe(4001);
+    expect(tracks).toHaveLength(0);
   });
+});
 
-  test("ingests liked radio stations and podcast episodes without duplication", () => {
-    const tracks = buildCombinedLibraryTracks({
-      ...baseParams,
+describe("buildBookmarks", () => {
+  test("lists liked radio stations and podcast episodes, newest first", () => {
+    const tracks = buildBookmarks({
       stationLikes: [{ stationId: "kexp", likedAt: 1000 }],
       podcastEpisodeLikes: [
         {
@@ -281,7 +347,6 @@ describe("buildCombinedLibraryTracks", () => {
     });
 
     expect(tracks).toHaveLength(2);
-    // Newer liked item (podcast episode at 2000) should appear first
     expect(tracks[0].podcastEpisodeId).toBe("ep-42");
     expect(tracks[0].title).toBe("Worker Cooperatives in Action");
     expect(tracks[0].url).toBe("https://example.com/ep42.mp3");
@@ -289,5 +354,3 @@ describe("buildCombinedLibraryTracks", () => {
     expect(tracks[1].title).toBe("KEXP 90.3 FM");
   });
 });
-
-
