@@ -19,6 +19,8 @@ export type FaircampSaves = {
 const STORAGE_KEY = "mirlo_blue_faircamp_saves_v1";
 
 let saves: FaircampSaves = { tracks: [], albums: [] };
+let likedTrackKeys = new Set<string>();
+let isLoaded = false;
 let loaded: Promise<void> | null = null;
 const listeners = new Set<(saves: FaircampSaves) => void>();
 
@@ -30,7 +32,12 @@ function albumKey(album: AlbumProps): string {
   return album.urlSlug || String(album.id);
 }
 
+function rebuildIndex(): void {
+  likedTrackKeys = new Set(saves.tracks.map((saved) => trackKey(saved.track)));
+}
+
 function publish(): void {
+  rebuildIndex();
   listeners.forEach((listener) => listener(saves));
 }
 
@@ -60,9 +67,11 @@ function load(): Promise<void> {
           albums: Array.isArray(parsed.albums) ? parsed.albums : [],
         };
       }
+      isLoaded = true;
       publish();
     })
     .catch((error) => {
+      isLoaded = true;
       console.error("Failed to load Faircamp likes and wishlists:", error);
     });
   return loaded;
@@ -71,7 +80,7 @@ function load(): Promise<void> {
 export async function toggleFaircampTrackLike(track: RNTrack): Promise<void> {
   await load();
   const key = trackKey(track);
-  const exists = saves.tracks.some((saved) => trackKey(saved.track) === key);
+  const exists = likedTrackKeys.has(key);
   saves = {
     ...saves,
     tracks: exists
@@ -95,12 +104,7 @@ export async function toggleFaircampAlbumWishlist(
       ? saves.tracks.filter((saved) => !trackKeys.has(trackKey(saved.track)))
       : [
           ...displayedTracks
-            .filter(
-              (track) =>
-                !saves.tracks.some(
-                  (saved) => trackKey(saved.track) === trackKey(track),
-                ),
-            )
+            .filter((track) => !likedTrackKeys.has(trackKey(track)))
             .map((track) => ({ track, likedAt: Date.now() })),
           ...saves.tracks,
         ],
@@ -112,11 +116,19 @@ export async function toggleFaircampAlbumWishlist(
   await persist();
 }
 
+export function isFaircampTrackLiked(track: RNTrack): boolean {
+  return likedTrackKeys.has(trackKey(track));
+}
+
 export function useFaircampSaves(): FaircampSaves {
   const [current, setCurrent] = useState(saves);
   useEffect(() => {
     listeners.add(setCurrent);
-    load().then(() => setCurrent(saves));
+    if (isLoaded) {
+      setCurrent((prev) => (prev === saves ? prev : saves));
+    } else {
+      load();
+    }
     return () => {
       listeners.delete(setCurrent);
     };

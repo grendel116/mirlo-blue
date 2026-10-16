@@ -1,5 +1,6 @@
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { API_ROOT } from "@/constants/api-root";
+import { getTrackPlaysSync, isTrackDisabledSync } from "@/scripts/trackPlayUtils";
 import type { TrackType } from "react-native-track-player";
 
 // Mirlo serves every track's audio as an HLS playlist at this path.
@@ -91,11 +92,15 @@ export function isTrackPlayable(
 
   // 1. Preview tracks are playable unless explicitly disabled or play cap reached
   if (track.isPreview) {
+    const effectivePlayCount =
+      context?.playCount ??
+      (typeof track.id === "number" ? getTrackPlaysSync(track.id) : undefined);
     const isExhausted = Boolean(
-      (track.id && context?.disabledTrackIds?.has(track.id)) ||
+      (track.id &&
+        (context?.disabledTrackIds?.has(track.id) || isTrackDisabledSync(track.id))) ||
         (typeof trackGroup?.artist?.maxFreePlays === "number" &&
-          typeof context?.playCount === "number" &&
-          context.playCount >= trackGroup.artist.maxFreePlays),
+          typeof effectivePlayCount === "number" &&
+          effectivePlayCount >= trackGroup.artist.maxFreePlays),
     );
 
     if (!isExhausted) {
@@ -216,9 +221,14 @@ export const handleExternalPurchase = (
   }
   const artistSlug = trackGroup.artist?.urlSlug;
   const albumSlug = trackGroup.urlSlug;
-  if (artistSlug && albumSlug) {
+  if (
+    artistSlug &&
+    artistSlug !== "fairplayer" &&
+    albumSlug &&
+    !albumSlug.startsWith("fairplayer-")
+  ) {
     openInBrowser(`https://mirlo.space/${artistSlug}/release/${albumSlug}`);
-  } else if (artistSlug) {
+  } else if (artistSlug && artistSlug !== "fairplayer") {
     openInBrowser(`https://mirlo.space/${artistSlug}`);
   } else if (trackGroup.sourceUrl) {
     openInBrowser(trackGroup.sourceUrl);
@@ -229,7 +239,15 @@ export const handleExternalPurchase = (
 export function songPageUrl(track: RNTrack): string | undefined {
   const artistSlug = track.trackGroup?.artist?.urlSlug;
   const albumSlug = track.trackGroup?.urlSlug;
-  if (!artistSlug || !albumSlug || !track.id) return undefined;
+  if (
+    !artistSlug ||
+    artistSlug === "fairplayer" ||
+    !albumSlug ||
+    albumSlug.startsWith("fairplayer-") ||
+    !track.id
+  ) {
+    return undefined;
+  }
   return `https://mirlo.space/${artistSlug}/release/${albumSlug}/tracks/${track.id}`;
 }
 

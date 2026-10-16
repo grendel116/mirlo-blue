@@ -624,6 +624,42 @@ export async function findChorusAlbum(
   });
 }
 
+/**
+ * Resolves an artist and their discography from the federated Chorus catalog by slug or ID.
+ */
+export async function findChorusArtist(
+  artistIdOrSlug: string,
+  signal?: AbortSignal,
+): Promise<Artist | undefined> {
+  const clean = String(artistIdOrSlug || "").toLowerCase().trim();
+  if (!clean) return undefined;
+
+  const albums = await fetchFederatedChorusAlbums({}, signal);
+  const matching = albums.filter((a) => {
+    const artSlug = (a.artist?.urlSlug || "").toLowerCase().trim();
+    const artName = (a.artist?.name || "").toLowerCase().trim();
+    return (
+      String(a.artistId) === clean ||
+      (artSlug && artSlug === clean) ||
+      (artName && artName === clean)
+    );
+  });
+
+  if (matching.length === 0) return undefined;
+  const primary = matching[0];
+  const coverUri = primary.cover?.sizes?.[600] || "";
+
+  return {
+    ...primary.artist,
+    id: primary.artistId,
+    name: primary.artist.name,
+    urlSlug: primary.artist.urlSlug || String(primary.artistId),
+    bio: primary.artist.bio || (primary.sourceUrl ? `Source: ${primary.sourceUrl}` : ""),
+    avatar: coverUri ? { sizes: primary.cover.sizes } : primary.artist.avatar,
+    trackGroups: matching,
+  };
+}
+
 // Backward compatibility aliases for Canimus naming
 export const parseCanimusFeed = parseChorusFeed;
 export const canimusTrackToRNTrack = chorusTrackToRNTrack;
@@ -632,3 +668,4 @@ export const canimusToAlbums = chorusToAlbums;
 export const fetchCanimusFeed = fetchChorusFeed;
 export const queryCanimusFeed = queryChorusFeed;
 export const queryCanimusAlbums = queryChorusAlbums;
+

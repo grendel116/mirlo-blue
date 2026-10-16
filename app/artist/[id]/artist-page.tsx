@@ -7,15 +7,17 @@ import {
   StyleSheet,
   Pressable,
   Image,
-  Dimensions,
   FlatList,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
-import React from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { linkifyUrls } from "@/scripts/utils";
+import { openInBrowser } from "@/scripts/openInBrowser";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { theme } from "@/constants/theme";
 import LoadingScreen from "@/components/LoadingScreen";
 
@@ -26,6 +28,10 @@ export default function ArtistPage() {
   );
   const { t } = useTranslation("translation");
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const [listWidth, setListWidth] = useState<number>(0);
+  const effectiveWidth = listWidth > 0 ? listWidth : windowWidth;
+  const itemWidth = Math.max(110, Math.floor((effectiveWidth - 48) / 2));
 
   if (isPending) {
     return (
@@ -78,6 +84,12 @@ export default function ArtistPage() {
       <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContainer}
+        onLayout={(e) => {
+          const measured = e.nativeEvent.layout.width;
+          if (measured > 0 && measured !== listWidth) {
+            setListWidth(measured);
+          }
+        }}
         horizontal={false}
         columnWrapperStyle={styles.columnWrapper}
         numColumns={2}
@@ -85,24 +97,35 @@ export default function ArtistPage() {
         data={getModifiedData(artistInfo.trackGroups)}
         renderItem={({ item }) => {
           if (item.isPlaceholder) {
-            return <View style={[styles.albumItem, { opacity: 0 }]} />;
+            return <View style={[styles.albumItem, { width: itemWidth, opacity: 0 }]} />;
           }
+
+          const coverUri =
+            item.cover?.sizes?.[600] ||
+            item.cover?.sizes?.[300] ||
+            item.cover?.sizes?.[120] ||
+            "";
 
           return (
             <Pressable
-              style={styles.albumItem}
+              style={[styles.albumItem, { width: itemWidth }]}
               onPress={() =>
                 router.navigate({
                   pathname: "/artist/[id]/album/[slug]/album-tracks",
-                  params: { id: item.artistId, slug: item.urlSlug },
+                  params: {
+                    id:
+                      fairplayerReleaseSlug.artistRouteId(String(item.urlSlug || "")) ??
+                      String(item.artist?.urlSlug || item.artistId),
+                    slug: String(item.urlSlug),
+                  },
                 })
               }
             >
-              <View style={styles.albumCoverWrap}>
+              <View style={[styles.albumCoverWrap, { width: itemWidth, height: itemWidth }]}>
                 <Image
-                  style={styles.albumCover}
+                  style={[styles.albumCover, { width: itemWidth, height: itemWidth }]}
                   source={{
-                    uri: item.cover?.sizes?.[600] || "",
+                    uri: coverUri,
                   }}
                   resizeMode="cover"
                 />
@@ -168,6 +191,10 @@ export default function ArtistPage() {
 
             {artistInfo.bio ? (
               <Markdown
+                onLinkPress={(url) => {
+                  openInBrowser(url);
+                  return false;
+                }}
                 style={{
                   body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 22 },
                   link: { color: theme.colors.textCyan },
@@ -188,9 +215,6 @@ export default function ArtistPage() {
     </SafeAreaView>
   );
 }
-
-const { width } = Dimensions.get("window");
-const itemWidth = (width - 48) / 2;
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -224,7 +248,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   listContainer: {
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
   columnWrapper: {
     justifyContent: "space-between",
@@ -283,12 +307,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   albumItem: {
-    width: itemWidth,
     marginBottom: 18,
   },
   albumCoverWrap: {
-    width: itemWidth,
-    height: itemWidth,
     borderRadius: theme.radius.md,
     overflow: "hidden",
     backgroundColor: theme.colors.surfaceElevated,

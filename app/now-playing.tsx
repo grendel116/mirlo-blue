@@ -21,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryRadioPlays, findStation, RADIO_SET_SECONDS } from "@/queries/radio";
 import { findPodcastShow } from "@/queries/podcast";
 import { queryArtist } from "@/queries/queries";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import { showPurchaseModal } from "@/components/AddAlbumButton";
@@ -193,11 +194,15 @@ export default function NowPlaying() {
                   router.navigate(savedAlbumHref(activeTrack.downloadAlbum));
                   return;
                 }
+                const albumSlug = String(activeTrack.trackGroup.urlSlug || "");
+                const artistRouteId =
+                  fairplayerReleaseSlug.artistRouteId(albumSlug) ??
+                  String(activeTrack.trackGroup.artist?.urlSlug || activeTrack.trackGroup.artistId);
                 router.navigate({
                   pathname: "/artist/[id]/album/[slug]/album-tracks",
                   params: {
-                    id: String(activeTrack.trackGroup.artistId),
-                    slug: String(activeTrack.trackGroup.urlSlug),
+                    id: artistRouteId,
+                    slug: albumSlug,
                   },
                 });
               }}
@@ -226,10 +231,20 @@ export default function NowPlaying() {
               <Pressable
                 onPress={() => {
                   if (!activeTrack?.trackGroup) return;
+                  const artistPageId = fairplayerReleaseSlug.artistPageRouteId({
+                    artistId: activeTrack.trackGroup.artistId,
+                    artist: {
+                      name: activeTrack.trackGroup.artist?.name || activeTrack.artist,
+                      urlSlug: activeTrack.trackGroup.artist?.urlSlug,
+                    },
+                    urlSlug: activeTrack.trackGroup.urlSlug,
+                    source: activeTrack.source || activeTrack.trackGroup.source,
+                  });
+                  if (!artistPageId) return;
                   router.dismiss();
                   router.navigate({
                     pathname: "/artist/[id]/artist-page",
-                    params: { id: String(activeTrack.trackGroup.artistId) },
+                    params: { id: artistPageId },
                   });
                 }}
                 style={styles.linkPressable}
@@ -325,10 +340,16 @@ export default function NowPlaying() {
 function SupportArtistButton({ track }: { track: RNTrack }) {
   const router = useRouter();
   const artistId = track.trackGroup?.artistId;
-  const source = track.source || track.trackGroup?.source;
-  const sourceUrl = track.trackGroup?.sourceUrl || track.sourceUrl;
+  const albumSlug = track.trackGroup?.urlSlug;
+  const isFaircamp = Boolean(fairplayerReleaseSlug.decode(String(albumSlug || "")));
+  const source = track.source || track.trackGroup?.source || (isFaircamp ? "Faircamp" : undefined);
+  const sourceUrl =
+    track.trackGroup?.sourceUrl ||
+    track.sourceUrl ||
+    fairplayerReleaseSlug.siteUrl(albumSlug);
   const isExternalSource = Boolean(
-    source && source !== "Mirlo Space" && !sourceUrl?.includes("mirlo.space"),
+    isFaircamp ||
+      (source && source !== "Mirlo Space" && !sourceUrl?.includes("mirlo.space")),
   );
   const { data: artist } = useQuery(
     queryArtist({
@@ -339,8 +360,8 @@ function SupportArtistButton({ track }: { track: RNTrack }) {
 
   const artistName =
     artist?.name ?? track.trackGroup?.artist?.name ?? track.artist;
-  const artistSlug = artist?.urlSlug ?? track.trackGroup?.artist?.urlSlug;
-  const albumSlug = track.trackGroup?.urlSlug;
+  const rawArtistSlug = artist?.urlSlug ?? track.trackGroup?.artist?.urlSlug;
+  const artistSlug = rawArtistSlug === "fairplayer" ? undefined : rawArtistSlug;
   const takesSubscribers = Boolean(
     artist?.subscriptionTiers?.some((tier) => !tier.isDefaultTier),
   );

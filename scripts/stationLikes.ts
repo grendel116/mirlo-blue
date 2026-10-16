@@ -9,6 +9,7 @@ export type StationLike = { stationId: string; likedAt: number };
 const STORAGE_KEY = "mirlo_blue_station_likes_v1";
 
 let likes: StationLike[] = [];
+let isLoaded = false;
 let loaded: Promise<void> | null = null;
 const listeners = new Set<(likes: StationLike[]) => void>();
 
@@ -17,9 +18,13 @@ function load(): Promise<void> {
     .then((raw) => {
       const parsed = raw ? JSON.parse(raw) : [];
       likes = Array.isArray(parsed) ? parsed : [];
+      isLoaded = true;
       listeners.forEach((listener) => listener(likes));
     })
-    .catch((err) => console.error("Failed to load station likes:", err));
+    .catch((err) => {
+      isLoaded = true;
+      console.error("Failed to load station likes:", err);
+    });
   return loaded;
 }
 
@@ -40,7 +45,11 @@ export function useStationLikes(): StationLike[] {
   const [current, setCurrent] = useState(likes);
   useEffect(() => {
     listeners.add(setCurrent);
-    load().then(() => setCurrent(likes));
+    if (isLoaded) {
+      setCurrent((prev) => (prev === likes ? prev : likes));
+    } else {
+      load();
+    }
     return () => {
       listeners.delete(setCurrent);
     };

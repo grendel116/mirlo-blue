@@ -19,6 +19,7 @@ export type PodcastEpisodeLike = {
 const STORAGE_KEY = "mirlo_blue_podcast_episode_likes_v1";
 
 let likes: PodcastEpisodeLike[] = [];
+let isLoaded = false;
 let loaded: Promise<void> | null = null;
 const listeners = new Set<(likes: PodcastEpisodeLike[]) => void>();
 
@@ -27,9 +28,13 @@ function load(): Promise<void> {
     .then((raw) => {
       const parsed = raw ? JSON.parse(raw) : [];
       likes = Array.isArray(parsed) ? parsed : [];
+      isLoaded = true;
       listeners.forEach((listener) => listener(likes));
     })
-    .catch((err) => console.error("Failed to load podcast episode likes:", err));
+    .catch((err) => {
+      isLoaded = true;
+      console.error("Failed to load podcast episode likes:", err);
+    });
   return loaded;
 }
 
@@ -75,7 +80,11 @@ export function usePodcastEpisodeLikes(): PodcastEpisodeLike[] {
   const [current, setCurrent] = useState(likes);
   useEffect(() => {
     listeners.add(setCurrent);
-    load().then(() => setCurrent(likes));
+    if (isLoaded) {
+      setCurrent((prev) => (prev === likes ? prev : likes));
+    } else {
+      load();
+    }
     return () => {
       listeners.delete(setCurrent);
     };

@@ -2,7 +2,6 @@ import { useAuthContext } from "@/state/AuthContext";
 import { usePlayer } from "@/state/PlayerContext";
 import { View, StyleSheet, Text, Image } from "react-native";
 import { isTrackOwnedOrPreview } from "@/scripts/utils";
-import { resolveFeedSourceName } from "@/queries/chorus";
 import FavoriteTrackButton from "./FavoriteTrackButton";
 import AddToQueueButton from "./AddToQueueButton";
 import DownloadTrackButton from "./DownloadTrackButton";
@@ -36,12 +35,6 @@ export const TrackItem = ({
   const { disabledTrackIds } = usePlayer();
 
   const canPlayTrack = isTrackOwnedOrPreview(track, user, album, disabledTrackIds);
-
-  const trackSource =
-    track.source ||
-    album?.source ||
-    track.trackGroup?.source ||
-    (track.url ? resolveFeedSourceName(track.url) : "Mirlo Space");
 
   let contributors = "";
 
@@ -109,8 +102,8 @@ export const TrackItem = ({
           >
             {track.title}
           </Text>
-          <View style={styles.subtitleRow}>
-            {hasContributor ? (
+          {hasContributor ? (
+            <View style={styles.subtitleRow}>
               <Text
                 numberOfLines={1}
                 ellipsizeMode="tail"
@@ -118,21 +111,14 @@ export const TrackItem = ({
               >
                 {contributors}
               </Text>
-            ) : null}
-            {trackSource ? (
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={styles.sourceText}
-              >
-                {hasContributor ? ` • ${trackSource}` : trackSource}
-              </Text>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
         </View>
       </View>
       <View style={styles.actionRow}>
-        {!onTrackScreen && <AddToQueueButton track={track} album={album} size={17} />}
+        {!onTrackScreen && canPlayTrack && (
+          <AddToQueueButton track={track} album={album} size={17} />
+        )}
         {!onTrackScreen && <FavoriteTrackButton track={track} size={17} />}
         {!onTrackScreen && album && <DownloadTrackButton track={track} album={album} />}
         <Text
@@ -198,10 +184,6 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
   },
   contributorText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-  },
-  sourceText: {
     color: theme.colors.textMuted,
     fontSize: 12,
   },

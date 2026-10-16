@@ -81,9 +81,13 @@ export function subscribeDownloads(listener: DownloadListener): () => void {
 
 // The saved songs, kept current as downloads come and go
 export function useDownloads(): DownloadedTrack[] {
-  const [tracks, setTracks] = useState<DownloadedTrack[]>([]);
+  const [tracks, setTracks] = useState<DownloadedTrack[]>(downloads);
   useEffect(() => {
-    getDownloadedTracks().then(setTracks);
+    if (!isLoaded) {
+      getDownloadedTracks().then(setTracks);
+    } else {
+      setTracks((prev) => (prev === downloads ? prev : downloads));
+    }
     return subscribeDownloads(setTracks);
   }, []);
   return tracks;

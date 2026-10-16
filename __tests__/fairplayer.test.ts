@@ -1,5 +1,8 @@
 import {
+  fetchFairplayerAlbum,
   fetchFairplayerAlbums,
+  fetchFairplayerArtist,
+  fetchFairplayerDiscoveryTracks,
   fetchFairplayerSongReleaseSlug,
   fairplayerReleaseSlug,
   parseFairplayerRelease,
@@ -270,5 +273,150 @@ describe("Fairplayer Faircamp catalog integration", () => {
     );
 
     expect(album.about).toBe("A release description with & decoded text.");
+  });
+
+  test("encodes and resolves Faircamp artist page route IDs and site URLs", () => {
+    const albumSlug = fairplayerReleaseSlug.encode("sjX@sockpuppet.band");
+    const artistSlug = fairplayerReleaseSlug.encodeArtist("Sockpuppet");
+
+    expect(fairplayerReleaseSlug.decodeArtist(artistSlug)).toBe("Sockpuppet");
+    expect(fairplayerReleaseSlug.siteUrl(albumSlug)).toBe("https://sockpuppet.band");
+    expect(
+      fairplayerReleaseSlug.artistPageRouteId({
+        urlSlug: albumSlug,
+        artist: { name: "Sockpuppet", urlSlug: "sockpuppet" },
+      }),
+    ).toBe(artistSlug);
+  });
+
+  test("reuses cached verified catalog map across album fetches and resolves artist discography", async () => {
+    const originalFetch = global.fetch;
+    const hub = `
+      <a href="https://sockpuppet.band/music">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+    `;
+    const releaseHtml = `
+      <h1>sjX</h1>
+      <div class="song"
+        data-id="10483"
+        data-title="The War Machine"
+        data-duration="252"
+        data-url="https://sockpuppet.band/sjx/01-war-machine.opus"
+        data-image="https://images.example/sjx.jpg"
+        data-artist="Sockpuppet">
+      </div>
+    `;
+    let hubFetchCount = 0;
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/fairplayer/hub")) {
+        hubFetchCount += 1;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: () => Promise.resolve(hub),
+        } as Response);
+      }
+      if (url.includes("/fairplayer/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          json: () =>
+            Promise.resolve({
+              items: [
+                {
+                  type: "album",
+                  name: "sjX",
+                  url: "https://fairplayer.band/player/release/sjX@sockpuppet.band",
+                  artist: "Sockpuppet",
+                  images: { default: { src: "https://images.example/sjx.jpg" } },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () => Promise.resolve(releaseHtml),
+      } as Response);
+    });
+
+    try {
+      const slug = fairplayerReleaseSlug.encode("sjX@sockpuppet.band");
+      const firstAlbum = await fetchFairplayerAlbum(slug);
+      const secondAlbum = await fetchFairplayerAlbum(slug);
+
+      expect(firstAlbum.sourceUrl).toBe("https://sockpuppet.band/music");
+      expect(secondAlbum.sourceUrl).toBe("https://sockpuppet.band/music");
+      expect(hubFetchCount).toBe(1);
+
+      const artist = await fetchFairplayerArtist(
+        fairplayerReleaseSlug.encodeArtist("Sockpuppet"),
+      );
+      expect(artist).toBeDefined();
+      expect(artist?.name).toBe("Sockpuppet");
+      expect(artist?.trackGroups?.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test("samples discovery tracks from verified Faircamp releases with autoplay metadata", async () => {
+    const originalFetch = global.fetch;
+    const directory = `
+      <a hx-get="/player/release/sjX@sockpuppet.band">
+        <img src="https://images.example/sjx.jpg">
+        <p title="sjX">sjX</p>
+        <p>Sockpuppet</p>
+      </a>
+    `;
+    const hub = `
+      <a href="https://sockpuppet.band/music">
+        <span class="bg-success"></span>
+        <span>Faircamp</span>
+      </a>
+    `;
+    const releaseHtml = `
+      <h1>sjX</h1>
+      <div class="song"
+        data-id="10483"
+        data-title="The War Machine"
+        data-duration="252"
+        data-url="https://sockpuppet.band/sjx/01-war-machine.opus"
+        data-image="https://images.example/sjx.jpg"
+        data-artist="Sockpuppet">
+      </div>
+    `;
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/fairplayer/hub")
+        ? hub
+        : url.endsWith("/fairplayer/player/all/releases")
+          ? directory
+          : releaseHtml;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () => Promise.resolve(body),
+      } as Response);
+    });
+
+    try {
+      const tracks = await fetchFairplayerDiscoveryTracks(2);
+      expect(tracks).toHaveLength(1);
+      expect(tracks[0].title).toBe("The War Machine");
+      expect(tracks[0].autoplay).toBe(true);
+      expect(tracks[0].source).toBe("Faircamp");
+      expect(tracks[0].url).toBe("https://sockpuppet.band/sjx/01-war-machine.opus");
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

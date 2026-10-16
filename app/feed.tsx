@@ -19,6 +19,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer, QueueSlot } from "@/state/PlayerContext";
 import { theme } from "@/constants/theme";
 import { AUTOPLAY_SOURCE } from "@/scripts/autoplay";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import ShuffleButton from "@/components/ShuffleButton";
 import LoopButton from "@/components/LoopButton";
 import {
@@ -633,11 +634,13 @@ export default function QueueScreen() {
                     onPress={() => {
                       const tg = activeMenu.track!.trackGroup;
                       setActiveMenu({ visible: false });
-                      if (tg?.artistId && tg?.urlSlug) {
+                      if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
                         router.push({
                           pathname: "/artist/[id]/album/[slug]/album-tracks",
                           params: {
-                            id: String(tg.artistId),
+                            id:
+                              fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
+                              String(tg.artist?.urlSlug || tg.artistId),
                             slug: String(tg.urlSlug),
                           },
                         });

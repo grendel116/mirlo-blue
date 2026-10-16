@@ -1,13 +1,21 @@
 import * as api from "@/queries/fetch/fetchWrapper";
 import { API_KEY } from "@/constants/api-key";
 import { trackStreamPath } from "@/scripts/utils";
+import { isTrackDisabledSync } from "@/scripts/trackPlayUtils";
+import { fetchFairplayerDiscoveryTracks } from "@/queries/fairplayer";
 
 export const AUTOPLAY_SOURCE = "Discovery";
 
-// Fetches one preview from each of a random set of releases across the catalog, to continue
-// playback after the current playlist runs out. The artist's featured song leads when it's a
-// preview, otherwise the album's first preview
-export async function fetchDiscoveryTracks(take: number): Promise<RNTrack[]> {
+function shuffleTracks<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+async function fetchMirloDiscoveryTracks(take: number): Promise<RNTrack[]> {
   const params = new URLSearchParams({
     take: String(take),
     orderBy: "random",
@@ -18,7 +26,7 @@ export async function fetchDiscoveryTracks(take: number): Promise<RNTrack[]> {
 
   return (results || []).flatMap((album): RNTrack[] => {
     const previews = [...(album.tracks || [])]
-      .filter((t: any) => t?.id && t.isPreview)
+      .filter((t: any) => t?.id && t.isPreview && !isTrackDisabledSync(Number(t.id)))
       .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
     const t = previews.find((p: any) => p.isFeatured) ?? previews[0];
     if (!t) return [];
@@ -51,4 +59,31 @@ export async function fetchDiscoveryTracks(take: number): Promise<RNTrack[]> {
       },
     ];
   });
+}
+
+// Fetches previews from a random set of Mirlo and verified Faircamp releases to continue
+// playback after the current playlist runs out.
+export async function fetchDiscoveryTracks(take: number): Promise<RNTrack[]> {
+  if (take <= 0) return [];
+  const faircampTarget = Math.max(1, Math.floor(take / 2));
+
+  const [mirloResult, faircampResult] = await Promise.allSettled([
+    fetchMirloDiscoveryTracks(take),
+    fetchFairplayerDiscoveryTracks(faircampTarget),
+  ]);
+
+  const mirloTracks = mirloResult.status === "fulfilled" ? mirloResult.value : [];
+  const faircampTracks =
+    faircampResult.status === "fulfilled" ? faircampResult.value : [];
+
+  if (mirloTracks.length === 0 && faircampTracks.length === 0) {
+    if (mirloResult.status === "rejected") throw mirloResult.reason;
+    return [];
+  }
+
+  const selectedFaircamp = faircampTracks.slice(0, faircampTarget);
+  const remainingSlots = Math.max(0, take - selectedFaircamp.length);
+  const selectedMirlo = shuffleTracks(mirloTracks).slice(0, remainingSlots);
+
+  return shuffleTracks([...selectedMirlo, ...selectedFaircamp]);
 }

@@ -1,4 +1,5 @@
 import {
+  checkAndroidVersion,
   compareVersions,
   isVersionGreater,
 } from "@/scripts/appVersionCheck";
@@ -43,6 +44,7 @@ describe("isVersionGreater", () => {
   test("true when v1 > v2", () => {
     expect(isVersionGreater("1.0.1", "1.0.0")).toBe(true);
     expect(isVersionGreater("2.0.0", "1.99.99")).toBe(true);
+    expect(isVersionGreater("1.0.7", "1.0.6")).toBe(true);
   });
 
   test("false when v1 == v2", () => {
@@ -51,5 +53,39 @@ describe("isVersionGreater", () => {
 
   test("false when v1 < v2", () => {
     expect(isVersionGreater("1.0.0", "1.0.1")).toBe(false);
+  });
+});
+
+describe("checkAndroidVersion", () => {
+  test("resolves the latest GitHub release version and APK asset URL", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            tag_name: "v1.0.7",
+            html_url: "https://github.com/grendel116/mirlo-blue/releases/tag/v1.0.7",
+            assets: [
+              {
+                name: "MirloBlue-1.0.7.apk",
+                browser_download_url:
+                  "https://github.com/grendel116/mirlo-blue/releases/download/v1.0.7/MirloBlue-1.0.7.apk",
+              },
+            ],
+          }),
+      } as Response),
+    );
+
+    try {
+      const result = await checkAndroidVersion();
+      expect(result).toEqual({
+        version: "1.0.7",
+        url: "https://github.com/grendel116/mirlo-blue/releases/download/v1.0.7/MirloBlue-1.0.7.apk",
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

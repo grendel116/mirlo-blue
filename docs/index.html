@@ -437,13 +437,15 @@
         <div class="card">
           <h3>Independent Live Radio</h3>
           <p>
-            Listen to curated stations and find more through Radio-Browser.
+            Listen to curated stations and find more through
+            <a href="https://www.radio-browser.info/">Radio-Browser</a>.
           </p>
         </div>
         <div class="card">
           <h3>Podcasts</h3>
           <p>
-            Browse curated shows and podcasts from the Castopod Index.
+            Browse curated shows and podcasts from the
+            <a href="https://index.castopod.org/">Castopod Index</a>.
           </p>
         </div>
         <div class="card">
@@ -473,17 +475,27 @@
       fetch("https://api.github.com/repos/grendel116/mirlo-blue/releases/latest")
         .then((res) => (res.ok ? res.json() : null))
         .then((release) => {
-          if (!release || ! Array.isArray(release.assets)) return;
-          const apk = release.assets.find((a) => a.name && a.name.endsWith(".apk"));
+          if (!release) return;
+          const apk = Array.isArray(release.assets)
+            ? release.assets.find((a) => a.name && a.name.endsWith(".apk"))
+            : null;
           if (apk && apk.browser_download_url) {
             const btn = document.getElementById("download-btn");
             if (btn) btn.href = apk.browser_download_url;
           }
-          if (release.name) {
-            const note = document.getElementById("version-note");
-            if (note) {
-              note.textContent = `${release.tag_name || release.name} · Updates install when you open the app.`;
-            }
+          const version = release.tag_name || release.name;
+          const note = document.getElementById("version-note");
+          if (version && note) {
+            const versionLink = document.createElement("a");
+            versionLink.href =
+              (apk && apk.browser_download_url) || release.html_url;
+            versionLink.textContent = version;
+            versionLink.target = "_blank";
+            versionLink.rel = "noopener";
+            note.replaceChildren(
+              versionLink,
+              document.createTextNode(" · Updates install when you open the app."),
+            );
           }
         })
         .catch(() => {});

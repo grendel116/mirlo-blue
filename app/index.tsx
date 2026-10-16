@@ -25,12 +25,13 @@ import {
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
-import { getHistory, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
+import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
 import { savedAlbumHref } from "@/scripts/downloadManager";
 import {
   RADIO_STATIONS,
   RadioStation,
   deduplicateRadioStations,
+  sortRadioRandomly,
   queryRadioPlays,
   queryDiscoveredRadioStations,
 } from "@/queries/radio";
@@ -51,10 +52,56 @@ import {
   resolveQualityArtworkSource,
 } from "@/scripts/utils";
 
+export function shuffleCarousel<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+export function blendCarouselReleases(
+  direct: AlbumProps[] = [],
+  chorus: AlbumProps[] = [],
+  fairplayer: AlbumProps[] = [],
+): AlbumProps[] {
+  const seenIds = new Set<number>();
+  const seenSlugs = new Set<string>();
+  const artistCounts = new Map<string, number>();
+
+  const shuffledDirect = shuffleCarousel(direct);
+  const shuffledChorus = distributeFairChorusAlbums(shuffleCarousel(chorus), 2);
+  const shuffledFairplayer = distributeFairChorusAlbums(shuffleCarousel(fairplayer), 2);
+
+  const combinedCandidates = shuffleCarousel([
+    ...shuffledDirect,
+    ...shuffledChorus,
+    ...shuffledFairplayer,
+  ]);
+
+  const blended: AlbumProps[] = [];
+  for (const item of combinedCandidates) {
+    if (!item) continue;
+    const artistKey = (item.artist?.name || String(item.artistId || "")).toLowerCase().trim();
+    const count = artistCounts.get(artistKey) || 0;
+    if (count >= 2) continue;
+    if (seenIds.has(item.id) || (item.urlSlug && seenSlugs.has(item.urlSlug))) continue;
+
+    seenIds.add(item.id);
+    if (item.urlSlug) seenSlugs.add(item.urlSlug);
+    artistCounts.set(artistKey, count + 1);
+    blended.push(item);
+  }
+
+  return blended;
+}
+
 export default function Index() {
   const router = useRouter();
   const { top } = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const [shuffleSeed, setShuffleSeed] = useState(0);
 
   // Recent Releases: a random pick of released albums, like the website, drawn fresh each
   // time Home comes into view. When this can't load, Mirlo is out of reach. It holds the
@@ -114,6 +161,7 @@ export default function Index() {
   } = useQuery(queryDiscoveredPodcasts(6));
 
   const retry = () => {
+    setShuffleSeed((s) => s + 1);
     refetchRecent();
     refetchTopSold();
     refetchChorus();
@@ -122,73 +170,24 @@ export default function Index() {
     refetchDiscoveredPodcasts();
   };
 
-  // Weave federated and Faircamp releases into Recent Releases with fair artist representation
-  const recentReleases = useMemo(() => {
-    const direct = recentData?.results || [];
-    const catalogAlbums = [...(chorusAlbums || []), ...(fairplayerAlbums || [])];
-    if (catalogAlbums.length === 0) return direct;
+  // Shuffled blend of Mirlo, Chorus, and Faircamp releases with fair artist representation
+  const recentReleases = useMemo(
+    () =>
+      blendCarouselReleases(
+        recentData?.results || [],
+        chorusAlbums || [],
+        fairplayerAlbums || [],
+      ),
+    [recentData?.results, chorusAlbums, fairplayerAlbums, shuffleSeed],
+  );
 
-    // Apply fair representation across federated and Faircamp releases
-    const fairChorus = distributeFairChorusAlbums(catalogAlbums, 2);
-
-    // Dated releases lead; Faircamp releases retain the verified directory order
-    const sortedChorus = [...fairChorus].sort((a, b) => {
-      const da = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
-      const db = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
-      return db - da;
-    });
-
-    const seenIds = new Set<number>();
-    const seenSlugs = new Set<string>();
-    const artistCounts = new Map<string, number>();
-    const blended: AlbumProps[] = [];
-
-    const canIncludeArtist = (album: AlbumProps) => {
-      const key = (album.artist?.name || String(album.artistId || "")).toLowerCase().trim();
-      const count = artistCounts.get(key) || 0;
-      return count < 2;
-    };
-
-    const recordArtist = (album: AlbumProps) => {
-      const key = (album.artist?.name || String(album.artistId || "")).toLowerCase().trim();
-      artistCounts.set(key, (artistCounts.get(key) || 0) + 1);
-    };
-
-    let dIdx = 0;
-    let cIdx = 0;
-
-    while (dIdx < direct.length || cIdx < sortedChorus.length) {
-      for (let i = 0; i < 2 && dIdx < direct.length; i++, dIdx++) {
-        const item = direct[dIdx];
-        if (!seenIds.has(item.id) && (!item.urlSlug || !seenSlugs.has(item.urlSlug)) && canIncludeArtist(item)) {
-          seenIds.add(item.id);
-          if (item.urlSlug) seenSlugs.add(item.urlSlug);
-          recordArtist(item);
-          blended.push(item);
-        }
-      }
-
-      if (cIdx < sortedChorus.length) {
-        const item = sortedChorus[cIdx++];
-        if (!seenIds.has(item.id) && (!item.urlSlug || !seenSlugs.has(item.urlSlug)) && canIncludeArtist(item)) {
-          seenIds.add(item.id);
-          if (item.urlSlug) seenSlugs.add(item.urlSlug);
-          recordArtist(item);
-          blended.push(item);
-        }
-      }
-    }
-
-    return blended;
-  }, [recentData?.results, chorusAlbums, fairplayerAlbums]);
-
-  // Keep curated stations first, followed by discovered stations ranked by recent clicks
+  // Shuffled curated and discovered radio stations
   const radioStations = useMemo(() => {
     const combined = [...RADIO_STATIONS, ...discoveredRadio].filter((station) =>
       isQualityArtwork(station.artwork),
     );
-    return deduplicateRadioStations(combined);
-  }, [discoveredRadio]);
+    return sortRadioRandomly(deduplicateRadioStations(combined));
+  }, [discoveredRadio, shuffleSeed]);
 
   // Curated and Castopod-indexed discussion shows, ordered by latest episode
   const { data: latestDates } = useQuery(queryDiscussionLatestDates(PODCAST_SHOWS));
@@ -204,7 +203,10 @@ export default function Index() {
     return sortDiscussionsByLastUpdate(withLiveDates);
   }, [latestDates, discoveredPodcasts]);
 
-  const popularPurchases = topSoldData?.results || [];
+  const popularPurchases = useMemo(
+    () => shuffleCarousel(topSoldData?.results || []),
+    [topSoldData?.results, shuffleSeed],
+  );
 
   // The splash screen stays up until Home has its first content (or an error to show)
   const { setIsDataLoaded } = useAppIsReadyContext();
@@ -212,7 +214,7 @@ export default function Index() {
     if (!isRecentPending) setIsDataLoaded(true);
   }, [isRecentPending, setIsDataLoaded]);
 
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>(getHistorySync);
 
   useEffect(() => {
     let mounted = true;
@@ -233,6 +235,7 @@ export default function Index() {
   useFocusEffect(
     useCallback(() => {
       if (hasFocused.current) {
+        setShuffleSeed((s) => s + 1);
         refetchRecent();
         refetchChorus();
         refetchFairplayer();
@@ -373,7 +376,10 @@ export default function Index() {
                           router.push({
                             pathname: "/artist/[id]/album/[slug]/album-tracks",
                             params: {
-                              id: String(item.artist?.urlSlug || item.artistId),
+                              id:
+                                fairplayerReleaseSlug.artistRouteId(
+                                  String(item.urlSlug || ""),
+                                ) ?? String(item.artist?.urlSlug || item.artistId),
                               slug: String(item.urlSlug),
                             },
                           })

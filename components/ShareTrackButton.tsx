@@ -27,15 +27,29 @@ export function resolveTrackSourceUrl(track: RNTrack): string {
     return track.sourceUrl;
   }
 
+  if (
+    track.trackGroup?.sourceUrl &&
+    !track.trackGroup.sourceUrl.includes("mirlo.space")
+  ) {
+    return track.trackGroup.sourceUrl;
+  }
+
+  const faircampSiteUrl = fairplayerReleaseSlug.siteUrl(
+    track.trackGroup?.urlSlug,
+  );
+  if (faircampSiteUrl) {
+    return faircampSiteUrl;
+  }
+
   const songUrl = songPageUrl(track);
   if (songUrl) return songUrl;
 
   const artistSlug = track.trackGroup?.artist?.urlSlug;
   const albumSlug = track.trackGroup?.urlSlug;
-  if (artistSlug && albumSlug) {
+  if (artistSlug && artistSlug !== "fairplayer" && albumSlug) {
     return `https://mirlo.space/${artistSlug}/release/${albumSlug}`;
   }
-  if (artistSlug) {
+  if (artistSlug && artistSlug !== "fairplayer") {
     return `https://mirlo.space/${artistSlug}`;
   }
 

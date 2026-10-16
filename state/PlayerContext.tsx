@@ -294,6 +294,9 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (track: RNTrack) => {
       try {
         await ensureTrackPlayerInitialized();
+        if (track.id && isTrackDisabled(track.id) && !isTrackOwned(track, track.trackGroup, user)) {
+          return;
+        }
         const { queue, active, queued } = await readPlayer();
         const prepared = toPlayerTrack({ ...track, autoplay: undefined, queued: true });
         const insertAt = active + 1 + queued;
@@ -304,7 +307,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Add to queue error:", err);
       }
     },
-    [refreshQueue],
+    [refreshQueue, isTrackDisabled, user],
   );
 
   const removeFromUserQueue = useCallback(
@@ -459,9 +462,27 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         if (track) {
           setActiveTrack(track);
           setActiveIndex(event.index ?? -1);
-          activeTrackOwnedRef.current = isTrackOwned(track, track.trackGroup, userRef.current);
+          const owned = isTrackOwned(track, track.trackGroup, userRef.current);
+          activeTrackOwnedRef.current = owned;
           activeTrackIdRef.current = track.id ?? null;
           incrementedRef.current = false;
+
+          const isExternal = Boolean(
+            track.fairplayerTrackId ||
+              track.liveStation ||
+              track.podcastEpisodeId ||
+              (track.source && !String(track.source).toLowerCase().startsWith("mirlo")),
+          );
+          if (
+            !owned &&
+            !isExternal &&
+            typeof track.id === "number" &&
+            (isTrackDisabledSync(track.id) ||
+              (await reachedMaxPlays(track.id, track.trackGroup?.artist?.maxFreePlays)))
+          ) {
+            await TrackPlayer.pause();
+            setDisabledTrackIds((prev) => new Set(prev).add(track.id));
+          }
         }
         return;
       }
@@ -480,11 +501,25 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           const currentTrack = (await TrackPlayer.getActiveTrack()) as RNTrack | undefined;
           const targetId = activeTrackIdRef.current ?? currentTrack?.id;
 
+          const isExternalTrack = Boolean(
+            currentTrack?.fairplayerTrackId ||
+              currentTrack?.liveStation ||
+              currentTrack?.podcastEpisodeId ||
+              (currentTrack?.source &&
+                !String(currentTrack.source).toLowerCase().startsWith("mirlo")),
+          );
+
           // Issue #67 fix: Strictly guard track ID to ensure it is a valid integer before telemetry
-          if (typeof targetId === "number" && Number.isInteger(targetId) && targetId > 0) {
-            if (!user && currentTrack?.trackGroup?.artist?.maxFreePlays !== undefined) {
-              incrementPlayCount(targetId, currentTrack.trackGroup.artist.maxFreePlays);
-            }
+          if (
+            !isExternalTrack &&
+            typeof targetId === "number" &&
+            Number.isInteger(targetId) &&
+            targetId > 0
+          ) {
+            await incrementPlayCount(
+              targetId,
+              currentTrack?.trackGroup?.artist?.maxFreePlays,
+            );
             try {
               await api.get(`/v1/tracks/${targetId}/trackPlay`, {});
             } catch (error) {
@@ -516,7 +551,12 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         await ensureTrackPlayerInitialized();
 
         // Pause and disable guard: Do not stream tracks whose preview limits or HTTP 402 were reached
-        if (track.id && isTrackDisabled(track.id) && !isTrackOwned(track, track.trackGroup, user)) {
+        if (
+          track.id &&
+          (isTrackDisabled(track.id) ||
+            (await reachedMaxPlays(track.id, track.trackGroup?.artist?.maxFreePlays))) &&
+          !isTrackOwned(track, track.trackGroup, user)
+        ) {
           await TrackPlayer.pause();
           return;
         }
@@ -555,8 +595,14 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         const resolvedArtwork = enrichedTrack.artwork;
         const enrichedArtist = enrichedTrack.artist;
 
-        // New album or new playlist: load fresh queue
-        const rawTracks = albumTracks && albumTracks.length > 0 ? albumTracks : [track];
+        // New album or new playlist: load fresh queue, excluding any disabled unowned tracks
+        const candidateTracks =
+          albumTracks && albumTracks.length > 0 ? albumTracks : [track];
+        const rawTracks = candidateTracks.filter(
+          (t) =>
+            !(t.id && isTrackDisabled(t.id) && !isTrackOwned(t, t.trackGroup, user)),
+        );
+        if (rawTracks.length === 0) return;
         const playlist = rawTracks.map((t) =>
           toPlayerTrack(t, { artwork: resolvedArtwork, artist: enrichedArtist }),
         );
@@ -705,7 +751,8 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
 
     autoplayFillingRef.current = true;
     const generation = queueGenerationRef.current;
-    const known = new Set(playingQueue.map((t) => t.id));
+    const knownIds = new Set(playingQueue.map((t) => t.id).filter((id) => id !== undefined));
+    const knownUrls = new Set(playingQueue.map((t) => t.url).filter(Boolean));
 
     (async () => {
       try {
@@ -714,7 +761,9 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         for (let attempt = 0; attempt < 3 && added.length === 0; attempt++) {
           const batch = await fetchDiscoveryTracks(AUTOPLAY_ALBUMS_PER_BATCH);
           if (batch.length === 0) break;
-          added = batch.filter((t) => !known.has(t.id)).map((t) => toPlayerTrack(t));
+          added = batch
+            .map((t) => toPlayerTrack(t))
+            .filter((t) => !knownIds.has(t.id) && (!t.url || !knownUrls.has(t.url)));
         }
         if (added.length === 0 || generation !== queueGenerationRef.current) return;
 

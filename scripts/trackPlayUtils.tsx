@@ -1,6 +1,12 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
 const PLAY_COUNTS_KEY = "mirlo_blue_play_counts_v1";
+
+function getStorage() {
+  try {
+    return require("@react-native-async-storage/async-storage").default;
+  } catch {
+    return null;
+  }
+}
 
 // In-memory cache for synchronous entitlement evaluations
 let playCountsCache: Record<number, number> | null = null;
@@ -13,7 +19,8 @@ const listeners = new Set<PlayCountsListener>();
 export async function getTrackPlayCounts(): Promise<Record<number, number>> {
   if (playCountsCache !== null) return playCountsCache;
   try {
-    const raw = await AsyncStorage.getItem(PLAY_COUNTS_KEY);
+    const storage = getStorage();
+    const raw = storage ? await storage.getItem(PLAY_COUNTS_KEY) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
@@ -42,7 +49,10 @@ export function getTrackPlaysSync(trackId: number): number {
 async function persistPlayCounts(next: Record<number, number>): Promise<void> {
   playCountsCache = next;
   try {
-    await AsyncStorage.setItem(PLAY_COUNTS_KEY, JSON.stringify(next));
+    const storage = getStorage();
+    if (storage) {
+      await storage.setItem(PLAY_COUNTS_KEY, JSON.stringify(next));
+    }
   } catch (err) {
     console.error("Failed to persist play counts:", err);
   }
@@ -110,7 +120,10 @@ export async function isPlaybackLimitReached(
 export async function clearPlayCounts(): Promise<void> {
   await persistPlayCounts({});
   try {
-    await AsyncStorage.removeItem(PLAY_COUNTS_KEY);
+    const storage = getStorage();
+    if (storage) {
+      await storage.removeItem(PLAY_COUNTS_KEY);
+    }
   } catch (err) {
     console.error("Failed to clear play counts:", err);
   }

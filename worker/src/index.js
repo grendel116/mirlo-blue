@@ -1131,11 +1131,11 @@ export default {
 
       let fairplayerUrl;
       let accept = "text/html";
-      let cacheDuration = 30;
+      let cacheDuration = 300;
 
       if (url.pathname === "/fairplayer/hub") {
         fairplayerUrl = new URL("https://fairplayer.band/hub/");
-        cacheDuration = 15;
+        cacheDuration = 300;
       } else if (url.pathname === "/fairplayer/player/all/releases") {
         fairplayerUrl = new URL("https://fairplayer.band/player/all/releases");
       } else if (/^\/fairplayer\/player\/song\/\d+$/.test(url.pathname)) {
@@ -1155,7 +1155,7 @@ export default {
         fairplayerUrl = new URL("https://fairplayer.band/search/");
         fairplayerUrl.searchParams.set("q", query);
         accept = "application/json";
-        cacheDuration = 15;
+        cacheDuration = 120;
       } else {
         const match = url.pathname.match(/^\/fairplayer\/player\/release\/([^/]+)$/);
         let releaseId = "";
@@ -1174,7 +1174,7 @@ export default {
           `/player/release/${encodeURIComponent(releaseId)}`,
           "https://fairplayer.band",
         );
-        cacheDuration = 15;
+        cacheDuration = 300;
       }
 
       try {

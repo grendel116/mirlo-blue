@@ -1,4 +1,5 @@
 import { queryAlbum, queryTrackGroups } from "@/queries/queries";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import {
@@ -172,7 +173,10 @@ export default function TrackView() {
                     href={{
                       pathname: "/artist/[id]/album/[slug]/album-tracks",
                       params: {
-                        id: data.result?.artistId,
+                        id:
+                          fairplayerReleaseSlug.artistRouteId(
+                            String(data.result?.urlSlug || ""),
+                          ) ?? data.result?.artistId,
                         slug: data.result?.urlSlug,
                       },
                     }}
@@ -193,7 +197,9 @@ export default function TrackView() {
                     <Link
                       href={{
                         pathname: "/artist/[id]/artist-page",
-                        params: { id: data.result?.artistId },
+                        params: {
+                          id: fairplayerReleaseSlug.artistPageRouteId(data.result),
+                        },
                       }}
                       style={{ color: "#BE3455", fontWeight: "bold" }}
                     >

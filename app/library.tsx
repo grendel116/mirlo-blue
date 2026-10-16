@@ -29,7 +29,8 @@ import AddToQueueButton from "@/components/AddToQueueButton";
 import DownloadsTab from "@/components/DownloadsTab";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
 import { downloadToTrack, useDownloads } from "@/scripts/downloadManager";
-import { getHistory, HistoryItem } from "@/scripts/historyManager";
+import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
 import { audioTrackType, resolveArtworkUrl, trackStreamPath } from "@/scripts/utils";
@@ -445,6 +446,7 @@ export default function LibraryScreen() {
   const [librarySort, setLibrarySort] = useState<LibrarySort>("newest");
 
   const userId = user?.id;
+  const hasTrackFavorites = Boolean(user?.trackFavorites?.length);
 
   // Purchases query
   const { data: collectionData, isPending: isCollectionPending } = useQuery(
@@ -455,32 +457,48 @@ export default function LibraryScreen() {
   const { data: wishlistData, isPending: isWishlistPending } = useQuery(queryWishlist(userId));
 
   // Catalog releases to enrich favorited tracks whose albums are not yet in purchases/wishlist
-  const { data: catalogData } = useQuery(queryTrackGroups({ distinctArtists: false, take: 50 }));
-  const { data: topSoldData } = useQuery(queryTopSold({ take: 50 }));
+  const { data: catalogData } = useQuery({
+    ...queryTrackGroups({ distinctArtists: false, take: 50 }),
+    enabled: hasTrackFavorites,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: topSoldData } = useQuery({
+    ...queryTopSold({ take: 50 }),
+    enabled: hasTrackFavorites,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>(getHistorySync);
   useEffect(() => {
-    getHistory().then(setHistoryItems);
+    getHistory().then((items) => {
+      setHistoryItems((prev) =>
+        prev.length === items.length && prev.every((item, i) => item === items[i]) ? prev : items,
+      );
+    });
+    return subscribeHistory(setHistoryItems);
   }, []);
 
-  const purchases = collectionData?.results || [];
-  const remoteWishlist = wishlistData?.results || [];
-  const wishlist = [
-    ...remoteWishlist,
-    ...faircampSaves.albums
-      .filter(
-        ({ album }) =>
-          !remoteWishlist.some(
-            (item: any) => item?.trackGroup?.urlSlug === album.urlSlug,
-          ),
-      )
-      .map(({ album, savedAt }) => ({
-        userId: user?.id || 0,
-        trackGroupId: album.id,
-        trackGroup: album,
-        createdAt: new Date(savedAt),
-      })),
-  ];
+  const purchases = useMemo(() => collectionData?.results || [], [collectionData?.results]);
+  const remoteWishlist = useMemo(() => wishlistData?.results || [], [wishlistData?.results]);
+  const wishlist = useMemo(
+    () => [
+      ...remoteWishlist,
+      ...faircampSaves.albums
+        .filter(
+          ({ album }) =>
+            !remoteWishlist.some(
+              (item: any) => item?.trackGroup?.urlSlug === album.urlSlug,
+            ),
+        )
+        .map(({ album, savedAt }) => ({
+          userId: user?.id || 0,
+          trackGroupId: album.id,
+          trackGroup: album,
+          createdAt: new Date(savedAt),
+        })),
+    ],
+    [remoteWishlist, faircampSaves.albums, user?.id],
+  );
 
   // Unique album descriptors for purchased albums that need their full tracks fetched
   const purchasedAlbumDescriptors = useMemo(() => {
@@ -522,6 +540,10 @@ export default function LibraryScreen() {
     ),
   });
 
+  const albumQueriesSignature = albumQueries
+    .map((q) => `${q.data?.result?.id ?? ""}:${q.dataUpdatedAt}`)
+    .join("|");
+
   const fullAlbums = useMemo(() => {
     const list: AlbumProps[] = [];
     albumQueries.forEach((q) => {
@@ -530,7 +552,7 @@ export default function LibraryScreen() {
       }
     });
     return list;
-  }, [albumQueries]);
+  }, [albumQueriesSignature]);
 
   const purchaseDateByAlbumId = useMemo(() => {
     const map = new Map<number | string, string>();
@@ -753,8 +775,11 @@ export default function LibraryScreen() {
             <FlatList
               data={visibleTracks}
               keyExtractor={(item, index) =>
-                `track-${item.liveStation ?? item.podcastEpisodeId ?? item.id}-${index}`
+                `track-${item.liveStation ?? item.podcastEpisodeId ?? item.url ?? item.id}-${index}`
               }
+              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              windowSize={5}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
@@ -817,6 +842,9 @@ export default function LibraryScreen() {
             keyExtractor={(item) =>
               "trackGroupId" in item ? `album-${item.trackGroupId}` : `track-${item.trackId}`
             }
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={5}
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
               const tg = (item as any).trackGroup;
@@ -824,11 +852,13 @@ export default function LibraryScreen() {
               return (
                 <Pressable
                   onPress={() => {
-                    if (tg?.artistId && tg?.urlSlug) {
+                    if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
                       router.push({
                         pathname: "/artist/[id]/album/[slug]/album-tracks",
                         params: {
-                          id: String(tg.artist?.urlSlug || tg.artistId),
+                          id:
+                            fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
+                            String(tg.artist?.urlSlug || tg.artistId),
                           slug: String(tg.urlSlug),
                         },
                       });
@@ -873,6 +903,9 @@ export default function LibraryScreen() {
           keyExtractor={(item) =>
             String((item as any).trackGroup?.urlSlug || item.trackGroupId)
           }
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={5}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const tg = (item as any).trackGroup;
@@ -880,11 +913,13 @@ export default function LibraryScreen() {
             return (
               <Pressable
                 onPress={() => {
-                  if (tg?.artistId && tg?.urlSlug) {
+                  if (tg?.urlSlug && (tg?.artistId || fairplayerReleaseSlug.decode(String(tg.urlSlug)))) {
                     router.push({
                       pathname: "/artist/[id]/album/[slug]/album-tracks",
                       params: {
-                        id: String(tg.artist?.urlSlug || tg.artistId),
+                        id:
+                          fairplayerReleaseSlug.artistRouteId(String(tg.urlSlug)) ??
+                          String(tg.artist?.urlSlug || tg.artistId),
                         slug: String(tg.urlSlug),
                       },
                     });

@@ -3,7 +3,10 @@ import { queryClient } from "@/queries/QueryClientWrapper";
 import { queryArtist } from "@/queries/queries";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import * as api from "@/queries/fetch/fetchWrapper";
-import { fetchFairplayerSongReleaseSlug } from "@/queries/fairplayer";
+import {
+  fairplayerReleaseSlug,
+  fetchFairplayerSongReleaseSlug,
+} from "@/queries/fairplayer";
 
 // Artist pages share the site root with routes like /login, so a single
 // segment is an artist only if the API says so. Fetching through the query
@@ -94,6 +97,18 @@ export async function redirectSystemPath({
       return `/artist/fairplayer/album/${albumSlug}/album-tracks`;
     } catch (err) {
       console.warn("Could not resolve Faircamp share link", err);
+      return path;
+    }
+  }
+
+  const faircampReleaseMatch = cleanPath.match(/^\/(?:f|faircamp)\/([^/]+)(?:\/\d+)?$/i);
+  if (faircampReleaseMatch) {
+    try {
+      const releaseId = decodeURIComponent(faircampReleaseMatch[1]);
+      const albumSlug = fairplayerReleaseSlug.encode(releaseId);
+      return `/artist/fairplayer/album/${albumSlug}/album-tracks`;
+    } catch (err) {
+      console.warn("Could not resolve Faircamp release link", err);
       return path;
     }
   }

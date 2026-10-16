@@ -21,6 +21,8 @@ import { useAuthContext } from "@/state/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { queryAlbum } from "@/queries/queries";
 import { resolveFeedSourceName } from "@/queries/chorus";
+import { fairplayerReleaseSlug } from "@/queries/fairplayer";
+import { openInBrowser } from "@/scripts/openInBrowser";
 import React, { useCallback, useState } from "react";
 import { API_ROOT } from "@/constants/api-root";
 import { API_KEY } from "@/constants/api-key";
@@ -118,7 +120,7 @@ export default function AlbumTracks() {
     queryAlbum({ slug: slug, id: id }),
   );
   const router = useRouter();
-  const { setPlayableTracks } = usePlayer();
+  const { setPlayableTracks, disabledTrackIds } = usePlayer();
   const { user } = useAuthContext();
   const [album, setAlbum] = useState<RNTrack[]>();
   const { t } = useTranslation("translation");
@@ -184,6 +186,7 @@ export default function AlbumTracks() {
                 trackGroupId: data.result.trackGroupId,
                 source: trackSource,
                 sourceUrl: trackSourceUrl,
+                purchaseLinks: data.result.purchaseLinks,
               },
               audio: {
                 url: streamUrl,
@@ -197,11 +200,12 @@ export default function AlbumTracks() {
               type: audioTrackType(streamUrl),
               source: trackSource,
               sourceUrl: trackSourceUrl,
+              fairplayerTrackId: track.fairplayerTrackId,
             };
 
             allTracks.push(newTrack);
 
-            if (isTrackOwnedOrPreview(newTrack, user, data.result)) {
+            if (isTrackOwnedOrPreview(newTrack, user, data.result, disabledTrackIds)) {
               newTrack.queueIndex = playableIndex;
               playableIndex++;
               tracksToPlay.push(newTrack);
@@ -211,7 +215,7 @@ export default function AlbumTracks() {
       }
       setAlbum(allTracks);
       setPlayableTracks(tracksToPlay);
-    }, [data, user]),
+    }, [data, user, disabledTrackIds]),
   );
 
   if (isPending) {
@@ -297,7 +301,9 @@ export default function AlbumTracks() {
                       onPress={() =>
                         router.navigate({
                           pathname: "/artist/[id]/artist-page",
-                          params: { id: selectedAlbum?.artistId },
+                          params: {
+                            id: fairplayerReleaseSlug.artistPageRouteId(selectedAlbum),
+                          },
                         })
                       }
                     >
@@ -333,21 +339,42 @@ export default function AlbumTracks() {
                 {formatUTCDate(selectedAlbum?.releaseDate, t)}
               </Text>
               {albumSource ? (
-                <View style={styles.footerSourceRow}>
+                <Pressable
+                  disabled={!selectedAlbum?.sourceUrl}
+                  onPress={() => {
+                    if (selectedAlbum?.sourceUrl) {
+                      openInBrowser(selectedAlbum.sourceUrl);
+                    }
+                  }}
+                  style={styles.footerSourceRow}
+                >
                   <Ionicons
                     name="globe-outline"
                     size={12}
-                    color={theme.colors.textMuted}
+                    color={
+                      selectedAlbum?.sourceUrl
+                        ? theme.colors.textCyan
+                        : theme.colors.textMuted
+                    }
                   />
-                  <Text style={styles.footerSourceText}>
+                  <Text
+                    style={[
+                      styles.footerSourceText,
+                      selectedAlbum?.sourceUrl && { color: theme.colors.textCyan },
+                    ]}
+                  >
                     {albumSource}
                   </Text>
-                </View>
+                </Pressable>
               ) : null}
 
               {selectedAlbum?.about ? (
                 <View style={styles.aboutBody}>
                   <Markdown
+                    onLinkPress={(url) => {
+                      openInBrowser(url);
+                      return false;
+                    }}
                     style={{
                       body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
                       link: { color: theme.colors.textCyan },

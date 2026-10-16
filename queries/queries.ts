@@ -7,8 +7,12 @@ import {
 } from "@tanstack/react-query";
 import * as api from "./fetch/fetchWrapper";
 import { MirloFetchError } from "./fetch/MirloFetchError";
-import { findChorusAlbum } from "./chorus";
-import { fetchFairplayerAlbum } from "./fairplayer";
+import { findChorusAlbum, findChorusArtist } from "./chorus";
+import {
+  fairplayerReleaseSlug,
+  fetchFairplayerAlbum,
+  fetchFairplayerArtist,
+} from "./fairplayer";
 
 type UserPurchase = UserTrackPurchase | UserTrackGroupPurchase;
 
@@ -142,7 +146,7 @@ const fetchAlbum: QueryFunction<
   const safeSlug = Array.isArray(slug) ? slug[0] : slug;
   const safeId = Array.isArray(id) ? id[0] : id;
 
-  if (safeId === "fairplayer") {
+  if (safeId === "fairplayer" || fairplayerReleaseSlug.decode(safeSlug)) {
     return fetchFairplayerAlbum(safeSlug, signal).then((result) => ({
       result,
     }));
@@ -199,12 +203,34 @@ export function queryAlbum(opts: {
 const fetchArtist: QueryFunction<
   Artist,
   ["fetchArtist", { artistSlug: string }]
-> = ({ queryKey: [_, { artistSlug }], signal }) => {
-  return api
-    .get<{ result: Artist }>(`/v1/artists/${artistSlug}`, {
+> = async ({ queryKey: [_, { artistSlug }], signal }) => {
+  if (fairplayerReleaseSlug.decodeArtist(artistSlug)) {
+    const fairArtist = await fetchFairplayerArtist(artistSlug, signal);
+    if (fairArtist) return fairArtist;
+  }
+
+  try {
+    const response = await api.get<{ result: Artist }>(`/v1/artists/${artistSlug}`, {
       signal,
-    })
-    .then((r) => r.result);
+    });
+    return response.result;
+  } catch (err) {
+    try {
+      const fairArtist = await fetchFairplayerArtist(artistSlug, signal);
+      if (fairArtist) return fairArtist;
+    } catch {
+      // Ignore Fairplayer fallback error
+    }
+    if (/^\d+$/.test(artistSlug)) {
+      try {
+        const chorusArtist = await findChorusArtist(artistSlug, signal);
+        if (chorusArtist) return chorusArtist;
+      } catch {
+        // Ignore Chorus fallback error
+      }
+    }
+    throw err;
+  }
 };
 
 export function queryArtist(opts: { artistSlug: string }) {

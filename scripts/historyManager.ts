@@ -31,6 +31,11 @@ const MAX_HISTORY_ITEMS = 20;
 // Listeners for realtime update in components
 type HistoryListener = (items: HistoryItem[]) => void;
 const listeners = new Set<HistoryListener>();
+let cachedHistory: HistoryItem[] = [];
+
+export function getHistorySync(): HistoryItem[] {
+  return cachedHistory;
+}
 
 // The same album seen again replaces its earlier entry
 function entryKey(entry: HistoryEntry): string {
@@ -45,13 +50,20 @@ function opensAlbum(entry: HistoryEntry): boolean {
 export async function getHistory(): Promise<HistoryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      cachedHistory = [];
+      return cachedHistory;
+    }
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter(opensAlbum);
-    return [];
+    if (Array.isArray(parsed)) {
+      cachedHistory = parsed.filter(opensAlbum);
+      return cachedHistory;
+    }
+    cachedHistory = [];
+    return cachedHistory;
   } catch (err) {
     console.error("Failed to load viewing history:", err);
-    return [];
+    return cachedHistory;
   }
 }
 
@@ -64,6 +76,7 @@ export async function recordHistoryItem(entry: HistoryEntry): Promise<void> {
     // Prepend latest viewed item
     const newItem = { ...entry, viewedAt: Date.now() } as HistoryItem;
     const updated = [newItem, ...filtered].slice(0, MAX_HISTORY_ITEMS);
+    cachedHistory = updated;
     await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
 
     // Notify listeners
@@ -90,6 +103,7 @@ export async function removeHistoryItems(predicate: (item: HistoryItem) => boole
   try {
     const current = await getHistory();
     const updated = current.filter((item) => !predicate(item));
+    cachedHistory = updated;
     await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
     listeners.forEach((listener) => {
       try {
@@ -105,6 +119,7 @@ export async function removeHistoryItems(predicate: (item: HistoryItem) => boole
 
 export async function clearHistory(): Promise<void> {
   try {
+    cachedHistory = [];
     await AsyncStorage.removeItem(HISTORY_STORAGE_KEY);
     listeners.forEach((listener) => listener([]));
   } catch (err) {

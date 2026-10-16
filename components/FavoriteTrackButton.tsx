@@ -9,6 +9,7 @@ import { toggleStationLike, useStationLikes } from "@/scripts/stationLikes";
 import { togglePodcastEpisodeLike, usePodcastEpisodeLikes } from "@/scripts/podcastLikes";
 import {
   isFaircampTrack,
+  isFaircampTrackLiked,
   toggleFaircampTrackLike,
   useFaircampSaves,
 } from "@/scripts/faircampSaves";
@@ -70,8 +71,8 @@ function FaircampTrackHeart({
   style?: ViewStyle;
   size?: number;
 }) {
-  const { tracks } = useFaircampSaves();
-  const liked = tracks.some((saved) => saved.track.url === track.url);
+  useFaircampSaves();
+  const liked = isFaircampTrackLiked(track);
   return (
     <Heart
       liked={liked}
