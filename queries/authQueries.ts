@@ -135,7 +135,12 @@ export async function authRefresh() {
 
     return false;
   } catch (err) {
-    console.error("Token refresh failed", err);
+    // A request that never reached Mirlo (offline, or a blocked origin) is expected
+    if (err instanceof TypeError) {
+      console.warn("Token refresh skipped: Mirlo is unreachable", err.message);
+    } else {
+      console.error("Token refresh failed", err);
+    }
     return false;
   }
 }

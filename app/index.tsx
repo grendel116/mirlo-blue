@@ -24,10 +24,12 @@ import {
   queryFairplayerAlbums,
 } from "@/queries/fairplayer";
 import { useRouter } from "expo-router";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "@/constants/theme";
 import { getHistory, getHistorySync, subscribeHistory, HistoryItem } from "@/scripts/historyManager";
 import {
+  mainTabIndex,
   openMainTab,
   openSavedAlbum,
   setMainTab,
@@ -121,6 +123,9 @@ const HOME_QUERIES = new Set([
   "podcastEpisodes",
 ]);
 
+// Where an overlay waits while hidden
+const PARKED_X = 10000;
+
 const MemoQueueScreen = memo(QueueScreen);
 const MemoLibraryScreen = memo(LibraryScreen);
 
@@ -139,26 +144,24 @@ export default function Index() {
     return () => sub.remove();
   }, [tab, router]);
 
+  // Home is always there. Queue and Library are overlays: the UI thread slides the one in
+  // use into place and parks the other far off-screen, where it cannot be touched
+  const queueStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: mainTabIndex.value === 1 ? 0 : PARKED_X }],
+  }));
+  const libraryStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: mainTabIndex.value === 2 ? 0 : PARKED_X }],
+  }));
+
   return (
     <View style={styles.root}>
-      <View
-        style={[styles.tabPane, tab !== "home" && styles.tabPaneHidden]}
-        pointerEvents={tab === "home" ? "auto" : "none"}
-      >
-        <HomePane active={tab === "home"} />
-      </View>
-      <View
-        style={[styles.tabPane, tab !== "queue" && styles.tabPaneHidden]}
-        pointerEvents={tab === "queue" ? "auto" : "none"}
-      >
+      <HomePane active={tab === "home"} />
+      <Animated.View style={[styles.overlayPane, queueStyle]}>
         <MemoQueueScreen />
-      </View>
-      <View
-        style={[styles.tabPane, tab !== "library" && styles.tabPaneHidden]}
-        pointerEvents={tab === "library" ? "auto" : "none"}
-      >
+      </Animated.View>
+      <Animated.View style={[styles.overlayPane, libraryStyle]}>
         <MemoLibraryScreen openAlbum={savedAlbum} openAlbumTrigger={savedAlbumSeq} />
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -669,16 +672,12 @@ function DiscussionCard({ show, cardWidth }: { show: PodcastShow; cardWidth: num
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    overflow: "hidden",
     backgroundColor: theme.colors.background,
   },
-  tabPane: {
+  overlayPane: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 1,
-    zIndex: 0,
-  },
-  tabPaneHidden: {
-    opacity: 0,
-    zIndex: -1,
+    backgroundColor: theme.colors.background,
   },
   safeArea: {
     flex: 1,
