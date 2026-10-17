@@ -3,6 +3,11 @@ const path = require("path");
 
 const config = getDefaultConfig(__dirname);
 
+config.transformer.assetPlugins = [
+  ...(config.transformer.assetPlugins ?? []),
+  path.resolve(__dirname, "plugins/vendorAssetPaths.js"),
+];
+
 const defaultResolveRequest = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
