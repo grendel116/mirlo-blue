@@ -554,19 +554,6 @@ export function parseFaircampShopPage(html: string, pageUrl: string): FaircampSh
   return undefined;
 }
 
-async function fetchFaircampShop(
-  access: FaircampDownloadAccess | undefined,
-  signal?: AbortSignal,
-): Promise<FaircampShop | undefined> {
-  if (!access) return undefined;
-  if (access.kind === "external") return { mode: "external", links: access.links };
-  try {
-    return parseFaircampShopPage(await fetchFaircampHtml(access.url, signal), access.url);
-  } catch {
-    return undefined;
-  }
-}
-
 function getFaircampReleaseId(urlOrPath: string): string | undefined {
   if (!urlOrPath || !urlOrPath.includes("/player/release/")) return undefined;
 
@@ -1206,6 +1193,15 @@ export function parseFairplayerRelease(
   return album;
 }
 
+export type FairplayerAlbumBundle = {
+  releaseId: string;
+  releaseHtml: string;
+  catalogUrl?: string;
+  releaseUrl?: string;
+  pageHtml?: string | null;
+  shopHtml?: string | null;
+};
+
 export async function fetchFairplayerAlbum(
   releaseSlug: string,
   signal?: AbortSignal,
@@ -1216,33 +1212,52 @@ export async function fetchFairplayerAlbum(
     throw new Error("Invalid Faircamp release identifier.");
   }
 
-  const responsePath = `/fairplayer/player/release/${encodeURIComponent(releaseId)}`;
-  const [html, verifiedCatalogs] = await Promise.all([
-    fetchFairplayerText(responsePath, "text/html", signal),
-    fetchVerifiedFaircampCatalogs(signal),
-  ]);
+  const endpoint = fairplayerEndpoint("/fairplayer/album");
+  endpoint.searchParams.set("releaseId", releaseId);
+  const response = await fetch(endpoint.toString(), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
 
-  if (!verifiedCatalogs.has(domain)) {
-    throw new Error(`Faircamp catalog is no longer verified: ${releaseId}`);
-  }
-
-  const catalogUrl = verifiedCatalogs.get(domain);
-  const album = parseFairplayerRelease(html, releaseSlug);
-  const fallbackReleaseUrl = getFaircampReleaseUrl(releaseId, catalogUrl);
-  if (!album.sourceUrl || album.sourceUrl === getFaircampReleaseUrl(releaseId)) {
-    album.sourceUrl = fallbackReleaseUrl;
-  }
-
-  const pageDetails = await fetchFaircampPageDetails(album.sourceUrl, signal);
-  if (pageDetails) {
-    const richAbout = combineFaircampAbout(
-      pageDetails.abstractText || album.about,
-      pageDetails.aboutMarkdown,
+  if (!response.ok) {
+    throw new Error(
+      `Fairplayer request failed: ${response.status} ${response.statusText}`,
     );
-    if (richAbout) {
-      album.about = richAbout;
+  }
+
+  const bundle = (await response.json()) as FairplayerAlbumBundle;
+  const album = parseFairplayerRelease(bundle.releaseHtml, releaseSlug);
+  if (bundle.releaseUrl) {
+    album.sourceUrl = bundle.releaseUrl;
+  } else if (bundle.catalogUrl) {
+    album.sourceUrl = getFaircampReleaseUrl(releaseId, bundle.catalogUrl);
+  }
+
+  if (bundle.pageHtml) {
+    const pageDetails = parseFaircampPageDetails(
+      bundle.pageHtml,
+      album.sourceUrl,
+    );
+    if (pageDetails) {
+      const richAbout = combineFaircampAbout(
+        pageDetails.abstractText || album.about,
+        pageDetails.aboutMarkdown,
+      );
+      if (richAbout) {
+        album.about = richAbout;
+      }
+      if (bundle.shopHtml && pageDetails.downloadAccess?.kind === "page") {
+        album.faircampShop = parseFaircampShopPage(
+          bundle.shopHtml,
+          pageDetails.downloadAccess.url,
+        );
+      } else if (pageDetails.downloadAccess?.kind === "external") {
+        album.faircampShop = {
+          mode: "external",
+          links: pageDetails.downloadAccess.links,
+        };
+      }
     }
-    album.faircampShop = await fetchFaircampShop(pageDetails.downloadAccess, signal);
   }
 
   album.tracks?.forEach((track) => {
@@ -1251,7 +1266,7 @@ export async function fetchFairplayerAlbum(
       track.trackGroup.sourceUrl = album.sourceUrl;
     }
   });
-  recordKnownAlbum(album, catalogUrl);
+  recordKnownAlbum(album, bundle.catalogUrl);
   return album;
 }
 

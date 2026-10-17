@@ -590,6 +590,38 @@ async function getFaircampArtworkMime(artworkUrl) {
   return "";
 }
 
+function deriveReleaseUrlFromAudioUrl(audioUrl) {
+  try {
+    const parsed = new URL(audioUrl);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const codecIdx = segments.findIndex((s) =>
+      /^(opus|mp3|flac|vorbis|ogg|wav|aac|alac|m4a)(-\d+)?$/i.test(s),
+    );
+    if (codecIdx >= 2 && /^\d+$/.test(segments[codecIdx - 1])) {
+      return `${parsed.origin}/${segments.slice(0, codecIdx - 1).join("/")}/`;
+    }
+    if (segments.length >= 2) {
+      return `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
+    }
+  } catch {}
+  return undefined;
+}
+
+const FAIRCAMP_ACCESS_HREF = /^(?:[^/:#?]+\/)*[^/:#?]+\/[A-Za-z0-9_-]{11}\/(?:index\.html)?$/;
+
+function findFaircampDownloadAccessUrl(html, pageUrl) {
+  const anchors = html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi);
+  for (const [, attributes] of anchors) {
+    const href = getHtmlAttribute(attributes, "href");
+    if (FAIRCAMP_ACCESS_HREF.test(href)) {
+      try {
+        return new URL(href, pageUrl).href;
+      } catch {}
+    }
+  }
+  return null;
+}
+
 async function resolveFaircampShare(releaseId, trackNumber) {
   const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
   if (!idMatch) return null;
@@ -1312,6 +1344,160 @@ export default {
           status: 405,
           headers: { ...corsHeaders, Allow: "GET, HEAD, OPTIONS" },
         });
+      }
+
+      if (url.pathname === "/fairplayer/album") {
+        let releaseId = (url.searchParams.get("releaseId") || url.searchParams.get("id") || "").trim();
+        if (!releaseId && url.searchParams.get("slug")) {
+          releaseId = url.searchParams.get("slug").replace(/^fairplayer-/, "");
+        }
+        try {
+          releaseId = decodeURIComponent(releaseId);
+        } catch {}
+
+        const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+        if (!idMatch) {
+          return new Response("Invalid Faircamp release identifier.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+
+        const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+        if (!domain) {
+          return new Response("Invalid Faircamp domain.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+
+        const cache = globalThis.caches?.default;
+        const cacheKey = new Request(url.toString(), { headers: request.headers });
+        if (cache) {
+          try {
+            const cachedResponse = await cache.match(cacheKey);
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+          } catch (cacheErr) {
+            console.warn("Could not read Fairplayer album cache:", cacheErr);
+          }
+        }
+
+        try {
+          const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`, {
+            cf: { cacheTtl: 600, cacheEverything: true },
+          });
+          if (!hubResponse.ok) {
+            return new Response("Fairplayer hub unavailable.", {
+              status: 502,
+              headers: corsHeaders,
+            });
+          }
+          const hubHtml = await hubResponse.text();
+          const catalogUrl = isVerifiedFaircampCatalog(hubHtml, domain);
+          if (!catalogUrl) {
+            return new Response("Unverified Faircamp domain.", {
+              status: 403,
+              headers: corsHeaders,
+            });
+          }
+
+          const fairplayerUrl = new URL(
+            `/player/release/${encodeURIComponent(releaseId)}`,
+            FAIRPLAYER_ROOT,
+          );
+          const releaseResponse = await fetch(fairplayerUrl, {
+            headers: { Accept: "text/html" },
+            cf: { cacheTtl: 600, cacheEverything: true },
+          });
+          if (!releaseResponse.ok) {
+            return new Response("Fairplayer release unavailable.", {
+              status: releaseResponse.status,
+              headers: corsHeaders,
+            });
+          }
+          const releaseHtml = await releaseResponse.text();
+          const songs = getFairplayerSongElements(releaseHtml);
+          const firstAudio = songs.length ? getHtmlAttribute(songs[0], "data-url") : "";
+          let releaseUrl = deriveReleaseUrlFromAudioUrl(firstAudio);
+          if (!releaseUrl) {
+            const cleanBase = catalogUrl.replace(/\/+$/, "");
+            releaseUrl = `${cleanBase}/${encodeURIComponent(idMatch[1])}/`;
+          }
+
+          let pageHtml = null;
+          let shopHtml = null;
+
+          try {
+            const pageResponse = await fetch(releaseUrl, {
+              headers: {
+                Accept: "text/html,application/xhtml+xml",
+                "User-Agent": "MirloBlueSocialBot/1.0",
+              },
+              cf: { cacheTtl: 600, cacheEverything: true },
+            });
+            if (pageResponse.ok) {
+              pageHtml = await pageResponse.text();
+            }
+          } catch (pageErr) {
+            console.warn("Could not fetch Faircamp release page:", pageErr);
+          }
+
+          if (pageHtml) {
+            const shopUrl = findFaircampDownloadAccessUrl(pageHtml, releaseUrl);
+            if (shopUrl) {
+              try {
+                const shopResponse = await fetch(shopUrl, {
+                  headers: {
+                    Accept: "text/html,application/xhtml+xml",
+                    "User-Agent": "MirloBlueSocialBot/1.0",
+                  },
+                  cf: { cacheTtl: 600, cacheEverything: true },
+                });
+                if (shopResponse.ok) {
+                  shopHtml = await shopResponse.text();
+                }
+              } catch (shopErr) {
+                console.warn("Could not fetch Faircamp shop page:", shopErr);
+              }
+            }
+          }
+
+          const payload = JSON.stringify({
+            releaseId,
+            releaseHtml,
+            catalogUrl,
+            releaseUrl,
+            pageHtml,
+            shopHtml,
+          });
+
+          const headers = new Headers(corsHeaders);
+          headers.set("Content-Type", "application/json; charset=utf-8");
+          headers.set("Cache-Control", "public, max-age=1800");
+
+          const response = new Response(request.method === "HEAD" ? null : payload, {
+            status: 200,
+            headers,
+          });
+
+          if (cache && request.method === "GET") {
+            try {
+              await cache.put(cacheKey, response.clone());
+            } catch (putErr) {
+              console.warn("Could not cache Fairplayer album response:", putErr);
+            }
+          }
+
+          return response;
+        } catch (err) {
+          console.error("Fairplayer album bundle failed:", err);
+          return new Response("Fairplayer album unavailable.", {
+            status: 502,
+            headers: corsHeaders,
+          });
+        }
       }
 
       if (url.pathname === "/fairplayer/page") {
