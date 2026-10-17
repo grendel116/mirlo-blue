@@ -579,21 +579,14 @@
         // Configure Web Button
         btnOpenWeb.href = webUrl;
 
-        // Configure Deep Link Action
+        // Android opens the installed app, or the web app when it isn't installed;
+        // other devices have no app, so they go straight to the web app
         btnOpenApp.addEventListener("click", function () {
           const cleanRoute = appRoute.startsWith("/") ? appRoute.slice(1) : appRoute;
-          const mirloScheme = `mirloblue://${cleanRoute}`;
-
-          const start = Date.now();
-          window.location.href = mirloScheme;
-
-          // If app isn't installed, automatically transition directly to the download page
-          setTimeout(function () {
-            if (document.hidden || document.webkitHidden) return;
-            if (Date.now() - start < 2500) {
-              window.location.href = "https://grendel116.github.io/mirlo-blue/";
-            }
-          }, 1500);
+          const webAppUrl = `https://grendel116.github.io/mirlo-blue/app/${cleanRoute}`;
+          window.location.href = /android/i.test(navigator.userAgent)
+            ? `intent://${cleanRoute}#Intent;scheme=mirloblue;package=space.mirlo.blue;S.browser_fallback_url=${encodeURIComponent(webAppUrl)};end`
+            : webAppUrl;
         });
 
         // 10-Second Audio Player Logic

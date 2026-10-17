@@ -906,15 +906,12 @@ function renderHtml(meta) {
         const btnApp = document.getElementById("btn-open-app");
         if (btnApp) {
           const clean = appRoute.startsWith("/") ? appRoute.slice(1) : appRoute;
-          const isAndroid = /android/i.test(navigator.userAgent);
-          const appUrl = isAndroid
-            ? "intent://" + clean + "#Intent;scheme=mirloblue;package=space.mirlo.blue;end"
-            : "mirloblue://" + clean;
-
-          btnApp.href = appUrl;
-          btnApp.addEventListener("click", function(e) {
-            window.location.href = appUrl;
-          });
+          const webAppUrl = "https://grendel116.github.io/mirlo-blue/app/" + clean;
+          // Android opens the installed app, or the web app when it isn't installed;
+          // other devices have no app, so they go straight to the web app
+          btnApp.href = /android/i.test(navigator.userAgent)
+            ? "intent://" + clean + "#Intent;scheme=mirloblue;package=space.mirlo.blue;S.browser_fallback_url=" + encodeURIComponent(webAppUrl) + ";end"
+            : webAppUrl;
         }
 
         const audioPlayer = document.getElementById("audio-player");
