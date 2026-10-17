@@ -139,16 +139,6 @@ export default function RootLayout() {
                     }}
                   />
                   <Stack.Screen
-                    name="deleteAccount"
-                    options={{
-                      headerShown: false,
-                      presentation: "transparentModal",
-                      animation: "slide_from_bottom",
-                      animationDuration: 200,
-                      contentStyle: { backgroundColor: "transparent" },
-                    }}
-                  />
-                  <Stack.Screen
                     name="tags/[tag]"
                     options={{
                       headerShown: false,
