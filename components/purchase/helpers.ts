@@ -12,6 +12,15 @@ export function isFreeAlbum(album: Pick<AlbumProps, "minPrice">): boolean {
   return !album.minPrice;
 }
 
+// What the album page offers for a Faircamp release: the shop for paid, code and external
+// downloads, the download button for free ones, and neither when downloads are off.
+// Undefined for releases from other sources
+export function faircampAction(album: Pick<AlbumProps, "source" | "faircampShop">): "shop" | "download" | "none" | undefined {
+  if (album.source !== "Faircamp") return undefined;
+  if (!album.faircampShop) return "none";
+  return album.faircampShop.mode === "free" ? "download" : "shop";
+}
+
 // The price the sheet starts on, as the website does: the suggestion, else the minimum
 export function defaultAlbumPrice(album: Pick<AlbumProps, "minPrice" | "suggestedPrice">): number {
   return album.suggestedPrice ?? album.minPrice ?? 0;

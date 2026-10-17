@@ -557,25 +557,14 @@ export function parseFaircampShopPage(html: string, pageUrl: string): FaircampSh
 async function fetchFaircampShop(
   access: FaircampDownloadAccess | undefined,
   signal?: AbortSignal,
-): Promise<FaircampShop | null> {
-  if (!access) return null;
+): Promise<FaircampShop | undefined> {
+  if (!access) return undefined;
   if (access.kind === "external") return { mode: "external", links: access.links };
   try {
-    return parseFaircampShopPage(await fetchFaircampHtml(access.url, signal), access.url) ?? null;
+    return parseFaircampShopPage(await fetchFaircampHtml(access.url, signal), access.url);
   } catch {
-    return null;
+    return undefined;
   }
-}
-
-// How a Faircamp release offers downloads. Read after the album shows, so the page that
-// the download button leads to never holds up the album itself
-export function queryFaircampShop(access: FaircampDownloadAccess | undefined) {
-  return queryOptions({
-    queryKey: ["faircampShop", access ?? null],
-    queryFn: ({ signal }) => fetchFaircampShop(access, signal),
-    enabled: Boolean(access),
-    staleTime: 30 * 60 * 1000,
-  });
 }
 
 function getFaircampReleaseId(urlOrPath: string): string | undefined {
@@ -1253,7 +1242,7 @@ export async function fetchFairplayerAlbum(
     if (richAbout) {
       album.about = richAbout;
     }
-    album.faircampDownloadAccess = pageDetails.downloadAccess;
+    album.faircampShop = await fetchFaircampShop(pageDetails.downloadAccess, signal);
   }
 
   album.tracks?.forEach((track) => {

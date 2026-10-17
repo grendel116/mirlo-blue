@@ -12,8 +12,7 @@ import {
 import { saveFaircampZip } from "@/scripts/faircampDownload";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { priceChips, toAmountText } from "./helpers";
-import { useFaircampShop } from "./useFaircampShop";
-import { AmountField, ErrorText, Field, Loading, Notice, PrimaryButton, SecondaryButton, styles as ui } from "./ui";
+import { AmountField, ErrorText, Field, Notice, PrimaryButton, SecondaryButton, styles as ui } from "./ui";
 
 type Step = { name: "start" } | { name: "pay"; cents: number } | { name: "formats"; formats: FaircampDownloadFormat[] };
 
@@ -22,9 +21,8 @@ type Step = { name: "start" } | { name: "pay"; cents: number } | { name: "format
 // releases ask the code, and external ones list the artist's stores
 export function FaircampShop({ album, onOpen }: { album: AlbumProps; onOpen: (url: string) => void }) {
   const artistName = album.artist?.name || "the artist";
-  const { shop, pending } = useFaircampShop(album);
+  const shop = album.faircampShop;
 
-  if (pending) return <Loading />;
   if (!shop) {
     return (
       <Notice
