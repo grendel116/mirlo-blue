@@ -171,6 +171,15 @@ describe("redirectSystemPath", () => {
     ).toBe("/station/kexp");
   });
 
+  test("opens artist short links (/art/:slug) from share hubs at the artist page", async () => {
+    expect(
+      await redirect("https://mirlo-blue-share.mirloblue.workers.dev/art/mowukis"),
+    ).toBe("/artist/mowukis/artist-page");
+    expect(
+      await redirect("https://mirlo-blue-share.mirloblue.workers.dev/listen/art/mowukis/"),
+    ).toBe("/artist/mowukis/artist-page");
+  });
+
   test("leaves other URLs untouched", async () => {
     expect(await redirect("other:///artist/arod/artist-page")).toBe(
       "other:///artist/arod/artist-page",

@@ -6,16 +6,9 @@ import {
   isQualityArtwork,
   resolveQualityArtworkSource,
   htmlToMarkdown,
-  handleExternalPurchase,
 } from "@/scripts/utils";
-import { formatPurchaseButtonLabel } from "@/app/purchaseModal";
-import { openInBrowser } from "@/scripts/openInBrowser";
 import { createMockUser } from "@/__mocks__/mockUser";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
-
-jest.mock("@/scripts/openInBrowser", () => ({
-  openInBrowser: jest.fn(),
-}));
 
 describe("resolveArtworkUrl", () => {
   test("returns empty string for undefined or empty input", () => {
@@ -271,94 +264,5 @@ describe("htmlToMarkdown", () => {
   test("converts HTML character entities to clean text", () => {
     const html = "It&rsquo;s &ldquo;Sockpuppet&rdquo; &amp; friends &mdash; enjoy!";
     expect(htmlToMarkdown(html)).toBe("It's \"Sockpuppet\" & friends — enjoy!");
-  });
-});
-
-describe("formatPurchaseButtonLabel", () => {
-  test("formats store labels with 'Purchase on <Source>'", () => {
-    expect(formatPurchaseButtonLabel("Bandcamp")).toBe("Purchase on Bandcamp");
-    expect(formatPurchaseButtonLabel("Faircamp")).toBe("Purchase on Faircamp");
-    expect(formatPurchaseButtonLabel("Buy on Bandcamp")).toBe("Purchase on Bandcamp");
-  });
-
-  test("formats Mirlo store labels with 'Purchase on Mirlo'", () => {
-    expect(formatPurchaseButtonLabel("Mirlo")).toBe("Purchase on Mirlo");
-    expect(formatPurchaseButtonLabel("mirlo space")).toBe("Purchase on Mirlo");
-  });
-
-  test("formats subscriptions cleanly", () => {
-    expect(formatPurchaseButtonLabel("Mirlo Subscription")).toBe("Subscribe on Mirlo");
-    expect(formatPurchaseButtonLabel("Subscribe on Mirlo")).toBe("Subscribe on Mirlo");
-    expect(formatPurchaseButtonLabel("Subscription")).toBe("Subscribe on Mirlo");
-    expect(formatPurchaseButtonLabel("Subscription", "Bandcamp")).toBe("Subscribe on Bandcamp");
-  });
-
-  test("normalizes generic 'Album' and 'Release' labels to the source", () => {
-    expect(formatPurchaseButtonLabel("Buy Album")).toBe("Purchase on Mirlo");
-    expect(formatPurchaseButtonLabel("Purchase Album")).toBe("Purchase on Mirlo");
-    expect(formatPurchaseButtonLabel("Purchase Album", "Faircamp")).toBe("Purchase on Faircamp");
-  });
-
-  test("preserves custom support directives", () => {
-    expect(formatPurchaseButtonLabel("Support Artist")).toBe("Support Artist");
-  });
-
-  test("falls back to 'Purchase on <fallbackSource>' when label is missing", () => {
-    expect(formatPurchaseButtonLabel(undefined)).toBe("Purchase on Mirlo");
-    expect(formatPurchaseButtonLabel("")).toBe("Purchase on Mirlo");
-    expect(formatPurchaseButtonLabel(undefined, "Faircamp")).toBe("Purchase on Faircamp");
-  });
-});
-
-describe("handleExternalPurchase", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test("opens specificUrl directly if provided", () => {
-    handleExternalPurchase({}, "https://artist.bandcamp.com");
-    expect(openInBrowser).toHaveBeenCalledWith("https://artist.bandcamp.com");
-  });
-
-  test("prioritizes mirlo.space link in purchaseLinks when present", () => {
-    handleExternalPurchase({
-      purchaseLinks: [
-        { label: "Bandcamp", url: "https://artist.bandcamp.com" },
-        { label: "Mirlo", url: "https://mirlo.space/artist/release/album" },
-      ],
-    });
-    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/artist/release/album");
-  });
-
-  test("opens first link if no mirlo.space link in purchaseLinks", () => {
-    handleExternalPurchase({
-      purchaseLinks: [
-        { label: "Faircamp", url: "https://artist.faircamp.net" },
-        { label: "Bandcamp", url: "https://artist.bandcamp.com" },
-      ],
-    });
-    expect(openInBrowser).toHaveBeenCalledWith("https://artist.faircamp.net");
-  });
-
-  test("opens sourceUrl if non-mirlo and no purchaseLinks", () => {
-    handleExternalPurchase({
-      sourceUrl: "https://artist.faircamp.net",
-    });
-    expect(openInBrowser).toHaveBeenCalledWith("https://artist.faircamp.net");
-  });
-
-  test("opens mirlo.space release page when artist and album slugs exist", () => {
-    handleExternalPurchase({
-      artist: { urlSlug: "my-artist" } as any,
-      urlSlug: "my-album",
-    });
-    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/my-artist/release/my-album");
-  });
-
-  test("opens mirlo.space artist page when only artist slug exists", () => {
-    handleExternalPurchase({
-      artist: { urlSlug: "my-artist" } as any,
-    });
-    expect(openInBrowser).toHaveBeenCalledWith("https://mirlo.space/my-artist");
   });
 });

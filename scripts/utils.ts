@@ -1,4 +1,3 @@
-import { openInBrowser } from "@/scripts/openInBrowser";
 import { API_ROOT } from "@/constants/api-root";
 import { getTrackPlaysSync, isTrackDisabledSync } from "@/scripts/trackPlayUtils";
 import { findDownload } from "@/scripts/downloadManager";
@@ -200,43 +199,6 @@ export const linkifyUrls = (text: string) => {
     // Convert plain URLs to markdown format
     return `[${url}](${url})`;
   });
-};
-
-export const handleExternalPurchase = (
-  trackGroup: Partial<AlbumProps> | AlbumProps,
-  specificUrl?: string,
-) => {
-  if (specificUrl) {
-    openInBrowser(specificUrl);
-    return;
-  }
-  if (trackGroup.purchaseLinks && trackGroup.purchaseLinks.length > 0) {
-    const mirloOption = trackGroup.purchaseLinks.find((l) => l.url.includes("mirlo.space"));
-    if (mirloOption) {
-      openInBrowser(mirloOption.url);
-      return;
-    }
-    openInBrowser(trackGroup.purchaseLinks[0].url);
-    return;
-  }
-  if (trackGroup.sourceUrl && !trackGroup.sourceUrl.includes("mirlo.space")) {
-    openInBrowser(trackGroup.sourceUrl);
-    return;
-  }
-  const artistSlug = trackGroup.artist?.urlSlug;
-  const albumSlug = trackGroup.urlSlug;
-  if (
-    artistSlug &&
-    artistSlug !== "fairplayer" &&
-    albumSlug &&
-    !albumSlug.startsWith("fairplayer-")
-  ) {
-    openInBrowser(`https://mirlo.space/${artistSlug}/release/${albumSlug}`);
-  } else if (artistSlug && artistSlug !== "fairplayer") {
-    openInBrowser(`https://mirlo.space/${artistSlug}`);
-  } else if (trackGroup.sourceUrl) {
-    openInBrowser(trackGroup.sourceUrl);
-  }
 };
 
 // The song's page on mirlo.space. Social apps and messages show it with the cover art

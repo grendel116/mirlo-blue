@@ -4,12 +4,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuthContext } from "@/state/AuthContext";
 import { theme } from "@/constants/theme";
 import { useDownloads } from "@/scripts/downloadManager";
-import { OFFLINE_SUPPORTED, downloadTrack, removeDownloads } from "@/scripts/offlineFiles";
+import { CAN_DOWNLOAD, downloadTrack, removeDownloads } from "@/scripts/offlineFiles";
 import { chooseFormat } from "@/scripts/chooseFormat";
 import { showError } from "@/scripts/showError";
 import { ownsAlbum } from "@/scripts/utils";
 
-// Saves one song of an album you own to the phone, or removes it again
+// Saves one song of an album you own: to the phone (where it can be removed again),
+// or as a zip through the browser on web
 export default function DownloadTrackButton({
   track,
   album,
@@ -23,7 +24,7 @@ export default function DownloadTrackButton({
   const saved = useDownloads().find((d) => d.id === track.id);
   const [busy, setBusy] = useState(false);
 
-  if (!OFFLINE_SUPPORTED || !ownsAlbum(user, album) || track.isPreview) return null;
+  if (!CAN_DOWNLOAD || !ownsAlbum(user, album) || track.isPreview) return null;
 
   const onPress = () => {
     if (busy) return;

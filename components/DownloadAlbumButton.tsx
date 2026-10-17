@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuthContext } from "@/state/AuthContext";
 import { theme } from "@/constants/theme";
@@ -10,8 +10,9 @@ import {
 } from "@/scripts/downloadManager";
 import { chooseFormat } from "@/scripts/chooseFormat";
 import { showError } from "@/scripts/showError";
+import { askChoice } from "@/scripts/askChoice";
 import { ownsAlbum } from "@/scripts/utils";
-import { OFFLINE_SUPPORTED, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
+import { CAN_DOWNLOAD, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
 
 const STAGE_LABELS: Record<DownloadStage, string> = {
   preparing: "Preparing",
@@ -19,13 +20,14 @@ const STAGE_LABELS: Record<DownloadStage, string> = {
   unpacking: "Unpacking",
 };
 
-// Saves an album you own to the phone for offline listening, or removes it again
+// Saves an album you own: to the phone for offline listening (where it can be removed again),
+// or as a zip through the browser on web
 export default function DownloadAlbumButton({ album, size = 32 }: { album: AlbumProps; size?: number }) {
   const { user } = useAuthContext();
   const downloads = useDownloads();
   const [stage, setStage] = useState<DownloadStage | null>(null);
 
-  if (!OFFLINE_SUPPORTED || !ownsAlbum(user, album)) return null;
+  if (!CAN_DOWNLOAD || !ownsAlbum(user, album)) return null;
 
   const saved = downloads.filter((d) => album.tracks?.some((t) => t.id === d.id));
   const isDownloaded = saved.length > 0 && saved.length >= (album.tracks?.length ?? 0);
@@ -40,7 +42,7 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
   const onPress = () => {
     if (stage) return;
     if (isDownloaded) {
-      Alert.alert("Remove download?", `${album.title} will only play online.`, [
+      askChoice("Remove download?", `${album.title} will only play online.`, [
         { text: "Cancel", style: "cancel" },
         {
           text: "Remove",

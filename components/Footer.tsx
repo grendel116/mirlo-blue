@@ -17,6 +17,7 @@ import { openNowPlaying } from "@/components/NowPlaying";
 import { router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
+import { LibraryTab, setLibraryTab } from "@/state/libraryTab";
 import {
   isQualityArtwork,
   resolveArtworkUrl,
@@ -38,6 +39,12 @@ export function openMainTab(tab: MainTab) {
   if (router.canDismiss()) {
     router.dismissAll();
   }
+}
+
+// Opens Library on the given tab
+export function openLibraryTab(tab: LibraryTab) {
+  setLibraryTab(tab);
+  openMainTab("library");
 }
 
 export function useMainTab() {

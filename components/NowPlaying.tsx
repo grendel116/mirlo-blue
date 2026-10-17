@@ -34,7 +34,7 @@ import { queryArtist } from "@/queries/queries";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import ShareTrackButton from "@/components/ShareTrackButton";
 import FavoriteTrackButton from "@/components/FavoriteTrackButton";
-import { showPurchaseModal } from "@/components/AddAlbumButton";
+import { openPurchase, type PurchaseTarget } from "@/scripts/openPurchase";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { getRadioTimerElapsed, setRadioTimerElapsed } from "@/scripts/radioTimer";
@@ -433,7 +433,7 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
           accessibilityRole="button"
           accessibilityLabel={`Donate to ${station.name}`}
         >
-          <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+          <Ionicons name="cash-outline" size={16} color={theme.colors.playButtonIcon} />
           <Text style={styles.donateText}>Donate to {station.name}</Text>
         </Pressable>
       ) : podcastShow?.supportUrl ? (
@@ -443,7 +443,7 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
           accessibilityRole="button"
           accessibilityLabel={`Support ${podcastShow.name}`}
         >
-          <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+          <Ionicons name="cash-outline" size={16} color={theme.colors.playButtonIcon} />
           <Text style={styles.donateText} numberOfLines={1}>
             Support {podcastShow.name}
           </Text>
@@ -494,8 +494,8 @@ function ProgressSection({ isLive }: { isLive: boolean }) {
   );
 }
 
-// Artists with paid subscription tiers, album sales, or federated store links
-// can be supported directly via the slide-up purchase & support modal.
+// Opens the purchase sheet: Mirlo artists get their tiers and tips, releases from other
+// sources show their own store links.
 // onOpen slides the sheet away so the purchase sheet opens on top
 function SupportArtistButton({ track, onOpen }: { track: RNTrack; onOpen: () => void }) {
   const router = useRouter();
@@ -532,67 +532,26 @@ function SupportArtistButton({ track, onOpen }: { track: RNTrack; onOpen: () => 
 
   const artistName =
     artist?.name ?? track.trackGroup?.artist?.name ?? track.artist;
-  const rawArtistSlug = artist?.urlSlug ?? track.trackGroup?.artist?.urlSlug;
-  const artistSlug = rawArtistSlug === "fairplayer" ? undefined : rawArtistSlug;
-  const takesSubscribers = Boolean(
-    artist?.subscriptionTiers?.some((tier) => !tier.isDefaultTier),
-  );
 
-  // Build purchase / support options
-  const purchaseLinks: { label: string; url: string }[] = [];
+  const target: PurchaseTarget | undefined = mirloArtistLookup
+    ? { kind: "support", artist: mirloArtistLookup, slug: albumSlug ? String(albumSlug) : undefined }
+    : albumSlug
+      ? {
+          kind: "album",
+          artist:
+            fairplayerReleaseSlug.artistRouteId(albumSlug) ??
+            String(track.trackGroup?.artist?.urlSlug || artistId || albumSlug),
+          slug: albumSlug,
+        }
+      : undefined;
 
-  if (!isExternalSource && takesSubscribers && artistSlug) {
-    purchaseLinks.push({
-      label: "Subscribe on Mirlo",
-      url: `https://mirlo.space/${artistSlug}/support`,
-    });
-  }
-
-  if (!isExternalSource && artistSlug && albumSlug) {
-    purchaseLinks.push({
-      label: "Purchase on Mirlo",
-      url: `https://mirlo.space/${artistSlug}/release/${albumSlug}`,
-    });
-  }
-
-  // Include any syndication / federated purchase links (e.g. Bandcamp, Faircamp, Chorus)
-  if (track.trackGroup?.purchaseLinks) {
-    for (const link of track.trackGroup.purchaseLinks) {
-      if (!purchaseLinks.some((p) => p.url === link.url)) {
-        purchaseLinks.push(link);
-      }
-    }
-  }
-
-  if (purchaseLinks.length === 0 && sourceUrl) {
-    purchaseLinks.push({
-      label: source || "Store",
-      url: sourceUrl,
-    });
-  }
-
-  if (purchaseLinks.length === 0 && !artistSlug && !albumSlug && !sourceUrl) {
+  if (!target) {
     return null;
   }
 
   const handlePress = () => {
-    const trackGroup: Partial<AlbumProps> = {
-      id: track.trackGroup?.id || track.trackGroupId || 0,
-      title: track.trackGroup?.title || track.title,
-      artistId: track.trackGroup?.artistId ?? artist?.id,
-      artist: {
-        id: track.trackGroup?.artistId ?? artist?.id ?? 0,
-        name: artistName,
-        urlSlug: artistSlug || "",
-      } as any,
-      urlSlug: albumSlug || "",
-      source,
-      sourceUrl,
-      purchaseLinks: purchaseLinks.length > 0 ? purchaseLinks : undefined,
-    };
-
     onOpen();
-    showPurchaseModal(router, trackGroup);
+    openPurchase(router, target);
   };
 
   return (
@@ -602,7 +561,7 @@ function SupportArtistButton({ track, onOpen }: { track: RNTrack; onOpen: () => 
       accessibilityRole="button"
       accessibilityLabel={`Support ${artistName}`}
     >
-      <Ionicons name="heart" size={16} color={theme.colors.playButtonIcon} />
+      <Ionicons name="cash-outline" size={16} color={theme.colors.playButtonIcon} />
       <Text style={styles.donateText} numberOfLines={1}>
         Support {artistName}
       </Text>

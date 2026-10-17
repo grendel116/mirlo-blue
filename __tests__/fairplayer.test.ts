@@ -1,5 +1,6 @@
 import {
   blockFaircampDomain,
+  combineFaircampAbout,
   fetchFairplayerAlbum,
   fetchFairplayerAlbums,
   fetchFairplayerArtist,
@@ -7,6 +8,7 @@ import {
   fetchFairplayerSongReleaseSlug,
   fairplayerReleaseSlug,
   isFaircampDomainBlocked,
+  parseFaircampPageDetails,
   parseFairplayerRelease,
   parseFairplayerReleaseCards,
   parseFairplayerSearchResults,
@@ -94,7 +96,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
       const albums = await fetchFairplayerAlbums(10);
 
       expect(albums).toHaveLength(1);
-      expect(albums[0].sourceUrl).toBe("https://sockpuppet.band/music");
+      expect(albums[0].sourceUrl).toBe("https://sockpuppet.band/music/sjX/");
       expect(global.fetch).toHaveBeenCalledTimes(2);
     } finally {
       global.fetch = originalFetch;
@@ -119,7 +121,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
     expect(albums[0].title).toBe("sjX");
     expect(albums[0].artist.name).toBe("Sockpuppet");
     expect(albums[0].source).toBe("Faircamp");
-    expect(albums[0].sourceUrl).toBe("https://sockpuppet.band");
+    expect(albums[0].sourceUrl).toBe("https://sockpuppet.band/sjX/");
     expect(albums[0].urlSlug).toBe(
       fairplayerReleaseSlug.encode("sjX@sockpuppet.band"),
     );
@@ -222,7 +224,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
 
       expect(albums).toHaveLength(1);
       expect(albums[0].title).toBe("sjX");
-      expect(albums[0].sourceUrl).toBe("https://sockpuppet.band/music");
+      expect(albums[0].sourceUrl).toBe("https://sockpuppet.band/music/sjX/");
     } finally {
       global.fetch = originalFetch;
     }
@@ -253,7 +255,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
     );
     expect(album.tracks?.[0].headers).toEqual({});
     expect(album.tracks?.[0].isPreview).toBe(true);
-    expect(album.tracks?.[0].sourceUrl).toBe("https://sockpuppet.band");
+    expect(album.tracks?.[0].sourceUrl).toBe("https://sockpuppet.band/sjx/");
   });
 
   test("reads the Faircamp release description for the About section", () => {
@@ -278,12 +280,70 @@ describe("Fairplayer Faircamp catalog integration", () => {
     expect(album.about).toBe("A release description with & decoded text.");
   });
 
+  test("extracts abstract, page_more About markdown, banner image, and external links from Faircamp HTML", () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="og:description" content="Clemens Pitschke is an acoustical engineer and sound recordist based in Dresden Germany.">
+        </head>
+        <body>
+          <div class="page_split">
+            <span class="home_image">
+              <img class="home_image" src="image_fixed_640x284.jpg">
+            </span>
+            <div class="abstract">
+              <h1>Clemens Pitschke</h1>
+              <div>Clemens Pitschke is an acoustical engineer and sound recordist based in Dresden Germany.</div>
+              <div class="actions">
+                <a href="https://landschafftsound.org/" target="_blank">
+                  <svg><title>External Link</title></svg>
+                  <span>Land.Schafft.Sound</span>
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="page_more">
+            <h1>Clemens Pitschke</h1>
+            <div class="text">
+              <p>Field recordings and adventures in sound.<br>
+              Co-founder of <a href="https://landschafftsound.org/">Land.Schafft.Sound</a>.<br>
+              .<br>
+              All work licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY NC SA</a></p>
+              <p><a href="https://faircamp.webr.ing/prev/clemenspitschke.de">← prev</a> | <a href="https://faircamp.webr.ing/">faircamp webring</a></p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const details = parseFaircampPageDetails(html, "https://clemenspitschke.de/");
+    expect(details.abstractText).toBe(
+      "Clemens Pitschke is an acoustical engineer and sound recordist based in Dresden Germany.",
+    );
+    expect(details.aboutMarkdown).toContain("Field recordings and adventures in sound.");
+    expect(details.aboutMarkdown).toContain("[Land.Schafft.Sound](https://landschafftsound.org/)");
+    expect(details.aboutMarkdown).not.toContain("faircamp.webr.ing");
+    expect(details.bannerUrl).toBe("https://clemenspitschke.de/image_fixed_640x284.jpg");
+    expect(details.links).toEqual([
+      { url: "https://landschafftsound.org/", linkLabel: "Land.Schafft.Sound" },
+    ]);
+
+    const combined = combineFaircampAbout(
+      details.abstractText,
+      details.aboutMarkdown,
+      "https://clemenspitschke.de/",
+    );
+    expect(combined).toContain("acoustical engineer");
+    expect(combined).toContain("Field recordings and adventures in sound.");
+    expect(combined).toContain("Faircamp catalog: https://clemenspitschke.de/");
+  });
+
   test("encodes and resolves Faircamp artist page route IDs and site URLs", () => {
     const albumSlug = fairplayerReleaseSlug.encode("sjX@sockpuppet.band");
     const artistSlug = fairplayerReleaseSlug.encodeArtist("Sockpuppet");
 
     expect(fairplayerReleaseSlug.decodeArtist(artistSlug)).toBe("Sockpuppet");
-    expect(fairplayerReleaseSlug.siteUrl(albumSlug)).toBe("https://sockpuppet.band");
+    expect(fairplayerReleaseSlug.siteUrl(albumSlug)).toBe("https://sockpuppet.band/sjX/");
     expect(
       fairplayerReleaseSlug.artistPageRouteId({
         urlSlug: albumSlug,
@@ -292,7 +352,7 @@ describe("Fairplayer Faircamp catalog integration", () => {
     ).toBe(artistSlug);
   });
 
-  test("reuses cached verified catalog map across album fetches and resolves artist discography", async () => {
+  test("reuses cached verified catalog map across album fetches and resolves artist discography and bio", async () => {
     const originalFetch = global.fetch;
     const hub = `
       <a href="https://sockpuppet.band/music">
@@ -306,9 +366,23 @@ describe("Fairplayer Faircamp catalog integration", () => {
         data-id="10483"
         data-title="The War Machine"
         data-duration="252"
-        data-url="https://sockpuppet.band/sjx/01-war-machine.opus"
+        data-url="https://sockpuppet.band/music/sjX/01-war-machine.opus"
         data-image="https://images.example/sjx.jpg"
         data-artist="Sockpuppet">
+      </div>
+    `;
+    const faircampArtistHtml = `
+      <div class="page_split">
+        <img class="home_image" src="banner.jpg">
+        <div class="abstract">
+          <h1>Sockpuppet</h1>
+          <div>Totally a real band and not just one person pretending</div>
+        </div>
+      </div>
+      <div class="page_more">
+        <div class="text">
+          <p>More about the band on <a href="https://ko-fi.com/fluffycritter">Ko-fi</a>.</p>
+        </div>
       </div>
     `;
     let hubFetchCount = 0;
@@ -323,6 +397,14 @@ describe("Fairplayer Faircamp catalog integration", () => {
           text: () => Promise.resolve(hub),
         } as Response);
       }
+      if (url.includes("/fairplayer/page")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: () => Promise.resolve(faircampArtistHtml),
+        } as Response);
+      }
       if (url.includes("/fairplayer/search")) {
         return Promise.resolve({
           ok: true,
@@ -331,6 +413,13 @@ describe("Fairplayer Faircamp catalog integration", () => {
           json: () =>
             Promise.resolve({
               items: [
+                {
+                  type: "artist",
+                  name: "Sockpuppet",
+                  uid: "band-sockpuppet@sockpuppet.band",
+                  description: "Totally a real band and not just one person pretending",
+                  images: { default: { src: "https://images.example/artist-avatar.jpg" } },
+                },
                 {
                   type: "album",
                   name: "sjX",
@@ -355,8 +444,8 @@ describe("Fairplayer Faircamp catalog integration", () => {
       const firstAlbum = await fetchFairplayerAlbum(slug);
       const secondAlbum = await fetchFairplayerAlbum(slug);
 
-      expect(firstAlbum.sourceUrl).toBe("https://sockpuppet.band/music");
-      expect(secondAlbum.sourceUrl).toBe("https://sockpuppet.band/music");
+      expect(firstAlbum.sourceUrl).toBe("https://sockpuppet.band/music/sjX/");
+      expect(secondAlbum.sourceUrl).toBe("https://sockpuppet.band/music/sjX/");
       expect(hubFetchCount).toBe(1);
 
       const artist = await fetchFairplayerArtist(
@@ -364,6 +453,11 @@ describe("Fairplayer Faircamp catalog integration", () => {
       );
       expect(artist).toBeDefined();
       expect(artist?.name).toBe("Sockpuppet");
+      expect(artist?.avatar?.sizes?.[600]).toBe("https://images.example/artist-avatar.jpg");
+      expect(artist?.background?.sizes?.["1024"]).toBe("https://sockpuppet.band/music/banner.jpg");
+      expect(artist?.bio).toContain("Totally a real band and not just one person pretending");
+      expect(artist?.bio).toContain("[Ko-fi](https://ko-fi.com/fluffycritter)");
+      expect(artist?.bio).toContain("Faircamp catalog: https://sockpuppet.band/music");
       expect(artist?.trackGroups?.length).toBeGreaterThanOrEqual(1);
     } finally {
       global.fetch = originalFetch;

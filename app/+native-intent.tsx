@@ -125,6 +125,13 @@ export async function redirectSystemPath({
     return `/podcast/${podcastMatch[1]}`;
   }
 
+  // Handle artist short links (/art/:slug) on share hubs; on mirlo.space the first
+  // segment is an artist's own slug
+  const artistShortMatch = cleanPath.match(/^\/art\/([^/]+)$/i);
+  if (artistShortMatch && url.hostname !== "mirlo.space") {
+    return `/artist/${artistShortMatch[1]}/artist-page`;
+  }
+
   // Handle track short links (/t/:id or /track/:id) across share hubs and mirlo.space
   const trackMatch = cleanPath.match(/^\/(?:t|track)\/(\d+)$/i);
   if (trackMatch) {

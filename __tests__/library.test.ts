@@ -54,7 +54,12 @@ jest.mock("expo-file-system", () => ({
   getInfoAsync: jest.fn().mockResolvedValue({ exists: false }),
 }));
 
-import { buildBookmarks, buildWishlistAlbums } from "@/app/library";
+import {
+  buildBookmarks,
+  buildCollection,
+  buildFollowedArtists,
+  buildWishlistAlbums,
+} from "@/app/library";
 import { createMockRNTrack } from "@/__mocks__/mockRNTrack";
 import { createMockArtist } from "@/__mocks__/mockArtist";
 import { createMockUser } from "@/__mocks__/mockUser";
@@ -90,6 +95,7 @@ describe("buildWishlistAlbums", () => {
           },
         ],
         tracks: [],
+        artists: [],
       },
     });
 
@@ -107,7 +113,7 @@ describe("buildWishlistAlbums", () => {
         { userId: 1, trackGroupId: 701, trackGroup: album(701, "bought", "Bought Album") },
         { userId: 1, trackGroupId: 702, trackGroup: album(702, "wanted", "Wanted Album") },
       ],
-      faircampSaves: { albums: [], tracks: [] },
+      faircampSaves: { albums: [], tracks: [], artists: [] },
     });
 
     expect(albums.map((a) => a.trackGroup.title)).toEqual(["Wanted Album"]);
@@ -125,6 +131,7 @@ describe("buildWishlistAlbums", () => {
       faircampSaves: {
         albums: [],
         tracks: [song(1, "2025-04-01T00:00:00.000Z"), song(2, "2025-05-01T00:00:00.000Z")],
+        artists: [],
       },
     });
 
@@ -142,6 +149,7 @@ describe("buildWishlistAlbums", () => {
           { album: album(802, "wanted", "Still Wanted"), savedAt: 1 },
         ],
         tracks: [],
+        artists: [],
       },
       downloads: [
         {
@@ -157,6 +165,42 @@ describe("buildWishlistAlbums", () => {
     });
 
     expect(albums.map((a) => a.trackGroup.title)).toEqual(["Still Wanted"]);
+  });
+});
+
+describe("buildFollowedArtists", () => {
+  test("lists Mirlo followed artists and Faircamp followed artists", () => {
+    const mirloArtist = createMockArtist({ id: 10, name: "Mirlo Band", urlSlug: "mirlo-band" });
+    const faircampArtist = createMockArtist({
+      id: 99,
+      name: "Sockpuppet",
+      urlSlug: "fairplayer-artist-Sockpuppet",
+      onMirlo: false,
+    });
+    const user = createMockUser({
+      id: 1,
+      artistUserSubscriptions: [
+        {
+          artistSubscriptionTier: {
+            isDefaultTier: true,
+            name: "Follow",
+            artist: mirloArtist,
+          },
+        } as any,
+      ],
+    });
+
+    const followed = buildFollowedArtists({
+      user,
+      faircampSaves: {
+        albums: [],
+        tracks: [],
+        artists: [{ artist: faircampArtist, followedAt: 1000 }],
+      },
+    });
+
+    expect(followed.map((f) => f.artist.name)).toEqual(["Mirlo Band", "Sockpuppet"]);
+    expect(followed[1].artist.onMirlo).toBe(false);
   });
 });
 
@@ -182,5 +226,72 @@ describe("buildBookmarks", () => {
     expect(tracks[0].url).toBe("https://example.com/ep42.mp3");
     expect(tracks[1].liveStation).toBe("kexp");
     expect(tracks[1].title).toBe("KEXP 90.3 FM");
+  });
+});
+
+describe("buildCollection", () => {
+  const songPurchase = (trackId: number, title: string, trackGroup: AlbumProps) => ({
+    userId: 1,
+    trackId,
+    track: { id: trackId, title, trackGroup },
+  });
+
+  test("lists bought albums and single songs in Mirlo's order", () => {
+    const entries = buildCollection({
+      collection: [
+        songPurchase(55, "Lone Song", album(702, "single-src", "Single Source")),
+        { userId: 1, trackGroupId: 701, trackGroup: album(701, "full", "Full Album") },
+      ],
+    });
+
+    expect(entries.map((e) => e.kind)).toEqual(["track", "album"]);
+    expect(entries[0]).toMatchObject({ kind: "track", track: { title: "Lone Song" } });
+    expect(entries[0].trackGroup.title).toBe("Single Source");
+    expect(entries[1].trackGroup.title).toBe("Full Album");
+  });
+
+  test("a song sits under its album when the album is owned too", () => {
+    const owned = album(701, "owned", "Owned Album");
+    const entries = buildCollection({
+      collection: [
+        songPurchase(55, "Song From It", owned),
+        { userId: 1, trackGroupId: 701, trackGroup: owned },
+      ],
+    });
+
+    expect(entries.map((e) => e.key)).toEqual(["album-701"]);
+  });
+
+  test("albums saved on the phone, and their songs, sit in Downloads", () => {
+    const saved = album(701, "saved", "Saved Album");
+    const entries = buildCollection({
+      collection: [
+        { userId: 1, trackGroupId: 701, trackGroup: saved },
+        songPurchase(56, "Saved Song", album(703, "saved-single", "Saved Single")),
+        { userId: 1, trackGroupId: 702, trackGroup: album(702, "cloud", "Cloud Album") },
+      ],
+      downloads: [
+        {
+          id: -1,
+          title: "Track",
+          artist: "Duo",
+          albumTitle: "Saved Album",
+          url: "file:///music/a.mp3",
+          downloadedAt: 1,
+          source: "file",
+        },
+        {
+          id: -2,
+          title: "Saved Song",
+          artist: "Duo",
+          albumTitle: "Saved Single",
+          url: "file:///music/b.mp3",
+          downloadedAt: 2,
+          source: "file",
+        },
+      ],
+    });
+
+    expect(entries.map((e) => e.trackGroup.title)).toEqual(["Cloud Album"]);
   });
 });

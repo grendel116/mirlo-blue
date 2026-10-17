@@ -17,7 +17,32 @@ export type DownloadedTrack = {
   order?: number; // position within its album
   downloadedAt: number;
   source: "mirlo" | "file";
+  // On web, songs live in the listener's music folder. `path` is the song's place inside it and
+  // `coverPath` the file holding its cover (an image, or a song with the cover in its tags).
+  // Storage keeps the paths; `url` and `artwork` are browser links made while the folder is open
+  path?: string;
+  coverPath?: string;
 };
+
+// Browser links for files in the music folder, by path
+export type FolderLinks = { audio: Map<string, string>; covers: Map<string, string> };
+
+// What storage keeps of a song: browser links last only as long as the page, so songs in the
+// web music folder keep their paths alone while phone files keep their file:// urls
+export function storedTrack(track: DownloadedTrack): DownloadedTrack {
+  if (!track.path || track.url.startsWith("file://")) return track;
+  return { ...track, url: "", artwork: track.coverPath ? undefined : track.artwork };
+}
+
+// A stored song with browser links for its files, when the music folder is open
+export function linkedTrack(track: DownloadedTrack, links: FolderLinks): DownloadedTrack {
+  if (!track.path || track.url.startsWith("file://")) return track;
+  return {
+    ...track,
+    url: links.audio.get(track.path) ?? "",
+    artwork: track.coverPath ? links.covers.get(track.coverPath) : track.artwork,
+  };
+}
 
 const DOWNLOADS_STORAGE_KEY = "mirlo_blue_downloads_v2";
 
@@ -37,12 +62,14 @@ const listeners = new Set<DownloadListener>();
 // In-memory copy so the player can look up a saved file without waiting on storage
 let downloads: DownloadedTrack[] = [];
 let isLoaded = false;
+let folderLinks: FolderLinks = { audio: new Map(), covers: new Map() };
 
 async function persist(next: DownloadedTrack[]) {
-  downloads = next;
+  const stored = next.map(storedTrack);
+  downloads = stored.map((t) => linkedTrack(t, folderLinks));
   isLoaded = true;
-  await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(next));
-  listeners.forEach((listener) => listener(next));
+  await AsyncStorage.setItem(DOWNLOADS_STORAGE_KEY, JSON.stringify(stored));
+  listeners.forEach((listener) => listener(downloads));
 }
 
 export async function getDownloadedTracks(): Promise<DownloadedTrack[]> {
@@ -50,13 +77,24 @@ export async function getDownloadedTracks(): Promise<DownloadedTrack[]> {
   try {
     const raw = await AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    downloads = Array.isArray(parsed) ? parsed : [];
+    downloads = Array.isArray(parsed) ? parsed.map((t) => linkedTrack(t, folderLinks)) : [];
   } catch (err) {
     console.error("Failed to load downloads:", err);
     downloads = [];
   }
   isLoaded = true;
   return downloads;
+}
+
+// Gives songs in the music folder their browser links; the web build calls this when the
+// folder opens. Links no song uses any more are released
+export async function setFolderLinks(links: FolderLinks): Promise<void> {
+  const used = new Set([...links.audio.values(), ...links.covers.values()]);
+  [...folderLinks.audio.values(), ...folderLinks.covers.values()]
+    .filter((link) => !used.has(link))
+    .forEach((link) => URL.revokeObjectURL(link));
+  folderLinks = links;
+  await persist(await getDownloadedTracks());
 }
 
 // Newest first; a song downloaded again replaces its earlier copy
@@ -110,16 +148,17 @@ export function sameAlbum(
 }
 
 // The saved copy of a song: the same Mirlo track, or a phone file with the same title from the
-// same album
+// same album. Songs in a music folder that isn't open yet have no link and wait for it
 export function findDownload(track: {
   id?: number;
   title?: string;
   trackGroup?: { title?: string; artist?: { name?: string } };
 }): DownloadedTrack | undefined {
-  const byId = track.id === undefined ? undefined : downloads.find((t) => t.id === track.id);
+  const playable = downloads.filter((t) => t.url);
+  const byId = track.id === undefined ? undefined : playable.find((t) => t.id === track.id);
   if (byId || !track.title || !track.trackGroup?.title) return byId;
   const album = { title: track.trackGroup.title, artist: track.trackGroup.artist?.name };
-  return downloads.find(
+  return playable.find(
     (t) =>
       t.source === "file" &&
       nameKey(t.title) === nameKey(track.title) &&

@@ -1,5 +1,4 @@
 import {
-  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -17,12 +16,13 @@ import {
 } from "@/scripts/downloadManager";
 import { removeDownloads } from "@/scripts/offlineFiles";
 import { showError } from "@/scripts/showError";
+import { askChoice } from "@/scripts/askChoice";
 
 export function confirmDeleteAlbum(album: DownloadedAlbum) {
   const count = album.tracks.length;
-  Alert.alert(
+  askChoice(
     "Delete album?",
-    `Remove "${album.title}" and its ${count} ${count === 1 ? "song" : "songs"} from this phone?`,
+    `Remove "${album.title}" and its ${count} ${count === 1 ? "song" : "songs"} from your downloads?`,
     [
       { text: "Cancel", style: "cancel" },
       {
@@ -54,7 +54,7 @@ export default function AlbumEditor({
   };
 
   const confirmDeleteSong = (track: DownloadedTrack) =>
-    Alert.alert("Delete song?", `Remove "${track.title}" from this phone?`, [
+    askChoice("Delete song?", `Remove "${track.title}" from your downloads?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",

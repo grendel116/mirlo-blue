@@ -6,7 +6,9 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  isFaircampArtistFollowed,
   toggleFaircampAlbumWishlist,
+  toggleFaircampArtistFollow,
   toggleFaircampTrackLike,
 } from "@/scripts/faircampSaves";
 
@@ -107,5 +109,37 @@ describe("device-only Faircamp saves", () => {
     );
     expect(removed.tracks).toHaveLength(0);
     expect(removed.albums).toHaveLength(0);
+  });
+
+  test("persists Faircamp artist follows", async () => {
+    const artist: Artist = {
+      id: 42,
+      name: "Sockpuppet",
+      urlSlug: "fairplayer-artist-Sockpuppet",
+      bio: "Faircamp catalog: https://sockpuppet.band",
+      activityPub: false,
+      userId: 0,
+      enabled: true,
+      createdAt: "",
+      trackGroups: [],
+      onMirlo: false,
+    };
+
+    await toggleFaircampArtistFollow(artist);
+
+    let stored = JSON.parse(
+      (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
+    );
+    expect(isFaircampArtistFollowed(artist, stored)).toBe(true);
+    expect(stored.artists).toHaveLength(1);
+    expect(stored.artists[0].artist.name).toBe("Sockpuppet");
+
+    await toggleFaircampArtistFollow(artist);
+
+    stored = JSON.parse(
+      (await AsyncStorage.getItem("mirlo_blue_faircamp_saves_v1")) || "{}",
+    );
+    expect(isFaircampArtistFollowed(artist, stored)).toBe(false);
+    expect(stored.artists).toHaveLength(0);
   });
 });

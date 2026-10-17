@@ -53,6 +53,8 @@ import OfflineNotice from "@/components/OfflineNotice";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { dragScroll } from "@/scripts/dragScroll";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
+import { useAuthContext } from "@/state/AuthContext";
+import { queryUnreadCount } from "@/queries/listener";
 import {
   isQualityArtwork,
   resolveArtworkUrl,
@@ -157,6 +159,9 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [shuffleSeed, setShuffleSeed] = useState(0);
+  const { user } = useAuthContext();
+  const userId = user?.id;
+  const { data: unreadCount } = useQuery(queryUnreadCount(userId));
 
   // Recent Releases: loads behind the splash screen on startup. Held until the listener
   // pulls down to refresh so the home page never re-queries or re-renders automatically.
@@ -355,6 +360,21 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
             <Ionicons name="heart" size={15} color={theme.colors.playButtonIcon} />
             <Text style={styles.subscribeText}>Subscribe</Text>
           </Pressable>
+          {userId ? (
+            <Pressable
+              onPress={() => router.push("/activity")}
+              style={styles.searchButton}
+              accessibilityRole="button"
+              accessibilityLabel={unreadCount ? `Your activity, ${unreadCount} new` : "Your activity"}
+            >
+              <Ionicons name="notifications-outline" size={21} color={theme.colors.textPrimary} />
+              {unreadCount ? (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => router.push("/search")}
             style={styles.searchButton}
@@ -362,6 +382,14 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
             accessibilityLabel="Search"
           >
             <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/menu")}
+            style={styles.searchButton}
+            accessibilityRole="button"
+            accessibilityLabel="Menu"
+          >
+            <Ionicons name="menu-outline" size={22} color={theme.colors.textPrimary} />
           </Pressable>
         </View>
       </View>
@@ -778,6 +806,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: theme.colors.surfaceCardBorder,
+  },
+  bellBadge: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: theme.colors.notificationDot,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bellBadgeText: {
+    color: theme.colors.textPrimary,
+    fontSize: 10,
+    fontWeight: "700",
   },
   scrollView: {
     flex: 1,

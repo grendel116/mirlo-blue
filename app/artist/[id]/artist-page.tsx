@@ -15,23 +15,31 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import Markdown from "react-native-markdown-display";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { linkifyUrls } from "@/scripts/utils";
+import { htmlToMarkdown, linkifyUrls } from "@/scripts/utils";
 import { openInBrowser } from "@/scripts/openInBrowser";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { theme } from "@/constants/theme";
 import LoadingScreen from "@/components/LoadingScreen";
+import ArtistActions from "@/components/artist/ArtistActions";
+import ArtistLinks from "@/components/artist/ArtistLinks";
+import CatalogueCard from "@/components/artist/CatalogueCard";
+import ArtistPosts from "@/components/artist/ArtistPosts";
 
 export default function ArtistPage() {
   const { id } = useLocalSearchParams();
+  const routeId = String(id ?? "");
   const { data, isError, isPending, error } = useQuery(
-    queryArtist({ artistSlug: String(id) ?? "" }),
+    queryArtist({ artistSlug: routeId }),
   );
   const { t } = useTranslation("translation");
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const [listWidth, setListWidth] = useState<number>(0);
   const effectiveWidth = listWidth > 0 ? listWidth : windowWidth;
-  const itemWidth = Math.max(110, Math.floor((effectiveWidth - 48) / 2));
+  const itemWidth = Math.min(
+    theme.coverMaxSize,
+    Math.max(110, Math.floor((effectiveWidth - 48) / 2)),
+  );
 
   if (isPending) {
     return (
@@ -48,6 +56,8 @@ export default function ArtistPage() {
   }
 
   const artistInfo = data;
+  const bannerUri =
+    artistInfo.background?.sizes?.["1024"] || artistInfo.background?.sizes?.["625"];
 
   const getModifiedData = (data: any) => {
     if (!data || data.length === 0) return [];
@@ -137,14 +147,12 @@ export default function ArtistPage() {
           );
         }}
         keyExtractor={(item) => String(item.id)}
-        ListHeaderComponent={() => (
+        ListHeaderComponent={
           <View style={styles.headerContainer}>
-            {artistInfo.banner ? (
+            {bannerUri ? (
               <Image
                 style={styles.bannerImage}
-                source={{
-                  uri: artistInfo.banner?.sizes?.[625] || "",
-                }}
+                source={{ uri: bannerUri }}
                 resizeMode="cover"
               />
             ) : null}
@@ -180,10 +188,15 @@ export default function ArtistPage() {
                 ) : null}
               </View>
             </View>
+            <ArtistActions artist={artistInfo} routeId={routeId} />
+            <ArtistLinks artist={artistInfo} />
+            {artistInfo.onMirlo ? (
+              <CatalogueCard artist={artistInfo} routeId={routeId} />
+            ) : null}
             <Text style={styles.releasesHeader}>DISCOGRAPHY</Text>
           </View>
-        )}
-        ListFooterComponent={() => (
+        }
+        ListFooterComponent={
           <View style={styles.footerContainer}>
             <Text style={styles.aboutHeader}>
               {t("trackGroupDetails.about")}
@@ -201,7 +214,7 @@ export default function ArtistPage() {
                 }}
               >
                 {linkifyUrls(
-                  artistInfo.bio.replace(/([^\n])\n([^\n])/g, "$1 $2"),
+                  htmlToMarkdown(artistInfo.bio).replace(/([^\n])\n([^\n])/g, "$1 $2"),
                 )}
               </Markdown>
             ) : (
@@ -209,8 +222,11 @@ export default function ArtistPage() {
                 {`${artistInfo.name} is an artist on Mirlo.`}
               </Text>
             )}
+            {artistInfo.onMirlo ? (
+              <ArtistPosts artist={artistInfo} routeId={routeId} />
+            ) : null}
           </View>
-        )}
+        }
       />
     </SafeAreaView>
   );
@@ -251,7 +267,8 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   columnWrapper: {
-    justifyContent: "space-between",
+    justifyContent: "center",
+    columnGap: 16,
     paddingHorizontal: 16,
   },
   headerContainer: {

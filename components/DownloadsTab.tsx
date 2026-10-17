@@ -1,7 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Image,
@@ -15,15 +14,22 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AlbumEditor, { confirmDeleteAlbum } from "@/components/AlbumEditor";
 import { showError } from "@/scripts/showError";
+import { askChoice } from "@/scripts/askChoice";
 import { theme } from "@/constants/theme";
 import { DownloadedAlbum, groupTracksIntoAlbums, useDownloads } from "@/scripts/downloadManager";
 import { openDownloadedAlbum } from "@/scripts/albumLookup";
 import {
-  OFFLINE_SUPPORTED,
+  PICKS_PHONE_FILES,
   chooseAlbumCover,
   importFiles,
-  importFolder,
 } from "@/scripts/offlineFiles";
+import {
+  chooseMusicFolder,
+  MusicFolderStatus,
+  reconnectMusicFolder,
+  rescanMusicFolder,
+  useMusicFolder,
+} from "@/scripts/musicFolder";
 
 export function formatBytes(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -31,14 +37,31 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
+// What an empty Downloads tab suggests on the phone, and in each music folder state on web
+function emptyText(picksPhoneFiles: boolean, folder: MusicFolderStatus): string {
+  if (picksPhoneFiles)
+    return "Tap the download arrow on an album you own, or choose a music folder and add files from your phone.";
+  switch (folder) {
+    case "ready":
+      return "Tap the download arrow on an album you own, or add songs to your music folder and rescan.";
+    case "needs-permission":
+      return "Reconnect your music folder to play the songs saved in it.";
+    case "none":
+      return "Choose a music folder on your computer. Albums you download go there, and the songs already in it show here.";
+    case "unsupported":
+      return "Offline music folders require a Chromium browser (such as Chrome, Edge, or Brave) or the Android app.";
+  }
+}
+
 // Everything saved on this phone, one row per album like the other Library boxes. Tapping an
 // album opens its page; holding it offers the cover, editing, and delete
 export default memo(function DownloadsTab() {
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
+  const musicFolder = useMusicFolder();
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
-  const [importing, setImporting] = useState<"files" | "folder" | null>(null);
+  const [importing, setImporting] = useState<"files" | "music" | null>(null);
 
   const open = async (album: DownloadedAlbum) => {
     setOpeningKey(album.key);
@@ -50,28 +73,38 @@ export default memo(function DownloadsTab() {
   };
 
   const showTools = (album: DownloadedAlbum) =>
-    Alert.alert(
-      album.title,
-      undefined,
-      [
-        {
-          text: "Change cover",
-          onPress: () => chooseAlbumCover(album).catch(showError("Couldn't set cover")),
-        },
-        { text: "Edit", onPress: () => setEditingKey(album.key) },
-        { text: "Delete", style: "destructive", onPress: () => confirmDeleteAlbum(album) },
-        // Android shows three buttons at most and closes on a tap outside instead
-        ...(Platform.OS === "ios" ? [{ text: "Cancel", style: "cancel" as const }] : []),
-      ],
-      { cancelable: true },
-    );
+    askChoice(album.title, undefined, [
+      ...(PICKS_PHONE_FILES
+        ? [
+            {
+              text: "Change cover",
+              onPress: () => chooseAlbumCover(album).catch(showError("Couldn't set cover")),
+            },
+          ]
+        : []),
+      { text: "Edit", onPress: () => setEditingKey(album.key) },
+      { text: "Delete", style: "destructive", onPress: () => confirmDeleteAlbum(album) },
+      // Android shows three buttons at most and closes on a tap outside instead
+      ...(Platform.OS === "ios" ? [{ text: "Cancel", style: "cancel" as const }] : []),
+    ]);
 
-  const runImport = async (kind: "files" | "folder") => {
-    setImporting(kind);
+  const runImportFiles = async () => {
+    setImporting("files");
     try {
-      await (kind === "files" ? importFiles() : importFolder());
+      await importFiles();
     } catch (err) {
-      showError(kind === "files" ? "Couldn't add files" : "Couldn't add folder")(err);
+      showError("Couldn't add files")(err);
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  const runMusicFolder = async (action: () => Promise<unknown>) => {
+    setImporting("music");
+    try {
+      await action();
+    } catch (err) {
+      showError("Couldn't open your music folder")(err);
     } finally {
       setImporting(null);
     }
@@ -87,10 +120,10 @@ export default memo(function DownloadsTab() {
               )}`
             : ""}
         </Text>
-        {OFFLINE_SUPPORTED && (
+        {PICKS_PHONE_FILES && (
           <View style={styles.barActions}>
             <TouchableOpacity
-              onPress={() => runImport("files")}
+              onPress={runImportFiles}
               disabled={importing !== null}
               style={styles.addButton}
               accessibilityLabel="Add audio or zip files from this phone"
@@ -102,19 +135,53 @@ export default memo(function DownloadsTab() {
               )}
               <Text style={styles.addButtonText}>Add files</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => runImport("folder")}
-              disabled={importing !== null}
-              style={styles.folderButton}
-              accessibilityLabel="Add folder from this phone"
-            >
-              {importing === "folder" ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
-              )}
-              <Text style={styles.folderButtonText}>Add folder</Text>
-            </TouchableOpacity>
+          </View>
+        )}
+        {musicFolder.status !== "unsupported" && (
+          <View style={styles.barActions}>
+            {importing === "music" && <ActivityIndicator size="small" color={theme.colors.primary} />}
+            {musicFolder.status === "ready" ? (
+              <>
+                <Ionicons name="folder-outline" size={14} color={theme.colors.textSecondary} />
+                <Text style={styles.total} numberOfLines={1}>
+                  {musicFolder.name}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => runMusicFolder(rescanMusicFolder)}
+                  disabled={importing !== null}
+                  style={styles.folderButton}
+                  accessibilityLabel={`Look for new and removed songs in ${musicFolder.name}`}
+                >
+                  <Ionicons name="refresh" size={14} color={theme.colors.primary} />
+                  <Text style={styles.folderButtonText}>Rescan</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => runMusicFolder(chooseMusicFolder)}
+                  disabled={importing !== null}
+                  style={styles.folderButton}
+                >
+                  <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
+                  <Text style={styles.folderButtonText}>Change folder</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                onPress={() =>
+                  runMusicFolder(
+                    musicFolder.status === "needs-permission" ? reconnectMusicFolder : chooseMusicFolder,
+                  )
+                }
+                disabled={importing !== null}
+                style={styles.addButton}
+              >
+                <Ionicons name="folder-open-outline" size={14} color={theme.colors.playButtonIcon} />
+                <Text style={styles.addButtonText}>
+                  {musicFolder.status === "needs-permission"
+                    ? `Reconnect ${musicFolder.name}`
+                    : "Choose music folder"}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -123,11 +190,7 @@ export default memo(function DownloadsTab() {
         <View style={styles.empty}>
           <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>No downloads yet</Text>
-          <Text style={styles.emptyText}>
-            {OFFLINE_SUPPORTED
-              ? "Tap the download arrow on an album you own, or add files and folders from your phone."
-              : "Downloads work in the Android app."}
-          </Text>
+          <Text style={styles.emptyText}>{emptyText(PICKS_PHONE_FILES, musicFolder.status)}</Text>
         </View>
       ) : (
         <FlatList
@@ -195,6 +258,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
     paddingHorizontal: 12,
     paddingTop: 10,
   },

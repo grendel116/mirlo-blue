@@ -1,12 +1,23 @@
-import { View, Pressable, Text, StyleSheet } from "react-native";
+import { View, Pressable, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
+import type { ComponentProps } from "react";
 import { useAuthContext } from "@/state/AuthContext";
 import { useLogoutMutation } from "@/queries/authQueries";
+import { MIRLO_WEB } from "@/queries/listener";
 import { useTranslation } from "react-i18next";
 import { theme } from "@/constants/theme";
-import { openMainTab } from "@/components/Footer";
+import { openLibraryTab, openMainTab } from "@/components/Footer";
+import { openInBrowser } from "@/scripts/openInBrowser";
+
+const SOURCE_CODE_URL = "https://github.com/grendel116/mirlo-blue";
+
+type MenuEntry = {
+  icon: ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+};
 
 export default function Menu() {
   const router = useRouter();
@@ -21,6 +32,37 @@ export default function Menu() {
       },
     });
   };
+
+  // Screens on top of Home open after the menu closes
+  const openScreen = (path: "/activity" | "/search") => {
+    router.back();
+    router.navigate(path);
+  };
+
+  const entries: MenuEntry[] = [
+    { icon: "home-outline", label: "Home / Releases", onPress: () => openMainTab("home") },
+    { icon: "layers-outline", label: "Library", onPress: () => openMainTab("library") },
+    { icon: "albums-outline", label: "Collection", onPress: () => openLibraryTab("collection") },
+    {
+      icon: "people-outline",
+      label: "Followed Artists",
+      onPress: () => openLibraryTab("artists"),
+    },
+    {
+      icon: "notifications-outline",
+      label: "Your Activity",
+      onPress: () => openScreen("/activity"),
+    },
+    { icon: "search-outline", label: "Search & Discover", onPress: () => openScreen("/search") },
+  ];
+  if (user) {
+    // Account, profile and artist settings live on Mirlo
+    entries.push({
+      icon: "open-outline",
+      label: "Manage on Mirlo",
+      onPress: () => openInBrowser(`${MIRLO_WEB}/profile`),
+    });
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -41,89 +83,79 @@ export default function Menu() {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={styles.content}>
-        {user && user.name ? (
-          <View style={styles.userCard}>
-            <View style={styles.userAvatar}>
-              <Ionicons name="person" size={24} color={theme.colors.primary} />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View>
+          {user && user.name ? (
+            <View style={styles.userCard}>
+              <View style={styles.userAvatar}>
+                <Ionicons name="person" size={24} color={theme.colors.primary} />
+              </View>
+              <View style={styles.userInfo}>
+                <Text style={styles.userName}>{user.name}</Text>
+                <Text style={styles.userSub}>Mirlo Cooperative Member</Text>
+              </View>
             </View>
-            <View style={styles.userInfo}>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userSub}>Mirlo Cooperative Member</Text>
-            </View>
-          </View>
-        ) : null}
+          ) : null}
 
-        <View style={styles.menuList}>
-          <Pressable
-            onPress={() => {
-              openMainTab("home");
-            }}
-            style={styles.menuItem}
-          >
-            <Ionicons name="home-outline" size={22} color={theme.colors.primary} />
-            <Text style={styles.menuText}>Home / Releases</Text>
-          </Pressable>
+          <View style={styles.menuList}>
+            {entries.map((entry) => (
+              <Pressable key={entry.label} onPress={entry.onPress} style={styles.menuItem}>
+                <Ionicons name={entry.icon} size={22} color={theme.colors.primary} />
+                <Text style={styles.menuText}>{entry.label}</Text>
+              </Pressable>
+            ))}
 
-          <Pressable
-            onPress={() => {
-              openMainTab("library");
-            }}
-            style={styles.menuItem}
-          >
-            <Ionicons name="layers-outline" size={22} color={theme.colors.primary} />
-            <Text style={styles.menuText}>Library (Collection & Wishlist)</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              router.back();
-              router.navigate("/search");
-            }}
-            style={styles.menuItem}
-          >
-            <Ionicons name="search-outline" size={22} color={theme.colors.primary} />
-            <Text style={styles.menuText}>Search & Discover</Text>
-          </Pressable>
-
-
-
-          <Pressable
-            style={[styles.menuItem, styles.authMenuItem]}
-            onPress={() => {
-              if (user) {
-                onLogOut();
-              } else {
-                router.dismissTo("/login");
-              }
-            }}
-          >
-            <Ionicons
-              name={user ? "log-out-outline" : "log-in-outline"}
-              size={22}
-              color={user ? theme.colors.textSecondary : theme.colors.primary}
-            />
-            <Text
-              style={[
-                styles.menuText,
-                { color: user ? theme.colors.textSecondary : theme.colors.primary },
-              ]}
+            <Pressable
+              style={[styles.menuItem, styles.authMenuItem]}
+              onPress={() => {
+                if (user) {
+                  onLogOut();
+                } else {
+                  router.dismissTo("/login");
+                }
+              }}
             >
-              {user ? t("headerMenu.logOut") : t("headerMenu.logIn")}
-            </Text>
-          </Pressable>
+              <Ionicons
+                name={user ? "log-out-outline" : "log-in-outline"}
+                size={22}
+                color={user ? theme.colors.textSecondary : theme.colors.primary}
+              />
+              <Text
+                style={[
+                  styles.menuText,
+                  { color: user ? theme.colors.textSecondary : theme.colors.primary },
+                ]}
+              >
+                {user ? t("headerMenu.logOut") : t("headerMenu.logIn")}
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
-        {user ? (
+        <View>
           <Pressable
-            style={styles.deleteBtn}
-            onPress={() => router.push("/deleteAccount")}
+            style={styles.sourceLink}
+            onPress={() => openInBrowser(SOURCE_CODE_URL)}
+            accessibilityRole="link"
           >
-            <Ionicons name="trash-outline" size={18} color="#ef4444" />
-            <Text style={styles.deleteText}>{t("profile.deleteAccount")}</Text>
+            <Ionicons name="code-slash-outline" size={16} color={theme.colors.textSecondary} />
+            <View>
+              <Text style={styles.sourceText}>Source code</Text>
+              <Text style={styles.sourceCaption}>AGPL-3.0 · based on the Mirlo mobile app</Text>
+            </View>
           </Pressable>
-        ) : null}
-      </View>
+
+          {user ? (
+            <Pressable
+              style={styles.deleteBtn}
+              onPress={() => router.push("/deleteAccount")}
+            >
+              <Ionicons name="trash-outline" size={18} color="#ef4444" />
+              <Text style={styles.deleteText}>{t("profile.deleteAccount")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -152,7 +184,7 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     padding: 20,
     justifyContent: "space-between",
   },
@@ -211,6 +243,24 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     fontSize: 16,
     fontWeight: "600",
+  },
+  sourceLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 12,
+    marginTop: 20,
+  },
+  sourceText: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  sourceCaption: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    marginTop: 1,
   },
   deleteBtn: {
     flexDirection: "row",

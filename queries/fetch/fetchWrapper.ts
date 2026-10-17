@@ -131,6 +131,17 @@ export function del<R>(endpoint: string, init: RequestInit = {}): Promise<R> {
   });
 }
 
+export function put<T, R>(endpoint: string, body: T): Promise<R> {
+  return fetchWrapper(endpoint, {
+    method: "PUT",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 export function getMany<R>(
   endpoint: string,
   init: RequestInit,

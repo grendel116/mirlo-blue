@@ -4,6 +4,7 @@
  * Direct, consolidated edge server:
  * 1. Resolves ultra-short routes:
  *    - /t/:id        -> Mirlo track (fetches metadata & cover directly from Mirlo API)
+ *    - /art/:slug    -> Mirlo artist (name, location & avatar from Mirlo API)
  *    - /r/:station   -> Independent live radio station
  *    - /p/:podcast   -> Independent movement podcast
  * 2. Directly renders self-contained HTML with embedded OpenGraph / Twitter cards
@@ -192,6 +193,70 @@ async function resolveChorusTrackGroup(idOrSlug) {
   }
 
   return null;
+}
+
+// Share card details for a Mirlo or Faircamp artist, or null when not found
+async function resolveMirloArtist(slug) {
+  if (slug.startsWith("fairplayer-artist-")) {
+    const artistName = decodeURIComponent(slug.slice("fairplayer-artist-".length)).trim();
+    if (!artistName) return null;
+    const searchUrl = new URL("https://fairplayer.band/search/");
+    searchUrl.searchParams.set("q", artistName);
+    const searchRes = await fetch(searchUrl, {
+      headers: { Accept: "application/json" },
+    });
+    if (!searchRes.ok) return null;
+    const items = (await searchRes.json())?.items || [];
+    const targetLower = artistName.toLowerCase();
+    const artistItem = items.find(
+      (item) =>
+        item.type === "artist" &&
+        String(item.name || "").toLowerCase().trim() === targetLower,
+    );
+    const albumItem = items.find(
+      (item) =>
+        item.type === "album" &&
+        String(item.artist || "").toLowerCase().trim() === targetLower,
+    );
+    const matchUid = String(artistItem?.uid || albumItem?.uid || "");
+    const domainPart = matchUid.split("@")[1] || "";
+    const host = domainPart.split(":")[0];
+    const webUrl = host ? `https://${host}` : "https://fairplayer.band";
+    return {
+      name: artistItem?.name || albumItem?.artist || artistName,
+      location: String(artistItem?.description || "").split("\n")[0] || "Faircamp",
+      artwork:
+        artistItem?.images?.default?.src ||
+        albumItem?.images?.default?.src ||
+        "",
+      webUrl,
+      appRoute: `/artist/${encodeURIComponent(slug)}/artist-page`,
+    };
+  }
+
+  const res = await fetch(`https://mirlo.space/v1/artists/${encodeURIComponent(slug)}`, {
+    headers: {
+      "User-Agent": "MirloBlueSocialBot/1.0",
+      Accept: "application/json",
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Mirlo artist lookup answered ${res.status}`);
+  const artist = (await res.json())?.result;
+  if (!artist?.name) return null;
+  const artistSlug = artist.urlSlug || slug;
+  return {
+    name: artist.name,
+    location: artist.location || "",
+    artwork:
+      artist.avatar?.sizes?.[600] ||
+      artist.avatar?.sizes?.[300] ||
+      artist.background?.sizes?.[1024] ||
+      artist.background?.sizes?.[625] ||
+      "",
+    webUrl: `https://mirlo.space/${artistSlug}`,
+    appRoute: `/artist/${artistSlug}/artist-page`,
+  };
 }
 
 function escapeHtml(str) {
@@ -671,8 +736,10 @@ async function resolveFaircampSongShare(trackId) {
 
 function renderHtml(meta) {
   const { title, artist, album, artwork, proxiedArtwork, imageMime, audioUrl, webUrl, appRoute, type } = meta;
+  const isArtistCard = type === "artist";
   const isLiveLocation = Boolean(artist && artist.toLowerCase().startsWith("live from"));
-  const label = artist && !isLiveLocation ? `${artist} - ${title}` : title;
+  // Artist cards carry the artist's name as the title and their location in the artist line
+  const label = artist && !isLiveLocation && !isArtistCard ? `${artist} - ${title}` : title;
   const desc = `Listen to ${label} on MIRLOBLUE. Direct artist support with zero ads.`;
   const safeLabel = escapeHtml(label);
   const safeDesc = escapeHtml(desc);
@@ -687,7 +754,16 @@ function renderHtml(meta) {
       ? "Episode Page"
       : type === "faircamp"
         ? "Visit Faircamp Catalog"
-        : "Listen & Buy on Mirlo";
+        : isArtistCard
+          ? "Follow & Support on Mirlo"
+          : "Listen & Buy on Mirlo";
+  const ogType = type === "track" || type === "faircamp"
+    ? "music.song"
+    : type === "album"
+      ? "music.album"
+      : isArtistCard
+        ? "profile"
+        : "website";
   const safeMime = escapeHtml(imageMime || "image/jpeg");
 
   return `<!DOCTYPE html>
@@ -701,7 +777,7 @@ function renderHtml(meta) {
     <!-- OpenGraph / Social Cards -->
     <meta property="og:title" content="${safeLabel} | MIRLOBLUE" />
     <meta property="og:description" content="${safeDesc}" />
-    <meta property="og:type" content="${type === "track" || type === "faircamp" ? "music.song" : type === "album" ? "music.album" : "website"}" />
+    <meta property="og:type" content="${ogType}" />
     <meta property="og:image" content="${safeImage}" />
     <meta property="og:image:secure_url" content="${safeImage}" />
     <meta property="og:image:alt" content="${safeLabel}" />
@@ -795,7 +871,7 @@ function renderHtml(meta) {
         display: flex; flex-direction: column; align-items: center; text-align: center;
       }
       .artwork-wrap {
-        width: 220px; height: 220px; border-radius: 20px; margin-bottom: 22px;
+        width: 220px; height: 220px; border-radius: ${isArtistCard ? "50%" : "20px"}; margin-bottom: 22px;
         position: relative; background: var(--surface-card); border: 1px solid var(--border);
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 24px var(--primary-glow);
         overflow: hidden;
@@ -883,7 +959,7 @@ function renderHtml(meta) {
     </main>
 
     <footer>
-      <p><a href="https://grendel116.github.io/mirlo-blue/">MIRLOBLUE</a> — Free &amp; open source music player.</p>
+      <p><a href="https://grendel116.github.io/mirlo-blue/">MIRLOBLUE</a> — Free &amp; open source music player. <a href="https://github.com/grendel116/mirlo-blue">Source code</a> (AGPL-3.0)</p>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
@@ -1238,6 +1314,76 @@ export default {
         });
       }
 
+      if (url.pathname === "/fairplayer/page") {
+        const targetRaw = (url.searchParams.get("url") || "").trim();
+        let targetUrl;
+        try {
+          targetUrl = new URL(targetRaw);
+        } catch {
+          return new Response("Invalid Faircamp page URL.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        if (
+          targetUrl.protocol !== "https:" ||
+          (targetUrl.port && targetUrl.port !== "443") ||
+          targetUrl.username ||
+          targetUrl.password
+        ) {
+          return new Response("Only HTTPS Faircamp URLs are allowed.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        const domain = normalizedCatalogDomain(targetUrl.href);
+        if (!domain) {
+          return new Response("Invalid Faircamp domain.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        try {
+          const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
+          if (!hubResponse.ok) {
+            return new Response("Fairplayer hub unavailable.", {
+              status: 502,
+              headers: corsHeaders,
+            });
+          }
+          const verifiedHref = isVerifiedFaircampCatalog(await hubResponse.text(), domain);
+          if (!verifiedHref) {
+            return new Response("Unverified Faircamp domain.", {
+              status: 403,
+              headers: corsHeaders,
+            });
+          }
+          const pageResponse = await fetch(targetUrl.href, {
+            method: request.method,
+            headers: {
+              Accept: "text/html,application/xhtml+xml",
+              "User-Agent": "MirloBlueSocialBot/1.0",
+            },
+          });
+          const headers = new Headers(corsHeaders);
+          headers.set(
+            "Content-Type",
+            pageResponse.headers.get("Content-Type") || "text/html; charset=utf-8",
+          );
+          headers.set("Cache-Control", "public, max-age=600");
+          return new Response(request.method === "HEAD" ? null : pageResponse.body, {
+            status: pageResponse.status,
+            headers,
+          });
+        } catch (err) {
+          console.error("Faircamp page proxy failed:", err);
+          return new Response("Faircamp page unavailable.", {
+            status: 502,
+            headers: corsHeaders,
+          });
+        }
+      }
+
       let fairplayerUrl;
       let accept = "text/html";
       let cacheDuration = 300;
@@ -1265,6 +1411,25 @@ export default {
         fairplayerUrl.searchParams.set("q", query);
         accept = "application/json";
         cacheDuration = 120;
+      } else if (url.pathname.startsWith("/fairplayer/player/artist/")) {
+        const match = url.pathname.match(/^\/fairplayer\/player\/artist\/([^/]+)$/);
+        let artistUid = "";
+        try {
+          artistUid = match ? decodeURIComponent(match[1]) : "";
+        } catch {
+          artistUid = "";
+        }
+        if (!/^[^/@\s]*@[a-z0-9.-]+(?::[a-z0-9._-]+)?$/i.test(artistUid)) {
+          return new Response("Invalid Faircamp artist identifier.", {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        fairplayerUrl = new URL(
+          `/player/artist/${encodeURIComponent(artistUid)}`,
+          "https://fairplayer.band",
+        );
+        cacheDuration = 300;
       } else {
         const match = url.pathname.match(/^\/fairplayer\/player\/release\/([^/]+)$/);
         let releaseId = "";
@@ -1273,7 +1438,7 @@ export default {
         } catch {
           releaseId = "";
         }
-        if (!/^[^/@\s]+@[a-z0-9.-]+(?::\d+)?$/i.test(releaseId)) {
+        if (!/^[^/@\s]+@[a-z0-9.-]+(?::[a-z0-9._-]+)?$/i.test(releaseId)) {
           return new Response("Invalid Faircamp release identifier.", {
             status: 400,
             headers: corsHeaders,
@@ -1416,6 +1581,7 @@ export default {
     const radioMatch = normalizedPath.match(/^\/(?:r|radio|station)\/([a-z0-9-]+)$/i);
     const podcastMatch = normalizedPath.match(/^\/(?:p|podcast)\/([a-z0-9-]+)$/i);
     const albumMatch = normalizedPath.match(/^\/(?:a|album|release)\/([a-z0-9-]+)$/i);
+    const artistMatch = normalizedPath.match(/^\/art\/([^/]+)$/i);
 
     let chorusSlug = null;
     let trackGroupId = null;
@@ -1527,6 +1693,31 @@ export default {
       webUrl = share.sourceUrl;
       appRoute = share.appRoute;
       resolvedImageMime = share.imageMime;
+    } else if (artistMatch) {
+      let slug;
+      try {
+        slug = decodeURIComponent(artistMatch[1]);
+      } catch {
+        return new Response("Invalid artist identifier.", { status: 400 });
+      }
+      let share;
+      try {
+        share = await resolveMirloArtist(slug);
+      } catch (err) {
+        console.error("Mirlo artist lookup failed:", err);
+        return new Response("Mirlo artist is temporarily unavailable.", { status: 502 });
+      }
+      if (!share) {
+        return new Response("No Mirlo artist by that name.", { status: 404 });
+      }
+      type = "artist";
+      title = share.name;
+      artist = share.location;
+      album = "";
+      artwork = share.artwork;
+      audioUrl = "";
+      webUrl = share.webUrl;
+      appRoute = share.appRoute;
     } else if (albumMatch) {
       type = "album";
       const slug = albumMatch[1].toLowerCase();

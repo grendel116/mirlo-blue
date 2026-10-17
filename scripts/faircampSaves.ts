@@ -11,14 +11,20 @@ export type FaircampSavedAlbum = {
   savedAt: number;
 };
 
+export type FaircampSavedArtist = {
+  artist: Artist;
+  followedAt: number;
+};
+
 export type FaircampSaves = {
   tracks: FaircampSavedTrack[];
   albums: FaircampSavedAlbum[];
+  artists?: FaircampSavedArtist[];
 };
 
 const STORAGE_KEY = "mirlo_blue_faircamp_saves_v1";
 
-let saves: FaircampSaves = { tracks: [], albums: [] };
+let saves: FaircampSaves = { tracks: [], albums: [], artists: [] };
 let loaded: Promise<void> | null = null;
 const listeners = new Set<(saves: FaircampSaves) => void>();
 
@@ -28,6 +34,10 @@ function trackKey(track: RNTrack): string {
 
 function albumKey(album: AlbumProps): string {
   return album.urlSlug || String(album.id);
+}
+
+function artistKey(artist: { id?: number; urlSlug?: string; name?: string }): string {
+  return artist.urlSlug || (artist.id ? String(artist.id) : (artist.name || "").toLowerCase().trim());
 }
 
 function publish(): void {
@@ -50,6 +60,7 @@ function load(): Promise<void> {
         saves = {
           tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [],
           albums: Array.isArray(parsed.albums) ? parsed.albums : [],
+          artists: Array.isArray(parsed.artists) ? parsed.artists : [],
         };
       }
       publish();
@@ -103,6 +114,7 @@ export async function toggleFaircampTrackLike(track: RNTrack): Promise<void> {
   }
 
   saves = {
+    ...saves,
     tracks: nextTracks,
     albums: nextAlbums,
   };
@@ -132,6 +144,7 @@ export async function toggleFaircampAlbumWishlist(
   const exists = isFaircampAlbumWishlisted(cleanAlbum, saves);
   const trackKeys = new Set(displayedTracks.map(trackKey));
   saves = {
+    ...saves,
     tracks: exists
       ? saves.tracks.filter(
           (saved) =>
@@ -156,6 +169,32 @@ export async function toggleFaircampAlbumWishlist(
           { album: cleanAlbum, savedAt: Date.now() },
           ...saves.albums.filter((saved) => albumKey(saved.album) !== key),
         ],
+  };
+  publish();
+  await persist();
+}
+
+export function isFaircampArtistFollowed(
+  artist: { id?: number; urlSlug?: string; name?: string },
+  currentSaves: FaircampSaves = saves,
+): boolean {
+  const key = artistKey(artist);
+  if (!key) return false;
+  return (currentSaves.artists ?? []).some((saved) => artistKey(saved.artist) === key);
+}
+
+export async function toggleFaircampArtistFollow(artist: Artist): Promise<void> {
+  await load();
+  const key = artistKey(artist);
+  if (!key) return;
+  const currentArtists = saves.artists ?? [];
+  const exists = currentArtists.some((saved) => artistKey(saved.artist) === key);
+  const { trackGroups: _trackGroups, ...cleanArtist } = artist;
+  saves = {
+    ...saves,
+    artists: exists
+      ? currentArtists.filter((saved) => artistKey(saved.artist) !== key)
+      : [{ artist: cleanArtist as Artist, followedAt: Date.now() }, ...currentArtists],
   };
   publish();
   await persist();

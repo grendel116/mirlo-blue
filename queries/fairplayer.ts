@@ -126,6 +126,8 @@ type FairplayerSearchItem = {
   url?: string;
   uid?: string;
   artist?: string;
+  description?: string;
+  links?: string[];
   images?: {
     default?: {
       src?: string;
@@ -169,6 +171,253 @@ function hasClass(node: HtmlNode, className: string): boolean {
 
 function parseHtml(html: string): HtmlNode {
   return parse(html) as unknown as HtmlNode;
+}
+
+function resolveRelativeUrl(rawHref: string | undefined, baseUrl: string): string {
+  if (!rawHref) return "";
+  try {
+    return new URL(rawHref, baseUrl).href;
+  } catch {
+    return "";
+  }
+}
+
+function serializeHtmlNodeToMarkdown(node: HtmlNode, baseUrl: string): string {
+  if (node.nodeName === "#text") {
+    return (node.value || "").replace(/[ \t\r\n]+/g, " ");
+  }
+  const tag = node.tagName?.toLowerCase();
+  if (!tag || tag === "script" || tag === "style" || tag === "svg") return "";
+  if (tag === "br") return "\n";
+  if (tag === "div" && hasClass(node, "divider")) return "\n\n";
+
+  const childrenMd = htmlChildren(node)
+    .map((child) => serializeHtmlNodeToMarkdown(child, baseUrl))
+    .join("");
+
+  if (tag === "a") {
+    const href = resolveRelativeUrl(getAttribute(node, "href"), baseUrl);
+    const label = childrenMd.trim();
+    if (!label) return "";
+    if (!href || href.startsWith("javascript:")) return label;
+    return `[${label}](${href})`;
+  }
+  if (tag === "strong" || tag === "b") {
+    const inner = childrenMd.trim();
+    return inner ? `**${inner}**` : "";
+  }
+  if (tag === "em" || tag === "i") {
+    const inner = childrenMd.trim();
+    return inner ? `*${inner}*` : "";
+  }
+  if (tag === "li") {
+    const inner = childrenMd.trim();
+    return inner ? `- ${inner}\n` : "";
+  }
+  if (tag === "p" || tag === "ul" || tag === "ol" || tag === "section") {
+    const inner = childrenMd.trim();
+    if (!inner) return "";
+    if (/faircamp\.webr\.ing/i.test(inner)) return "";
+    return `${inner}\n\n`;
+  }
+  return childrenMd;
+}
+
+function normalizeParagraphLines(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== ".")
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export type FaircampPageDetails = {
+  abstractText: string;
+  aboutMarkdown: string;
+  bannerUrl: string;
+  links: ArtistLink[];
+};
+
+export function parseFaircampPageDetails(
+  html: string,
+  pageUrl: string,
+): FaircampPageDetails {
+  const root = parseHtml(html);
+
+  // 1. Short abstract description under <div class="abstract">
+  let abstractText = "";
+  const abstractNode = findElements(
+    root,
+    (node) => node.tagName === "div" && hasClass(node, "abstract"),
+  )[0];
+  if (abstractNode) {
+    for (const child of htmlChildren(abstractNode)) {
+      if (
+        child.tagName === "div" &&
+        !hasClass(child, "actions") &&
+        !hasClass(child, "release_artists")
+      ) {
+        const text = getText(child);
+        if (text) {
+          abstractText = text;
+          break;
+        }
+      }
+    }
+  }
+  if (!abstractText) {
+    const ogDesc = findElements(
+      root,
+      (node) =>
+        node.tagName === "meta" &&
+        getAttribute(node, "property") === "og:description",
+    )[0];
+    const ogTitle = findElements(
+      root,
+      (node) =>
+        node.tagName === "meta" &&
+        getAttribute(node, "property") === "og:title",
+    )[0];
+    const descContent = (getAttribute(ogDesc || { nodeName: "" }, "content") || "").trim();
+    const titleContent = (getAttribute(ogTitle || { nodeName: "" }, "content") || "").trim();
+    if (descContent && descContent !== titleContent) {
+      abstractText = descContent;
+    }
+  }
+
+  // 2. Full About / More section under <div class="page_more"><div class="text">
+  let aboutMarkdown = "";
+  const pageMoreNode = findElements(
+    root,
+    (node) => node.tagName === "div" && hasClass(node, "page_more"),
+  )[0];
+  if (pageMoreNode) {
+    const textNode =
+      findElements(
+        pageMoreNode,
+        (node) => node.tagName === "div" && hasClass(node, "text"),
+      )[0] || pageMoreNode;
+    aboutMarkdown = normalizeParagraphLines(
+      serializeHtmlNodeToMarkdown(textNode, pageUrl),
+    );
+  }
+
+  // 3. Banner image from <img class="home_image"> or og:image
+  let bannerUrl = "";
+  const homeImg = findElements(
+    root,
+    (node) => node.tagName === "img" && hasClass(node, "home_image"),
+  )[0];
+  if (homeImg) {
+    bannerUrl = resolveRelativeUrl(getAttribute(homeImg, "src"), pageUrl);
+  }
+  if (!bannerUrl) {
+    const ogImage = findElements(
+      root,
+      (node) =>
+        node.tagName === "meta" &&
+        getAttribute(node, "property") === "og:image",
+    )[0];
+    bannerUrl = resolveRelativeUrl(
+      getAttribute(ogImage || { nodeName: "" }, "content"),
+      pageUrl,
+    );
+  }
+
+  // 4. External links configured on the Faircamp page
+  const links: ArtistLink[] = [];
+  const actionLinks = findElements(
+    root,
+    (node) =>
+      node.tagName === "a" &&
+      getAttribute(node, "target") === "_blank" &&
+      Boolean(getAttribute(node, "href")),
+  );
+  for (const linkNode of actionLinks) {
+    const hasExternalTitle = findElements(
+      linkNode,
+      (child) => child.tagName === "title" && getText(child) === "External Link",
+    ).length > 0;
+    const rel = getAttribute(linkNode, "rel") || "";
+    if (!hasExternalTitle && !/\bme\b/i.test(rel)) continue;
+    const href = resolveRelativeUrl(getAttribute(linkNode, "href"), pageUrl);
+    if (!href || !href.startsWith("https://")) continue;
+    const spanNode = findElements(linkNode, (child) => child.tagName === "span")[0];
+    const label = spanNode ? getText(spanNode) : getAttribute(linkNode, "title") || "";
+    links.push({ url: href, ...(label ? { linkLabel: label } : {}) });
+  }
+
+  const navLinks = findElements(
+    root,
+    (node) => node.tagName === "nav" && getAttribute(node, "id") === "links",
+  )[0];
+  if (navLinks) {
+    for (const anchor of findElements(navLinks, (n) => n.tagName === "a")) {
+      const href = resolveRelativeUrl(getAttribute(anchor, "href"), pageUrl);
+      if (!href || !href.startsWith("https://")) continue;
+      if (/faircamp\.webr\.ing|simonrepp\.com/i.test(href)) continue;
+      const label = getAttribute(anchor, "title") || getText(anchor);
+      links.push({ url: href, ...(label ? { linkLabel: label } : {}) });
+    }
+  }
+
+  return {
+    abstractText: normalizeParagraphLines(abstractText),
+    aboutMarkdown,
+    bannerUrl,
+    links,
+  };
+}
+
+export function combineFaircampAbout(
+  abstractText?: string,
+  aboutMarkdown?: string,
+  catalogUrl?: string,
+): string {
+  const parts: string[] = [];
+  const cleanAbstract = (abstractText || "").trim();
+  const cleanMore = (aboutMarkdown || "").trim();
+
+  if (cleanAbstract) {
+    parts.push(cleanAbstract);
+  }
+  if (
+    cleanMore &&
+    cleanMore.toLowerCase() !== cleanAbstract.toLowerCase() &&
+    !cleanMore.toLowerCase().startsWith(cleanAbstract.toLowerCase())
+  ) {
+    parts.push(cleanMore);
+  } else if (cleanMore && !cleanAbstract) {
+    parts.push(cleanMore);
+  }
+
+  if (catalogUrl) {
+    parts.push(`Faircamp catalog: ${catalogUrl}`);
+  }
+  return parts.join("\n\n");
+}
+
+async function fetchFaircampPageDetails(
+  pageUrl: string | undefined,
+  signal?: AbortSignal,
+): Promise<FaircampPageDetails | undefined> {
+  if (!pageUrl || !pageUrl.startsWith("https://")) return undefined;
+  try {
+    const endpoint = fairplayerEndpoint("/fairplayer/page");
+    endpoint.searchParams.set("url", pageUrl);
+    const response = await fetch(endpoint.toString(), {
+      headers: { Accept: "text/html" },
+      signal,
+    });
+    if (!response.ok) return undefined;
+    const html = await response.text();
+    if (!html || !html.includes("<")) return undefined;
+    return parseFaircampPageDetails(html, pageUrl);
+  } catch {
+    return undefined;
+  }
 }
 
 function getFaircampReleaseId(urlOrPath: string): string | undefined {
@@ -244,12 +493,40 @@ function getFaircampSiteUrl(releaseId: string): string {
   }
 }
 
+export function getFaircampReleaseUrl(releaseId: string, catalogUrl?: string): string {
+  const match = releaseId.match(/^([^@/]+)@([^@/]+)$/);
+  if (!match) return catalogUrl || FAIRPLAYER_ROOT;
+  const releaseSlug = match[1];
+  const base = (catalogUrl || getFaircampSiteUrl(releaseId)).replace(/\/+$/, "");
+  return `${base}/${encodeURIComponent(releaseSlug)}/`;
+}
+
+function deriveReleaseUrlFromAudioUrl(audioUrl: string): string | undefined {
+  try {
+    const parsed = new URL(audioUrl);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    // Faircamp audio URLs are `<catalog>/<release-slug>/<track-num>/<codec>/<file>`
+    // or `<catalog>/<release-slug>/<file>`
+    const codecIdx = segments.findIndex((s) =>
+      /^(opus|mp3|flac|vorbis|ogg|wav|aac|alac|m4a)(-\d+)?$/i.test(s),
+    );
+    if (codecIdx >= 2 && /^\d+$/.test(segments[codecIdx - 1])) {
+      return `${parsed.origin}/${segments.slice(0, codecIdx - 1).join("/")}/`;
+    }
+    if (segments.length >= 2) {
+      return `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
+    }
+  } catch {}
+  return undefined;
+}
+
 function getFaircampDomain(releaseId: string): string | undefined {
   const match = releaseId.match(/^[^@/]+@([^@/]+)$/);
   if (!match) return undefined;
+  const hostPart = match[1].split(":")[0];
 
   try {
-    const url = new URL(`https://${match[1]}`);
+    const url = new URL(`https://${hostPart}`);
     if (url.username || url.password || url.pathname !== "/") return undefined;
     if (url.port && url.port !== "443") return undefined;
     const domain = normalizeDomain(url.hostname);
@@ -260,7 +537,7 @@ function getFaircampDomain(releaseId: string): string | undefined {
   }
 }
 
-function recordKnownAlbum(album: AlbumProps): void {
+function recordKnownAlbum(album: AlbumProps, catalogUrl?: string): void {
   if (album.urlSlug) {
     const existing = knownAlbumsBySlug.get(album.urlSlug);
     if (!existing || (album.tracks && album.tracks.length > 0)) {
@@ -268,9 +545,10 @@ function recordKnownAlbum(album: AlbumProps): void {
     }
   }
   if (album.artistId && album.artist?.name) {
+    const existingArtist = knownArtistsById.get(album.artistId);
     knownArtistsById.set(album.artistId, {
       name: album.artist.name,
-      sourceUrl: album.sourceUrl,
+      sourceUrl: catalogUrl || existingArtist?.sourceUrl || album.sourceUrl,
     });
   }
 }
@@ -283,7 +561,7 @@ function toAlbumProps(
 ): AlbumProps {
   const artistId = hashId(`faircamp:${artistName.toLowerCase()}`);
   const albumId = hashId(`faircamp:${releaseId.toLowerCase()}`);
-  const siteUrl = getFaircampSiteUrl(releaseId);
+  const siteUrl = getFaircampReleaseUrl(releaseId);
   const cover = {
     sizes: {
       60: coverUrl,
@@ -374,8 +652,9 @@ function parseReleaseCards(
     if (verifiedCatalogs) {
       const domain = getFaircampDomain(releaseId);
       if (domain && verifiedCatalogs.has(domain)) {
-        album.sourceUrl = verifiedCatalogs.get(domain);
-        recordKnownAlbum(album);
+        const catalogUrl = verifiedCatalogs.get(domain);
+        album.sourceUrl = getFaircampReleaseUrl(releaseId, catalogUrl);
+        recordKnownAlbum(album, catalogUrl);
       }
     }
     albums.push(album);
@@ -618,30 +897,39 @@ export async function fetchFairplayerAlbums(
   return fairAlbums.slice(0, take);
 }
 
-export async function searchFairplayerAlbums(
+async function fetchFairplayerSearchJson(
   searchTerm: string,
   signal?: AbortSignal,
-): Promise<AlbumProps[]> {
+): Promise<FairplayerSearchResponse> {
   const endpoint = fairplayerEndpoint("/fairplayer/search");
   endpoint.searchParams.set("q", searchTerm.trim());
-  const [response, verifiedCatalogs] = await Promise.all([
-    fetch(endpoint.toString(), {
-      headers: { Accept: "application/json" },
-      signal,
-    }),
-    fetchVerifiedFaircampCatalogs(signal),
-  ]);
+  const response = await fetch(endpoint.toString(), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
   if (!response.ok) {
     throw new Error(
       `Fairplayer search failed: ${response.status} ${response.statusText}`,
     );
   }
-  return parseSearchResults(await response.json()).filter((album) => {
+  return (await response.json()) as FairplayerSearchResponse;
+}
+
+export async function searchFairplayerAlbums(
+  searchTerm: string,
+  signal?: AbortSignal,
+): Promise<AlbumProps[]> {
+  const [rawSearch, verifiedCatalogs] = await Promise.all([
+    fetchFairplayerSearchJson(searchTerm, signal),
+    fetchVerifiedFaircampCatalogs(signal),
+  ]);
+  return parseSearchResults(rawSearch).filter((album) => {
     const releaseId = decodeReleaseSlug(album.urlSlug);
     const domain = releaseId ? getFaircampDomain(releaseId) : undefined;
-    if (!domain || !verifiedCatalogs.has(domain)) return false;
-    album.sourceUrl = verifiedCatalogs.get(domain);
-    recordKnownAlbum(album);
+    if (!releaseId || !domain || !verifiedCatalogs.has(domain)) return false;
+    const catalogUrl = verifiedCatalogs.get(domain);
+    album.sourceUrl = getFaircampReleaseUrl(releaseId, catalogUrl);
+    recordKnownAlbum(album, catalogUrl);
     return true;
   });
 }
@@ -675,6 +963,12 @@ export function parseFairplayerRelease(
   const artistName = getAttribute(songs[0], "data-artist") || albumTitle;
   const artwork = getAttribute(songs[0], "data-image") || "";
   const album = toAlbumProps(releaseId, albumTitle, artistName, artwork);
+  const derivedReleaseUrl = deriveReleaseUrlFromAudioUrl(
+    getAttribute(songs[0], "data-url") || "",
+  );
+  if (derivedReleaseUrl) {
+    album.sourceUrl = derivedReleaseUrl;
+  }
   album.about =
     findElements(
       root,
@@ -785,16 +1079,52 @@ export async function fetchFairplayerAlbum(
     throw new Error(`Faircamp catalog is no longer verified: ${releaseId}`);
   }
 
+  const catalogUrl = verifiedCatalogs.get(domain);
   const album = parseFairplayerRelease(html, releaseSlug);
-  album.sourceUrl = verifiedCatalogs.get(domain);
+  const fallbackReleaseUrl = getFaircampReleaseUrl(releaseId, catalogUrl);
+  if (!album.sourceUrl || album.sourceUrl === getFaircampReleaseUrl(releaseId)) {
+    album.sourceUrl = fallbackReleaseUrl;
+  }
+
+  const pageDetails = await fetchFaircampPageDetails(album.sourceUrl, signal);
+  if (pageDetails) {
+    const richAbout = combineFaircampAbout(
+      pageDetails.abstractText || album.about,
+      pageDetails.aboutMarkdown,
+    );
+    if (richAbout) {
+      album.about = richAbout;
+    }
+  }
+
   album.tracks?.forEach((track) => {
     track.sourceUrl = album.sourceUrl;
     if (track.trackGroup) {
       track.trackGroup.sourceUrl = album.sourceUrl;
     }
   });
-  recordKnownAlbum(album);
+  recordKnownAlbum(album, catalogUrl);
   return album;
+}
+
+function resolveFaircampArtistPageUrl(
+  artistUid: string | undefined,
+  catalogUrl: string | undefined,
+): string | undefined {
+  if (!artistUid) return catalogUrl;
+  const match = artistUid.match(/^([^@]*)@([^@]+)$/);
+  if (!match) return catalogUrl;
+  const artistPathSlug = match[1].trim();
+  const hostWithSubpath = match[2].trim();
+  const [host, subpath] = hostWithSubpath.split(":");
+  const base = (
+    catalogUrl ||
+    `https://${host}${subpath ? `/${subpath.replace(/^\/+/, "")}` : ""}`
+  ).replace(/\/+$/, "");
+  if (!artistPathSlug || artistPathSlug.startsWith("band-")) {
+    return `${base}/`;
+  }
+  return `${base}/${encodeURIComponent(artistPathSlug)}/`;
 }
 
 export async function fetchFairplayerArtist(
@@ -826,10 +1156,49 @@ export async function fetchFairplayerArtist(
   const targetArtistId = hashId(`faircamp:${targetLower}`);
 
   let searchedAlbums: AlbumProps[] = [];
+  let matchedArtistItem: FairplayerSearchItem | undefined;
+  let verifiedCatalogs = new Map<string, string>();
+
   try {
-    searchedAlbums = await searchFairplayerAlbums(artistName, signal);
+    const [rawSearch, catalogs] = await Promise.all([
+      fetchFairplayerSearchJson(artistName, signal),
+      fetchVerifiedFaircampCatalogs(signal),
+    ]);
+    verifiedCatalogs = catalogs;
+
+    matchedArtistItem = (rawSearch.items || []).find((item) => {
+      if (item.type !== "artist" || !item.name) return false;
+      if (item.name.toLowerCase().trim() !== targetLower) return false;
+      const uidDomain = item.uid ? getFaircampDomain(item.uid.replace(/^@/, "root@")) : undefined;
+      return !uidDomain || verifiedCatalogs.has(uidDomain);
+    });
+
+    searchedAlbums = parseSearchResults(rawSearch).filter((album) => {
+      const releaseId = decodeReleaseSlug(album.urlSlug);
+      const domain = releaseId ? getFaircampDomain(releaseId) : undefined;
+      if (!releaseId || !domain || !verifiedCatalogs.has(domain)) return false;
+      const catalogUrl = verifiedCatalogs.get(domain);
+      album.sourceUrl = getFaircampReleaseUrl(releaseId, catalogUrl);
+      recordKnownAlbum(album, catalogUrl);
+      return true;
+    });
   } catch {
     // Use known albums if search fails
+  }
+
+  if (matchedArtistItem?.uid) {
+    try {
+      const artistPageHtml = await fetchFairplayerText(
+        `/fairplayer/player/artist/${encodeURIComponent(matchedArtistItem.uid)}`,
+        "text/html",
+        signal,
+      );
+      for (const album of parseReleaseCards(artistPageHtml, verifiedCatalogs)) {
+        searchedAlbums.push(album);
+      }
+    } catch {
+      // Ignore artist page fetch failure if worker or upstream is unavailable
+    }
   }
 
   if (searchedAlbums.length === 0 && knownAlbumsBySlug.size === 0) {
@@ -852,17 +1221,69 @@ export async function fetchFairplayerArtist(
 
   const trackGroups = Array.from(mergedBySlug.values());
   const primaryAlbum = trackGroups[0];
-  const resolvedName = primaryAlbum?.artist?.name || artistName;
-  const sourceUrl =
-    primaryAlbum?.sourceUrl || knownArtistsById.get(targetArtistId)?.sourceUrl;
-  const coverUri = primaryAlbum?.cover?.sizes?.[600] || "";
+  const resolvedName =
+    matchedArtistItem?.name || primaryAlbum?.artist?.name || artistName;
+  const primaryReleaseId = primaryAlbum ? decodeReleaseSlug(primaryAlbum.urlSlug) : undefined;
+  const artistUidDomain = matchedArtistItem?.uid
+    ? getFaircampDomain(matchedArtistItem.uid.replace(/^@/, "root@"))
+    : undefined;
+  const catalogUrl =
+    (artistUidDomain ? verifiedCatalogs.get(artistUidDomain) : undefined) ||
+    knownArtistsById.get(targetArtistId)?.sourceUrl ||
+    (primaryReleaseId ? getFaircampSiteUrl(primaryReleaseId) : primaryAlbum?.sourceUrl);
+
+  const artistPageUrl = resolveFaircampArtistPageUrl(
+    matchedArtistItem?.uid,
+    catalogUrl,
+  );
+  const pageDetails = await fetchFaircampPageDetails(artistPageUrl, signal);
+
+  const avatarUri =
+    matchedArtistItem?.images?.default?.src ||
+    primaryAlbum?.cover?.sizes?.[600] ||
+    "";
+  const bannerUri = pageDetails?.bannerUrl || "";
+
+  const bio =
+    combineFaircampAbout(
+      pageDetails?.abstractText || matchedArtistItem?.description,
+      pageDetails?.aboutMarkdown,
+      catalogUrl,
+    ) || `${resolvedName} on Faircamp.`;
 
   return {
     id: targetArtistId,
     name: resolvedName,
     urlSlug: encodeArtistSlug(resolvedName),
-    bio: sourceUrl ? `Faircamp catalog: ${sourceUrl}` : `${resolvedName} on Faircamp.`,
-    avatar: coverUri && primaryAlbum?.cover ? { sizes: primaryAlbum.cover.sizes } : undefined,
+    bio,
+    avatar: avatarUri
+      ? {
+          url: avatarUri,
+          sizes: {
+            60: avatarUri,
+            120: avatarUri,
+            300: avatarUri,
+            600: avatarUri,
+            960: avatarUri,
+            1200: avatarUri,
+            1500: avatarUri,
+          },
+          updatedAt: "",
+        }
+      : undefined,
+    background:
+      bannerUri && bannerUri !== avatarUri
+        ? {
+            url: bannerUri,
+            sizes: {
+              625: bannerUri,
+              1024: bannerUri,
+              1920: bannerUri,
+            },
+            updatedAt: "",
+          }
+        : undefined,
+    linksJson: pageDetails?.links?.length ? pageDetails.links : undefined,
     activityPub: false,
     enabled: true,
     createdAt: "",
@@ -925,7 +1346,7 @@ export const fairplayerReleaseSlug = {
   decodeArtist: decodeArtistSlug,
   siteUrl: (slug?: string) => {
     const releaseId = slug ? decodeReleaseSlug(slug) : undefined;
-    return releaseId ? getFaircampSiteUrl(releaseId) : undefined;
+    return releaseId ? getFaircampReleaseUrl(releaseId) : undefined;
   },
   artistRouteId: (slug: string) =>
     decodeReleaseSlug(slug) ? "fairplayer" : undefined,

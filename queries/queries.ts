@@ -225,7 +225,7 @@ const fetchArtist: QueryFunction<
     const response = await api.get<{ result: Artist }>(`/v1/artists/${artistSlug}`, {
       signal,
     });
-    return response.result;
+    return { ...response.result, onMirlo: true };
   } catch (err) {
     const numericId = /^\d+$/.test(artistSlug) ? Number(artistSlug) : undefined;
     if (numericId !== undefined && isKnownFairplayerArtistId(numericId)) {

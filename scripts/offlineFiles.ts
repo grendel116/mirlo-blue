@@ -5,7 +5,18 @@ import * as DocumentPicker from "expo-document-picker";
 import * as MediaLibrary from "expo-media-library";
 import { unzip } from "react-native-zip-archive";
 import { readTags } from "./readTags";
+import { MirloSource, mirloZipUrl } from "./mirloZip";
 import { flacHeaderWithCover } from "./flacCover";
+import {
+  AUDIO_FILE,
+  fetchCoverJpeg,
+  IMAGE_FILE,
+  matchTrack,
+  MirloTrack,
+  namesFromFile,
+  safeFileName,
+  songDetails,
+} from "./songFiles";
 import { API_ROOT } from "@/constants/api-root";
 import * as api from "@/queries/fetch/fetchWrapper";
 import {
@@ -20,17 +31,13 @@ import {
   updateAlbum,
 } from "./downloadManager";
 
-// Saving files to the phone. The web build uses offlineFiles.web.ts instead
-export const OFFLINE_SUPPORTED = true;
+// Saving files to the phone. The web build uses offlineFiles.web.ts instead.
+// The phone picks its own files: the Add files and Add folder buttons, and album covers
+export const PICKS_PHONE_FILES = true;
+export const CAN_DOWNLOAD = true;
 
-const AUDIO_FILE = /\.(mp3|flac|m4a|opus|ogg|wav|aac)$/i;
-const IMAGE_FILE = /\.(jpe?g|png|webp)$/i;
 const ZIP_FILE = /\.zip$/i;
-const POLL_MS = 4000;
-const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
 const COPY_CHUNK = 1024 * 1024;
-
-type MirloJobResponse = { result: true | { jobId: string } | { url: string } };
 
 function downloadsFolder(name: string): Directory {
   const folder = new Directory(Paths.document, "downloads", name);
@@ -49,63 +56,6 @@ function filesIn(folder: Directory): File[] {
     .flatMap((entry) =>
       entry instanceof Directory ? filesIn(entry) : [entry],
     );
-}
-
-async function waitForMirloJob(jobId: string): Promise<void> {
-  const deadline = Date.now() + PREPARE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const { results } = await api.get<{ results: { jobStatus: string }[] }>(
-      `/v1/jobs?queue=generateAlbum&ids=${jobId}`,
-      {},
-    );
-    const status = results[0]?.jobStatus;
-    if (status === "completed") return;
-    if (status === "failed")
-      throw new Error("Mirlo couldn't prepare this download");
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-  throw new Error("Mirlo took too long to prepare this download");
-}
-
-type MirloSource = "trackGroups" | "tracks";
-
-// The parts of a Mirlo track we save
-type MirloTrack = {
-  id: number;
-  title: string;
-  order?: number;
-  audio?: { duration?: number };
-};
-
-// Mirlo builds a zip on request: start it, wait until it's ready, then ask for it.
-// The answer is a temporary download link, or the zip itself when Mirlo serves it directly
-async function mirloZipUrl(
-  source: MirloSource,
-  id: number,
-  format: DownloadFormat,
-): Promise<string> {
-  const resource = `/v1/${source}/${id}`;
-  const generated = await api.get<MirloJobResponse>(
-    `${resource}/generate?format=${format}`,
-    {},
-  );
-  if (typeof generated.result === "object" && "jobId" in generated.result) {
-    await waitForMirloJob(generated.result.jobId);
-  }
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const download = await api.get<MirloJobResponse>(
-      `${resource}/download?format=${format}`,
-      {},
-    );
-    if (typeof download.result === "object" && "url" in download.result)
-      return download.result.url;
-    if (typeof download.result === "object" && "jobId" in download.result) {
-      await waitForMirloJob(download.result.jobId);
-      continue;
-    }
-    break;
-  }
-  return `${API_ROOT}${resource}/download?format=${format}`;
 }
 
 // Downloads a Mirlo zip and unpacks it into the album's folder, returning the folder, its
@@ -155,28 +105,8 @@ async function fetchMirloFiles(
 // An unpacked song and the Mirlo track it belongs to
 type Song = { file: File; track: MirloTrack | undefined; fallbackId: number };
 
-// Ties an unpacked song to its Mirlo track by the title Mirlo tags it with, then by track
-// number. A song whose id matches its Mirlo track shows once in All Tracks
-function matchTrack(file: File, tracks: MirloTrack[]): MirloTrack | undefined {
-  const tags = tagsOf(file);
-  const title = tags.title?.trim().toLowerCase();
-  const number = tags.track ?? parseInt(file.name, 10);
-  return (
-    tracks.find((t) => t.title.trim().toLowerCase() === title) ??
-    tracks.find((t) => t.order === number)
-  );
-}
-
-// Mirlo's cover CDN serves every size as JPEG too, the cover format every music app reads
-async function fetchCoverJpeg(
-  album: AlbumProps,
-): Promise<Uint8Array | undefined> {
-  const url = album.cover?.sizes?.[600]?.replace(/\.webp(?=\?|$)/, ".jpg");
-  if (!url) return undefined;
-  const response = await fetch(url);
-  if (!response.ok) return undefined;
-  return new Uint8Array(await response.arrayBuffer());
-}
+// A song whose id matches its Mirlo track shows once in All Tracks
+const matchFile = (file: File, tracks: MirloTrack[]) => matchTrack(tagsOf(file), file.name, tracks);
 
 function readerOf(handle: FileHandle) {
   return (offset: number, length: number) => {
@@ -315,7 +245,7 @@ export async function downloadAlbum(
   const now = Date.now();
   const songs = audio.map((file, i) => ({
     file,
-    track: matchTrack(file, tracks),
+    track: matchFile(file, tracks),
     fallbackId: -(now + i),
   }));
   await keepSongs(songs, album, folder, cover, (t) => t.folder === folder.uri);
@@ -347,28 +277,9 @@ export async function downloadTrack(
   );
 }
 
-// "01 - Artist - Title.mp3" → track number, artist, and title; anything else becomes the title
-function namesFromFile(fileName: string): {
-  title: string;
-  artist: string;
-  track?: number;
-} {
-  const withoutExt = fileName.replace(/\.[^.]+$/, "");
-  const numMatch = withoutExt.match(/^(\d+)\s*[-._\s]\s*/);
-  const track = numMatch ? parseInt(numMatch[1], 10) : undefined;
-  const base = withoutExt.replace(/^\d+\s*[-._\s]\s*/, "");
-  const split = base.indexOf(" - ");
-  if (split === -1) return { title: base, artist: "", track };
-  return { artist: base.slice(0, split), title: base.slice(split + 3), track };
-}
-
 function cleanEntryName(uri: string): string {
   const decoded = decodeURIComponent(uri).replace(/\/+$/, "");
   return decoded.split(/[/:]/).pop() || "file";
-}
-
-function safeFileName(name: string): string {
-  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
 }
 
 // A phone file is the same file when its name and size match. Saved copies are named
@@ -426,9 +337,8 @@ function buildImportedTrack(
   fallbackCover?: string,
 ): DownloadedTrack {
   const tags = tagsOf(file);
-  const named = namesFromFile(originalName);
-  const album = tags.album || fallbackAlbum || "Imported Audio";
-  const albumKey = album.toLowerCase();
+  const details = songDetails(tags, originalName, index, fallbackAlbum, fallbackArtist);
+  const albumKey = details.albumTitle.toLowerCase();
 
   if (tags.cover && !covers.has(albumKey)) {
     const extension = tags.cover.mime.includes("png") ? "png" : "jpg";
@@ -444,11 +354,8 @@ function buildImportedTrack(
 
   return {
     id: -(now + index),
-    title: tags.title || named.title,
-    artist: tags.artist || named.artist || fallbackArtist || "Unknown Artist",
-    albumTitle: album,
+    ...details,
     artwork: covers.get(albumKey),
-    order: tags.track ?? named.track ?? index + 1,
     url: file.uri,
     bytes: file.size,
     downloadedAt: now,

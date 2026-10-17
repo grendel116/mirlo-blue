@@ -1,8 +1,8 @@
-import { Platform, Pressable, Share, StyleSheet } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Clipboard from "expo-clipboard";
 import { theme } from "@/constants/theme";
 import { songPageUrl } from "@/scripts/utils";
+import { MIRLO_BLUE_LISTEN_HUB, shareMessage } from "@/scripts/share";
 import { findStation } from "@/queries/radio";
 import { findPodcastShow } from "@/queries/podcast";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
@@ -56,10 +56,6 @@ export function resolveTrackSourceUrl(track: RNTrack): string {
 
   return "https://mirlo.space";
 }
-
-export const MIRLO_BLUE_LISTEN_HUB =
-  process.env.EXPO_PUBLIC_SHARE_HUB_URL ||
-  "https://mirlo-blue-share.mirloblue.workers.dev";
 
 /**
  * Builds the ultra-short share URL for tracks, radio stations, and podcasts.
@@ -201,13 +197,7 @@ export default function ShareTrackButton({
       const onlineSong = await findOnlineSong(track).catch(() => undefined);
       message = onlineSong ? buildShareUrl(onlineSong) : headline;
     }
-    if (Platform.OS === "web" && typeof navigator !== "undefined" && !navigator.share) {
-      await Clipboard.setStringAsync(message);
-      return;
-    }
-    try {
-      await Share.share({ message, title: headline });
-    } catch {}
+    await shareMessage(message, headline);
   };
 
   return (

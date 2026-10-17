@@ -83,7 +83,12 @@ interface AlbumProps {
   about?: string;
   tags?: string[];
   trackGroupId: number;
-  minPrice?: number;
+  // Prices in cents; anything at or above minPrice is accepted
+  minPrice?: number | null;
+  suggestedPrice?: number | null;
+  currency?: string;
+  // False when the release comes only with a subscription
+  isGettable?: boolean;
   source?: string;
   sourceUrl?: string;
   purchaseLinks?: { label: string; url: string }[];
@@ -196,6 +201,9 @@ interface Artist {
   name: string;
   bio: string;
   activityPub: boolean;
+  // Set by fetchArtist for artists loaded from Mirlo's API: following, support and
+  // checkout work for these artists
+  onMirlo?: boolean;
   urlSlug?: string;
   userId: number;
   id: number;
@@ -204,19 +212,24 @@ interface Artist {
   createdAt: string;
   artistLabels?: ArtistLabel[];
   trackGroups: AlbumProps[];
+  // Legacy plain URLs; linksJson is what the artist edits today
   links?: string[];
-  linksJson?: Link[];
+  linksJson?: ArtistLink[];
   properties?: {
     colors: ArtistColors;
   };
-  user?: Partial<User>;
+  user?: { currency?: string };
   // The default tier is the free "follow" tier; any other tier is a paid subscription
-  subscriptionTiers?: { id: number; name: string; isDefaultTier: boolean }[];
-  banner?: {
-    url: string;
-    sizes?: { [key: number]: string };
-    updatedAt: string;
+  subscriptionTiers?: SubscriptionTier[];
+  // The wide banner image across the top of the artist page
+  background?: {
+    sizes?: { [key: string]: string };
   };
+  purchaseEntireCatalogEnabled?: boolean;
+  allowDirectMessages?: boolean;
+  // The account paid for this artist's sales (a label's account, or the artist's own)
+  paymentToUserId?: number | null;
+  posts?: ArtistPost[];
   avatar?: {
     url: string;
     sizes?: { [key: string]: string };
@@ -231,17 +244,62 @@ interface Tag {
   tag: string;
 }
 
-interface ArtistSubscriptionTier {
+interface ArtistLink {
+  url: string;
+  linkType?: string;
+  linkLabel?: string;
+  iconUrl?: string;
+  inHeader?: boolean;
+}
+
+interface SubscriptionTier {
+  id: number;
+  name: string;
+  description?: string;
+  artistId: number;
+  isDefaultTier: boolean;
+  // Cents
+  minAmount?: number;
+  defaultAmount?: number | null;
+  allowVariable?: boolean;
+  interval?: "MONTH" | "YEAR";
   artist?: Artist;
 }
 
+interface ArtistPost {
+  id: number;
+  title: string;
+  urlSlug?: string | null;
+  // HTML
+  content?: string;
+  publishedAt: string;
+  isContentHidden?: boolean;
+  featuredImage?: { src?: string };
+  artistId?: number;
+  artist?: Artist;
+}
+
+// One follow (default tier) or paid subscription (any other tier) from /auth/profile
 interface ArtistUserSubscription {
   id: number;
   amount: number;
   currency?: string;
   userId: number;
   artistSubscriptionTierId?: number;
-  artistSubscriptionTier?: ArtistSubscriptionTier;
+  artistSubscriptionTier: SubscriptionTier;
+}
+
+interface MirloNotification {
+  id: string;
+  content?: string;
+  isRead: boolean;
+  createdAt: string;
+  // e.g. NEW_ARTIST_ALBUM, NEW_ARTIST_PREORDER, NEW_ARTIST_POST
+  notificationType: string;
+  artistId?: number;
+  artist?: Artist;
+  post?: ArtistPost;
+  trackGroup?: AlbumProps;
 }
 
 interface MerchPurchase {

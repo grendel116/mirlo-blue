@@ -16,6 +16,7 @@ import Footer from "@/components/Footer";
 import NowPlaying from "@/components/NowPlaying";
 import "../i18n";
 import { checkForUpdates } from "../scripts/appVersionCheck";
+import { openMusicFolder } from "@/scripts/musicFolder";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -48,6 +49,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     checkForUpdates();
+    openMusicFolder().catch((err) => console.warn("Couldn't reopen the music folder:", err));
   }, []);
 
   useEffect(() => {
@@ -106,7 +108,7 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
-                  name="collections"
+                  name="activity"
                   options={{
                     headerShown: false,
                   }}
@@ -182,12 +184,6 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
-                  name="wishlist"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
                   name="maxPlaysReached"
                   options={{
                     headerShown: false,
@@ -197,24 +193,6 @@ export default function RootLayout() {
                   }}
                 />
 
-                <Stack.Screen
-                  name="emailPurchaseInfoModal"
-                  options={{
-                    headerShown: false,
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                  }}
-                />
-                <Stack.Screen
-                  name="addFreeAlbumModal"
-                  options={{
-                    headerShown: false,
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                  }}
-                />
                 <Stack.Screen
                   name="purchaseModal"
                   options={{
