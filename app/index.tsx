@@ -50,7 +50,7 @@ import {
   queryDiscoveredPodcasts,
 } from "@/queries/podcast";
 import OfflineNotice from "@/components/OfflineNotice";
-import { openInBrowser } from "@/scripts/openInBrowser";
+import { openPurchase } from "@/scripts/openPurchase";
 import { dragScroll } from "@/scripts/dragScroll";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
 import { useAuthContext } from "@/state/AuthContext";
@@ -352,7 +352,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
 
         <View style={styles.headerActions}>
           <Pressable
-            onPress={() => openInBrowser("https://mirlo.space/team/support")}
+            onPress={() => openPurchase(router, { kind: "support", artist: "team" })}
             style={styles.subscribeButton}
             accessibilityRole="button"
             accessibilityLabel="Subscribe to support Mirlo"
