@@ -1,5 +1,4 @@
 import { Stack } from "expo-router";
-import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SearchContextProvider } from "@/state/SearchContext";
 import { PlayerContextProvider } from "@/state/PlayerContext";
@@ -84,7 +83,7 @@ export default function RootLayout() {
         <AuthContextProvider>
           <PlayerContextProvider>
             <SearchContextProvider>
-              <View style={{ flex: 1, overflow: "hidden" }}>
+              <>
                 <Stack
                   screenOptions={{
                     animation: "none",
@@ -209,7 +208,7 @@ export default function RootLayout() {
                   />
                 </Stack>
                 <NowPlaying />
-              </View>
+              </>
               <Footer />
               <ChoiceSheet />
               <StatusBar style="light" backgroundColor="#070b14" />

@@ -23,7 +23,7 @@ import Player from "@/components/Player";
 import { useRouter, type Href } from "expo-router";
 import TrackPlayer, { useProgress } from "react-native-track-player";
 import Slider from "@react-native-community/slider";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import DismissModalBar from "@/components/DismissModalBar";
 import { theme } from "@/constants/theme";
@@ -52,19 +52,24 @@ const sheetListeners = new Set<(open: boolean) => void>();
 export function openNowPlaying() {
   isSheetOpen = true;
   sheetListeners.forEach((listener) => listener(true));
+  openStateListeners.forEach((listener) => listener(true));
 }
 
 export function closeNowPlaying() {
   isSheetOpen = false;
   sheetListeners.forEach((listener) => listener(false));
+  openStateListeners.forEach((listener) => listener(false));
 }
+
+// Follows whether the sheet is open, for the footer's mini-player
+const openStateListeners = new Set<(open: boolean) => void>();
 
 export function useNowPlayingOpen() {
   const [open, setOpen] = useState(isSheetOpen);
   useEffect(() => {
-    sheetListeners.add(setOpen);
+    openStateListeners.add(setOpen);
     return () => {
-      sheetListeners.delete(setOpen);
+      openStateListeners.delete(setOpen);
     };
   }, []);
   return open;
@@ -72,6 +77,7 @@ export function useNowPlayingOpen() {
 
 export default function NowPlaying() {
   const { height: windowHeight } = useWindowDimensions();
+  const { bottom } = useSafeAreaInsets();
   const [visible, setVisible] = useState(isSheetOpen);
   const translateY = useSharedValue(isSheetOpen ? 0 : windowHeight);
   const heightSv = useSharedValue(windowHeight);
@@ -88,7 +94,7 @@ export default function NowPlaying() {
   const finishClose = useCallback(() => {
     isSheetOpen = false;
     setVisible(false);
-    sheetListeners.forEach((listener) => listener(false));
+    openStateListeners.forEach((listener) => listener(false));
   }, []);
 
   const close = useCallback(() => {
@@ -166,7 +172,7 @@ export default function NowPlaying() {
   return (
     <Animated.View
       pointerEvents={visible ? "auto" : "none"}
-      style={[styles.sheet, sheetStyle]}
+      style={[styles.sheet, { bottom: 60 + Math.max(bottom, 8) }, sheetStyle]}
     >
       {visible && (
         <GestureDetector gesture={panGesture}>
