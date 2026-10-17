@@ -253,6 +253,6 @@ export default function RootLayout() {
 // On wide screens (desktop browsers, tablets) the app keeps a phone-width
 // column centered on the page
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#070b14", alignItems: "center" },
-  column: { flex: 1, width: "100%", maxWidth: 560 },
+  root: { flex: 1, backgroundColor: "#010205", alignItems: "center" },
+  column: { flex: 1, width: "100%", maxWidth: 560, backgroundColor: "#070b14" },
 });
