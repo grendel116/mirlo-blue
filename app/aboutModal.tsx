@@ -1,4 +1,4 @@
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import SwipeDownSheet, { SheetScrollView } from "@/components/SwipeDownSheet";
@@ -86,19 +86,6 @@ export default function AboutModal() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
-          {/* Profile Header (hoo.be style, without top circular icon row) */}
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarWrapper}>
-              <Image
-                source={require("@/assets/images/Logo-Mirlo_LogoOnly.png")}
-                style={styles.avatarImage}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.profileTitle}>Mirlo</Text>
-            <Text style={styles.profileSubtitle}>The artist-owned music platform</Text>
-          </View>
-
           {/* Link Cards */}
           <View style={styles.linkList}>
             {LINKS.map((link) => (
@@ -140,51 +127,13 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 20,
     paddingBottom: 40,
   },
   container: {
     width: "100%",
     maxWidth: 420,
     alignSelf: "center",
-  },
-  profileHeader: {
-    alignItems: "center",
-    marginBottom: 24,
-    marginTop: 8,
-  },
-  avatarWrapper: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: theme.colors.surfaceElevated,
-    borderWidth: 1.5,
-    borderColor: theme.colors.surfaceGlassBorder,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  avatarImage: {
-    width: 48,
-    height: 48,
-  },
-  profileTitle: {
-    fontFamily: theme.fonts.display,
-    fontSize: 22,
-    color: theme.colors.textPrimary,
-    letterSpacing: 0.5,
-  },
-  profileSubtitle: {
-    fontFamily: theme.fonts.sans,
-    fontSize: 13,
-    color: theme.colors.textSecondary,
-    marginTop: 4,
-    textAlign: "center",
   },
   linkList: {
     gap: 10,
