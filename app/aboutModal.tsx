@@ -1,19 +1,73 @@
-import { Linking, Pressable, StyleSheet, Text } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import SwipeDownSheet, { SheetScrollView } from "@/components/SwipeDownSheet";
-import { Card } from "@/components/purchase/ui";
 import { theme } from "@/constants/theme";
 import { openInBrowser } from "@/scripts/openInBrowser";
 
-const LINKS = [
-  { label: "mirlo.space", url: "https://mirlo.space" },
-  { label: "About", url: "https://docs.mirlo.space" },
-  { label: "Contact", url: "mailto:hi@mirlo.space" },
-  { label: "Instagram", url: "https://instagram.com/mirlo.space" },
-  { label: "Mastodon", url: "https://musician.social/@mirlo" },
-  { label: "Bluesky", url: "https://bsky.app/profile/mirlo.space" },
-  { label: "Terms", url: "https://mirlo.space/pages/terms" },
-  { label: "Privacy", url: "https://mirlo.space/pages/privacy" },
+type AboutLink = {
+  label: string;
+  subtitle?: string;
+  url: string;
+  icon: string;
+  brand?: boolean;
+};
+
+const LINKS: AboutLink[] = [
+  {
+    label: "mirlo.space",
+    subtitle: "Official website",
+    url: "https://mirlo.space",
+    icon: "globe",
+    brand: false,
+  },
+  {
+    label: "About Mirlo",
+    subtitle: "Mission & documentation",
+    url: "https://docs.mirlo.space",
+    icon: "circle-info",
+    brand: false,
+  },
+  {
+    label: "Contact",
+    subtitle: "hi@mirlo.space",
+    url: "mailto:hi@mirlo.space",
+    icon: "envelope",
+    brand: false,
+  },
+  {
+    label: "Instagram",
+    subtitle: "@mirlo.space",
+    url: "https://instagram.com/mirlo.space",
+    icon: "instagram",
+    brand: true,
+  },
+  {
+    label: "Mastodon",
+    subtitle: "@mirlo@musician.social",
+    url: "https://musician.social/@mirlo",
+    icon: "mastodon",
+    brand: true,
+  },
+  {
+    label: "Bluesky",
+    subtitle: "@mirlo.space",
+    url: "https://bsky.app/profile/mirlo.space",
+    icon: "bluesky",
+    brand: true,
+  },
+  {
+    label: "Terms of Service",
+    url: "https://mirlo.space/pages/terms",
+    icon: "file-lines",
+    brand: false,
+  },
+  {
+    label: "Privacy Policy",
+    url: "https://mirlo.space/pages/privacy",
+    icon: "shield-halved",
+    brand: false,
+  },
 ];
 
 // Linking.openURL would route mirlo.space links back into the app, so web pages open in the
@@ -31,19 +85,52 @@ export default function AboutModal() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <Card>
-          {LINKS.map((link, index) => (
-            <Pressable
-              key={link.label}
-              onPress={() => open(link.url)}
-              style={[styles.row, index === 0 && styles.firstRow]}
-              accessibilityRole="link"
-            >
-              <Text style={styles.label}>{link.label}</Text>
-              <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
-            </Pressable>
-          ))}
-        </Card>
+        <View style={styles.container}>
+          {/* Profile Header (hoo.be style, without top circular icon row) */}
+          <View style={styles.profileHeader}>
+            <View style={styles.avatarWrapper}>
+              <Image
+                source={require("@/assets/images/Logo-Mirlo_LogoOnly.png")}
+                style={styles.avatarImage}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.profileTitle}>Mirlo</Text>
+            <Text style={styles.profileSubtitle}>The artist-owned music platform</Text>
+          </View>
+
+          {/* Link Cards */}
+          <View style={styles.linkList}>
+            {LINKS.map((link) => (
+              <Pressable
+                key={link.label}
+                onPress={() => open(link.url)}
+                style={({ pressed }) => [styles.linkCard, pressed && styles.linkCardPressed]}
+                accessibilityRole="link"
+                accessibilityLabel={link.label}
+              >
+                <View style={styles.iconContainer}>
+                  <FontAwesome6
+                    name={link.icon}
+                    size={18}
+                    color={theme.colors.primary}
+                    brand={link.brand}
+                    solid={!link.brand}
+                  />
+                </View>
+                <View style={styles.textContainer}>
+                  <Text style={styles.linkLabel}>{link.label}</Text>
+                  {link.subtitle ? (
+                    <Text style={styles.linkSubtitle} numberOfLines={1}>
+                      {link.subtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </SheetScrollView>
     </SwipeDownSheet>
   );
@@ -52,24 +139,97 @@ export default function AboutModal() {
 const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
-    justifyContent: "center",
     paddingHorizontal: 20,
-    paddingVertical: 32,
+    paddingTop: 16,
+    paddingBottom: 40,
   },
-  row: {
+  container: {
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
+  },
+  profileHeader: {
+    alignItems: "center",
+    marginBottom: 24,
+    marginTop: 8,
+  },
+  avatarWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: theme.colors.surfaceGlassBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+  },
+  profileTitle: {
+    fontFamily: theme.fonts.display,
+    fontSize: 22,
+    color: theme.colors.textPrimary,
+    letterSpacing: 0.5,
+  },
+  profileSubtitle: {
+    fontFamily: theme.fonts.sans,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  linkList: {
+    gap: 10,
+  },
+  linkCard: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.surfaceCardBorder,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceCardBorder,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  firstRow: {
-    borderTopWidth: 0,
+  linkCardPressed: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.primary,
+    opacity: 0.85,
   },
-  label: {
-    fontSize: 16,
+  iconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "rgba(0, 210, 255, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  textContainer: {
+    flex: 1,
+    marginLeft: 14,
+    justifyContent: "center",
+  },
+  linkLabel: {
+    fontSize: 15,
     fontWeight: "600",
     color: theme.colors.textPrimary,
+  },
+  linkSubtitle: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: 2,
   },
 });
