@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -43,6 +43,7 @@ export default function PurchaseModal() {
   const heightSv = useSharedValue(windowHeight);
   const scrollOffset = useSharedValue(0);
   const startedAtTop = useSharedValue(true);
+  const closingRef = useRef(false);
 
   useEffect(() => {
     heightSv.value = windowHeight;
@@ -54,6 +55,8 @@ export default function PurchaseModal() {
   }, [router]);
 
   const close = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
     translateY.value = withTiming(heightSv.value, { duration: SETTLE_MS }, (finished) => {
       if (finished) runOnJS(dismiss)();
     });
@@ -130,6 +133,12 @@ export default function PurchaseModal() {
   const [kind, setKind] = useState(params.kind);
   const checkout = useCheckout();
   const { stage, request } = checkout;
+
+  useEffect(() => {
+    closingRef.current = false;
+    translateY.value = 0;
+    setKind(params.kind);
+  }, [params.kind, params.artist, params.slug, translateY]);
 
   const albumQuery = useQuery(queryAlbum({ slug: params.slug ?? "", id: params.artist }));
   const album = albumQuery.data?.result;
@@ -221,7 +230,7 @@ export default function PurchaseModal() {
   return (
     <Animated.View style={[styles.container, sheetStyle]}>
       {stage.name === "pay" ? (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView edges={["top"]} style={styles.container}>
           <GestureDetector gesture={headerPanGesture}>
             <DismissModalBar onPress={close} />
           </GestureDetector>
@@ -233,7 +242,7 @@ export default function PurchaseModal() {
         </SafeAreaView>
       ) : (
         <GestureDetector gesture={panGesture}>
-          <SafeAreaView style={styles.container}>
+          <SafeAreaView edges={["top"]} style={styles.container}>
             <DismissModalBar onPress={close} />
             <GestureDetector gesture={scrollGesture}>
               <Animated.ScrollView

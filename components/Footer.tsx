@@ -13,7 +13,7 @@ import { useProgress } from "react-native-track-player";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePlayer } from "@/state/PlayerContext";
-import { openNowPlaying } from "@/components/NowPlaying";
+import { closeNowPlaying, openNowPlaying, useNowPlayingOpen } from "@/components/NowPlaying";
 import { router, usePathname } from "expo-router";
 import { theme } from "@/constants/theme";
 import { RADIO_SET_SECONDS } from "@/queries/radio";
@@ -36,6 +36,7 @@ export function setMainTab(tab: MainTab) {
 
 export function openMainTab(tab: MainTab) {
   setMainTab(tab);
+  closeNowPlaying();
   if (router.canDismiss()) {
     router.dismissAll();
   }
@@ -101,8 +102,10 @@ export default function Footer({ style }: ViewProps) {
   const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
   const { tab } = useMainTab();
   const pathname = usePathname();
+  const isNowPlayingOpen = useNowPlayingOpen();
 
-  const isTrackScreen = pathname.includes("/tracks/") || pathname.endsWith("/tracks");
+  const isTrackScreen =
+    isNowPlayingOpen || pathname.includes("/tracks/") || pathname.endsWith("/tracks");
   const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
 
   const activeTab: MainTab | null =

@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SearchContextProvider } from "@/state/SearchContext";
 import { PlayerContextProvider } from "@/state/PlayerContext";
@@ -83,131 +84,133 @@ export default function RootLayout() {
         <AuthContextProvider>
           <PlayerContextProvider>
             <SearchContextProvider>
-              <Stack
-                screenOptions={{
-                  animation: "none",
-                  contentStyle: { backgroundColor: "#070b14" },
-                }}
-              >
-                <Stack.Screen name="login" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="index"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="feed"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="library"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="activity"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="artist/[id]"
-                  options={{
-                    headerShown: false,
+              <View style={{ flex: 1, overflow: "hidden" }}>
+                <Stack
+                  screenOptions={{
                     animation: "none",
+                    contentStyle: { backgroundColor: "#070b14" },
                   }}
-                />
-                <Stack.Screen
-                  name="now-playing"
-                  options={{
-                    headerShown: false,
-                    presentation: "transparentModal",
-                  }}
-                />
-                <Stack.Screen
-                  name="search"
-                  options={{
-                    headerShown: false,
-                    animation: "fade",
-                    animationDuration: 300,
-                    presentation: "transparentModal",
-                  }}
-                />
-                <Stack.Screen
-                  name="deleteAccount"
-                  options={{
-                    headerShown: false,
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                  }}
-                />
-                <Stack.Screen
-                  name="tags/[tag]"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="station/[id]"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="podcast/[id]"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="mostPlayed"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="topSold"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="maxPlaysReached"
-                  options={{
-                    headerShown: false,
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                  }}
-                />
+                >
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="index"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="feed"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="library"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="activity"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="artist/[id]"
+                    options={{
+                      headerShown: false,
+                      animation: "none",
+                    }}
+                  />
+                  <Stack.Screen
+                    name="now-playing"
+                    options={{
+                      headerShown: false,
+                      presentation: "transparentModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    name="search"
+                    options={{
+                      headerShown: false,
+                      animation: "fade",
+                      animationDuration: 300,
+                      presentation: "transparentModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    name="deleteAccount"
+                    options={{
+                      headerShown: false,
+                      presentation: "modal",
+                      animation: "slide_from_bottom",
+                      animationDuration: 200,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="tags/[tag]"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="station/[id]"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="podcast/[id]"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="mostPlayed"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="topSold"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="maxPlaysReached"
+                    options={{
+                      headerShown: false,
+                      presentation: "modal",
+                      animation: "slide_from_bottom",
+                      animationDuration: 200,
+                    }}
+                  />
 
-                <Stack.Screen
-                  name="purchaseModal"
-                  options={{
-                    headerShown: false,
-                    presentation: "transparentModal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                    contentStyle: { backgroundColor: "transparent" },
-                  }}
-                />
-                <Stack.Screen
-                  name="emailVerificationModal"
-                  options={{
-                    headerShown: false,
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    animationDuration: 200,
-                  }}
-                />
-              </Stack>
+                  <Stack.Screen
+                    name="purchaseModal"
+                    options={{
+                      headerShown: false,
+                      presentation: "transparentModal",
+                      animation: "slide_from_bottom",
+                      animationDuration: 200,
+                      contentStyle: { backgroundColor: "transparent" },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="emailVerificationModal"
+                    options={{
+                      headerShown: false,
+                      presentation: "modal",
+                      animation: "slide_from_bottom",
+                      animationDuration: 200,
+                    }}
+                  />
+                </Stack>
+                <NowPlaying />
+              </View>
               <Footer />
-              <NowPlaying />
               <ChoiceSheet />
               <StatusBar style="light" backgroundColor="#070b14" />
             </SearchContextProvider>

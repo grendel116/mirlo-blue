@@ -59,6 +59,17 @@ export function closeNowPlaying() {
   sheetListeners.forEach((listener) => listener(false));
 }
 
+export function useNowPlayingOpen() {
+  const [open, setOpen] = useState(isSheetOpen);
+  useEffect(() => {
+    sheetListeners.add(setOpen);
+    return () => {
+      sheetListeners.delete(setOpen);
+    };
+  }, []);
+  return open;
+}
+
 export default function NowPlaying() {
   const { height: windowHeight } = useWindowDimensions();
   const [visible, setVisible] = useState(isSheetOpen);
@@ -77,6 +88,7 @@ export default function NowPlaying() {
   const finishClose = useCallback(() => {
     isSheetOpen = false;
     setVisible(false);
+    sheetListeners.forEach((listener) => listener(false));
   }, []);
 
   const close = useCallback(() => {
@@ -158,7 +170,7 @@ export default function NowPlaying() {
     >
       {visible && (
         <GestureDetector gesture={panGesture}>
-          <SafeAreaView style={styles.container}>
+          <SafeAreaView edges={["top"]} style={styles.container}>
             <DismissModalBar onPress={close} />
             <GestureDetector gesture={scrollGesture}>
               <Animated.ScrollView

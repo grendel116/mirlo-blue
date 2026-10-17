@@ -9,7 +9,10 @@ export type PurchaseTarget =
   | { kind: "support"; artist: string; slug?: string };
 
 export function openPurchase(router: Router, target: PurchaseTarget) {
-  const params: Record<string, string> = { kind: target.kind, artist: target.artist };
-  if ("slug" in target && target.slug) params.slug = target.slug;
-  router.push({ pathname: "/purchaseModal", params });
+  const params: Record<string, string> = {
+    kind: target.kind,
+    artist: target.artist,
+    slug: "slug" in target && target.slug ? target.slug : "",
+  };
+  router.navigate({ pathname: "/purchaseModal", params });
 }
