@@ -51,6 +51,7 @@ import {
 } from "@/queries/podcast";
 import OfflineNotice from "@/components/OfflineNotice";
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { dragScroll } from "@/scripts/dragScroll";
 import { useAppIsReadyContext } from "@/state/AppReadyContext";
 import {
   isQualityArtwork,
@@ -454,6 +455,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 </ScrollView>
               ) : (
                 <FlatList
+                  ref={dragScroll}
                   horizontal
                   data={recentReleases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
@@ -516,6 +518,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 30 }} />
               ) : (
                 <FlatList
+                  ref={dragScroll}
                   horizontal
                   data={popularPurchases}
                   keyExtractor={(item, index) => String(item.id ?? index)}
@@ -570,6 +573,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 <Text style={styles.sectionHeader}>Radio</Text>
               </View>
               <FlatList
+                ref={dragScroll}
                 horizontal
                 data={radioStations}
                 keyExtractor={(station) => station.id}
@@ -590,6 +594,7 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
                 <Text style={styles.sectionHeader}>Discussion</Text>
               </View>
               <FlatList
+                ref={dragScroll}
                 horizontal
                 data={podcastShows}
                 keyExtractor={(show) => show.id}

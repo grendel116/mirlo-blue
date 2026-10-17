@@ -32,6 +32,7 @@ import { ownsAlbum, resolveArtworkUrl } from "@/scripts/utils";
 import { useStationLikes } from "@/scripts/stationLikes";
 import { usePodcastEpisodeLikes, PodcastEpisodeLike } from "@/scripts/podcastLikes";
 import { useFaircampSaves, FaircampSaves } from "@/scripts/faircampSaves";
+import { dragScroll } from "@/scripts/dragScroll";
 import { findStation, liveTrack } from "@/queries/radio";
 import { hashString } from "@/queries/podcast";
 
@@ -381,6 +382,7 @@ export default function LibraryScreen() {
 
         {/* Scrollable Segmented Toggle Pills */}
         <ScrollView
+          ref={dragScroll}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.toggleRow}

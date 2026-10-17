@@ -1,5 +1,4 @@
 import { Stack } from "expo-router";
-import { StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SearchContextProvider } from "@/state/SearchContext";
 import { PlayerContextProvider } from "@/state/PlayerContext";
@@ -73,8 +72,7 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-    <View style={styles.column}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#070b14" }}>
     <AppReadyContextProvider
       value={{ isDataLoaded: isDataLoaded, setIsDataLoaded: setIsDataLoaded }}
     >
@@ -245,14 +243,6 @@ export default function RootLayout() {
         {/* <DevToolsBubble onCopy={onCopy} /> */}
       </QueryClientWrapper>
     </AppReadyContextProvider>
-    </View>
     </GestureHandlerRootView>
   );
 }
-
-// On wide screens (desktop browsers, tablets) the app keeps a phone-width
-// column centered on the page
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#010205", alignItems: "center" },
-  column: { flex: 1, width: "100%", maxWidth: 560, backgroundColor: "#070b14" },
-});

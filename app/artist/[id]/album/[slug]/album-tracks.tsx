@@ -452,6 +452,8 @@ const styles = StyleSheet.create({
   },
   coverWrapper: {
     width: "100%",
+    maxWidth: theme.coverMaxSize,
+    alignSelf: "center",
     aspectRatio: 1,
     borderRadius: theme.radius.lg,
     overflow: "hidden",

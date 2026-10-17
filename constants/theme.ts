@@ -71,6 +71,8 @@ export const theme = {
     lg: 16,
     full: 9999,
   },
+  // Largest size for album, station, and podcast cover art on wide screens
+  coverMaxSize: 420,
   shadows: {
     glossCard: {
       shadowColor: "#00d2ff",
