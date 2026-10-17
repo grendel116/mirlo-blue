@@ -142,7 +142,8 @@ export function queryPaymentsEnabled(artist: Artist | undefined) {
           `/v1/users/${payeeId}/stripe/checkAccountStatus`,
           { signal },
         )
-        .then((r) => r.result.chargesEnabled),
+        .then((r) => Boolean(r?.result?.chargesEnabled))
+        .catch(() => false),
     enabled: Boolean(payeeId),
     staleTime: 10 * 60 * 1000,
   });

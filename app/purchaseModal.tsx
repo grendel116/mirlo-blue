@@ -76,7 +76,7 @@ function PurchaseBody({
   const catalogQuery = useQuery(queryCatalogPrice(artist?.id, kind === "catalogue"));
 
   const payments: PaymentsStatus =
-    artistQuery.isError || paymentsQuery.isError
+    artistQuery.isError
       ? "error"
       : paymentsQuery.data === undefined
         ? "loading"
