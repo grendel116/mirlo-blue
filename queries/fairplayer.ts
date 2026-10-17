@@ -583,14 +583,21 @@ function encodeReleaseSlug(releaseId: string): string {
 }
 
 function decodeReleaseSlug(slug: string): string | undefined {
-  if (!slug || !slug.startsWith(FAIRPLAYER_ID_PREFIX) || slug.startsWith(FAIRPLAYER_ARTIST_PREFIX)) {
+  if (!slug) return undefined;
+  let normalizedSlug = slug;
+  while (normalizedSlug.includes("%") && /%[0-9a-fA-F]{2}/.test(normalizedSlug)) {
+    try {
+      const next = decodeURIComponent(normalizedSlug);
+      if (next === normalizedSlug) break;
+      normalizedSlug = next;
+    } catch {
+      break;
+    }
+  }
+  if (!normalizedSlug.startsWith(FAIRPLAYER_ID_PREFIX) || normalizedSlug.startsWith(FAIRPLAYER_ARTIST_PREFIX)) {
     return undefined;
   }
-  try {
-    return decodeURIComponent(slug.slice(FAIRPLAYER_ID_PREFIX.length));
-  } catch {
-    return undefined;
-  }
+  return normalizedSlug.slice(FAIRPLAYER_ID_PREFIX.length);
 }
 
 function encodeArtistSlug(artistName: string): string {
@@ -598,13 +605,20 @@ function encodeArtistSlug(artistName: string): string {
 }
 
 function decodeArtistSlug(slug: string): string | undefined {
-  if (!slug || !slug.startsWith(FAIRPLAYER_ARTIST_PREFIX)) return undefined;
-  try {
-    const decoded = decodeURIComponent(slug.slice(FAIRPLAYER_ARTIST_PREFIX.length)).trim();
-    return decoded || undefined;
-  } catch {
-    return undefined;
+  if (!slug) return undefined;
+  let normalizedSlug = slug;
+  while (normalizedSlug.includes("%") && /%[0-9a-fA-F]{2}/.test(normalizedSlug)) {
+    try {
+      const next = decodeURIComponent(normalizedSlug);
+      if (next === normalizedSlug) break;
+      normalizedSlug = next;
+    } catch {
+      break;
+    }
   }
+  if (!normalizedSlug.startsWith(FAIRPLAYER_ARTIST_PREFIX)) return undefined;
+  const decoded = normalizedSlug.slice(FAIRPLAYER_ARTIST_PREFIX.length).trim();
+  return decoded || undefined;
 }
 
 function hashId(value: string): number {
@@ -620,8 +634,11 @@ function getFaircampSiteUrl(releaseId: string): string {
   const match = releaseId.match(/^[^@/]+@([^@/]+)$/);
   if (!match) return FAIRPLAYER_ROOT;
 
+  const [host, subpath] = match[1].split(":");
   try {
-    return new URL(`https://${match[1]}`).origin;
+    const origin = new URL(`https://${host}`).origin;
+    const cleanSubpath = subpath ? `/${subpath.replace(/^\/+/, "")}` : "";
+    return `${origin}${cleanSubpath}`.replace(/\/+$/, "");
   } catch {
     return FAIRPLAYER_ROOT;
   }
@@ -631,7 +648,11 @@ export function getFaircampReleaseUrl(releaseId: string, catalogUrl?: string): s
   const match = releaseId.match(/^([^@/]+)@([^@/]+)$/);
   if (!match) return catalogUrl || FAIRPLAYER_ROOT;
   const releaseSlug = match[1];
-  const base = (catalogUrl || getFaircampSiteUrl(releaseId)).replace(/\/+$/, "");
+  let base = (catalogUrl || getFaircampSiteUrl(releaseId)).replace(/\/+$/, "");
+  const [, subpath] = match[1].split(":");
+  if (subpath && !base.toLowerCase().endsWith(`/${subpath.toLowerCase()}`)) {
+    base = `${base}/${subpath.replace(/^\/+/, "")}`;
+  }
   return `${base}/${encodeURIComponent(releaseSlug)}/`;
 }
 
@@ -836,7 +857,7 @@ export function parseVerifiedFaircampCatalogs(
     const snippet = match[0];
     if (
       /faircamp/i.test(snippet) &&
-      (/bg-success/i.test(snippet) || /Verified/i.test(snippet))
+      (/bg-success/i.test(snippet) || /verifi(?:ed|cat)/i.test(snippet))
     ) {
       matchedLinks.push(snippet);
     }
@@ -854,7 +875,7 @@ export function parseVerifiedFaircampCatalogs(
       findElements(
         node,
         (child) =>
-          getAttribute(child, "title") === "Verified" ||
+          /verifi(?:ed|cat)/i.test(getAttribute(child, "title") || "") ||
           hasClass(child, "bg-success"),
       ).length > 0,
   );

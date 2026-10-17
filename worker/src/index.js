@@ -546,7 +546,10 @@ function getHtmlAttribute(tag, name) {
 
 function normalizedCatalogDomain(value) {
   try {
-    const url = new URL(value);
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const clean = raw.includes("://") ? raw : `https://${raw}`;
+    const url = new URL(clean.replace(/:\d+/, "").replace(/:[a-z_][a-z0-9._-]*/i, ""));
     return url.hostname.toLowerCase().replace(/^www\./, "");
   } catch {
     return "";
@@ -695,9 +698,17 @@ function findFaircampDownloadAccessUrl(html, pageUrl) {
 }
 
 async function resolveFaircampShare(releaseId, trackNumber) {
-  const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+  let cleanId = String(releaseId || "").trim();
+  try {
+    while (cleanId.includes("%") && /%[0-9a-fA-F]{2}/.test(cleanId)) {
+      const next = decodeURIComponent(cleanId);
+      if (next === cleanId) break;
+      cleanId = next;
+    }
+  } catch {}
+  const idMatch = cleanId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::[a-z0-9._-]+)?)$/i);
   if (!idMatch) return null;
-  const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+  const domain = normalizedCatalogDomain(`https://${idMatch[2].split(":")[0]}`);
   if (!domain) return null;
 
   const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
@@ -787,12 +798,17 @@ async function resolveFaircampSongShare(trackId) {
   let releaseId;
   try {
     releaseId = decodeURIComponent(releaseMatch[1]);
+    while (releaseId.includes("%") && /%[0-9a-fA-F]{2}/.test(releaseId)) {
+      const next = decodeURIComponent(releaseId);
+      if (next === releaseId) break;
+      releaseId = next;
+    }
   } catch {
     return null;
   }
-  const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+  const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::[a-z0-9._-]+)?)$/i);
   if (!idMatch) return null;
-  const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+  const domain = normalizedCatalogDomain(`https://${idMatch[2].split(":")[0]}`);
   if (!domain) return null;
 
   const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
@@ -1424,10 +1440,14 @@ export default {
           releaseId = url.searchParams.get("slug").replace(/^fairplayer-/, "");
         }
         try {
-          releaseId = decodeURIComponent(releaseId);
+          while (releaseId.includes("%") && /%[0-9a-fA-F]{2}/.test(releaseId)) {
+            const next = decodeURIComponent(releaseId);
+            if (next === releaseId) break;
+            releaseId = next;
+          }
         } catch {}
 
-        const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::\d+)?)$/i);
+        const idMatch = releaseId.match(/^([^/@\s]+)@([a-z0-9.-]+(?::[a-z0-9._-]+)?)$/i);
         if (!idMatch) {
           return new Response("Invalid Faircamp release identifier.", {
             status: 400,
@@ -1435,7 +1455,7 @@ export default {
           });
         }
 
-        const domain = normalizedCatalogDomain(`https://${idMatch[2]}`);
+        const domain = normalizedCatalogDomain(`https://${idMatch[2].split(":")[0]}`);
         if (!domain) {
           return new Response("Invalid Faircamp domain.", {
             status: 400,
@@ -1465,7 +1485,11 @@ export default {
             });
           }
 
-          const cleanBase = catalogUrl.replace(/\/+$/, "");
+          let cleanBase = catalogUrl.replace(/\/+$/, "");
+          const [, subpath] = idMatch[2].split(":");
+          if (subpath && !cleanBase.toLowerCase().endsWith(`/${subpath.toLowerCase()}`)) {
+            cleanBase = `${cleanBase}/${subpath.replace(/^\/+/, "")}`;
+          }
           const expectedReleaseUrl = `${cleanBase}/${encodeURIComponent(idMatch[1])}/`;
           const fairplayerUrl = new URL(
             `/player/release/${encodeURIComponent(releaseId)}`,
@@ -1501,12 +1525,11 @@ export default {
           let pageHtml = pageResponse && pageResponse.ok ? await pageResponse.text() : null;
           let releaseUrl = expectedReleaseUrl;
 
-          const songs = getFairplayerSongElements(releaseHtml);
-          const firstAudio = songs.length ? getHtmlAttribute(songs[0], "data-url") : "";
-          const derivedReleaseUrl = deriveReleaseUrlFromAudioUrl(firstAudio);
-          if (derivedReleaseUrl && derivedReleaseUrl !== expectedReleaseUrl) {
-            releaseUrl = derivedReleaseUrl;
-            if (!pageHtml) {
+          if (!pageHtml) {
+            const songs = getFairplayerSongElements(releaseHtml);
+            const firstAudio = songs.length ? getHtmlAttribute(songs[0], "data-url") : "";
+            const derivedReleaseUrl = deriveReleaseUrlFromAudioUrl(firstAudio);
+            if (derivedReleaseUrl && derivedReleaseUrl !== expectedReleaseUrl) {
               try {
                 const altPageResponse = await fetch(derivedReleaseUrl, {
                   headers: {
@@ -1517,6 +1540,7 @@ export default {
                 });
                 if (altPageResponse.ok) {
                   pageHtml = await altPageResponse.text();
+                  releaseUrl = derivedReleaseUrl;
                 }
               } catch (altErr) {
                 console.warn("Could not fetch alt Faircamp release page:", altErr);

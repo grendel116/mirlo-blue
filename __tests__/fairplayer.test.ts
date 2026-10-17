@@ -7,6 +7,7 @@ import {
   fetchFairplayerDiscoveryTracks,
   fetchFairplayerSongReleaseSlug,
   fairplayerReleaseSlug,
+  getFaircampReleaseUrl,
   isFaircampDomainBlocked,
   parseFaircampPageDetails,
   parseFairplayerRelease,
@@ -18,10 +19,31 @@ import {
 import { isSafeExternalUrl } from "@/scripts/openInBrowser";
 
 describe("Fairplayer Faircamp catalog integration", () => {
+  test("decodes single and double-encoded release slugs including subpath hosts", () => {
+    expect(
+      fairplayerReleaseSlug.decode(
+        "fairplayer-le-noel-des-bergers-album%40boulyprod.net%3Amusic",
+      ),
+    ).toBe("le-noel-des-bergers-album@boulyprod.net:music");
+    expect(
+      fairplayerReleaseSlug.decode(
+        "fairplayer-le-noel-des-bergers-album%2540boulyprod.net%253Amusic",
+      ),
+    ).toBe("le-noel-des-bergers-album@boulyprod.net:music");
+    expect(
+      getFaircampReleaseUrl("le-noel-des-bergers-album@boulyprod.net:music"),
+    ).toBe("https://boulyprod.net/music/le-noel-des-bergers-album/");
+  });
+
   test("uses the Fairplayer artist route for Faircamp release slugs", () => {
     expect(
       fairplayerReleaseSlug.artistRouteId(
         "fairplayer-primer-calaix%40sockpuppet.band",
+      ),
+    ).toBe("fairplayer");
+    expect(
+      fairplayerReleaseSlug.artistRouteId(
+        "fairplayer-le-noel-des-bergers-album%2540boulyprod.net%253Amusic",
       ),
     ).toBe("fairplayer");
     expect(fairplayerReleaseSlug.artistRouteId("a-mirlo-album")).toBeUndefined();
