@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "build:web": "expo export -p web --clear --output-dir docs/app && node -e \"require('fs').copyFileSync('docs/app/index.html','docs/404.html')\"",
+    "build:web": "node scripts/buildWeb.js",
     "test": "jest --watchAll",
     "test:ci": "jest --ci --watchAll=false",
     "lint": "expo lint",
