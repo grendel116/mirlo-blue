@@ -1,6 +1,9 @@
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "./fetch/fetchWrapper";
 import { AUTH_PROFILE_QUERY_KEY } from "./authQueries";
+import { useAuthContext } from "@/state/AuthContext";
+import { fairplayerReleaseSlug } from "./fairplayer";
+import { queryUserCollection, queryUserPurchases } from "./queries";
 
 // The listener's side of Mirlo: follows, the feed, and checkout.
 // Follows and paid subscriptions both live in /auth/profile as artistUserSubscriptions:
@@ -232,4 +235,54 @@ export async function latestTransactionId(userId: number): Promise<string | unde
     {},
   );
   return results[0]?.id;
+}
+
+// Claims a free Mirlo album for the signed-in listener and adds it to their collection
+export function useClaimFreeAlbum() {
+  const client = useQueryClient();
+  const { user } = useAuthContext();
+  const userId = user?.id;
+
+  return useMutation({
+    mutationFn: async (album: AlbumProps) => {
+      const artistSlug =
+        fairplayerReleaseSlug.artistRouteId(album.urlSlug) ??
+        String(album.artist?.urlSlug || album.artistId);
+      return startCheckout({
+        artistId: album.artistId,
+        items: [{ type: "trackGroup", id: album.id, price: "0" }],
+        email: user?.email,
+        successUrl: checkoutCompleteUrl(artistSlug, "trackGroup"),
+      });
+    },
+    onSuccess: (_data, album) => {
+      if (userId) {
+        client.setQueryData<LoggedInUser | null>(AUTH_PROFILE_QUERY_KEY, (prev) => {
+          if (!prev) return prev;
+          const currentPurchases = prev.userTrackGroupPurchases ?? [];
+          if (currentPurchases.some((p) => p.trackGroupId === album.id)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            userTrackGroupPurchases: [
+              ...currentPurchases,
+              {
+                userId: prev.id,
+                trackGroupId: album.id,
+                pricePaid: 0,
+                currencyPaid: "usd",
+                datePurchased: new Date().toISOString(),
+              },
+            ],
+          };
+        });
+        return Promise.all([
+          client.invalidateQueries({ queryKey: AUTH_PROFILE_QUERY_KEY }),
+          client.invalidateQueries({ queryKey: queryUserCollection(userId).queryKey }),
+          client.invalidateQueries({ queryKey: queryUserPurchases(userId).queryKey }),
+        ]);
+      }
+    },
+  });
 }

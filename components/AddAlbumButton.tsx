@@ -1,11 +1,15 @@
 import { useAuthContext } from "@/state/AuthContext";
 import { useRouter } from "expo-router";
-import { Pressable, ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, View, ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback } from "react";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { openPurchase } from "@/scripts/openPurchase";
 import { faircampAction, isFreeAlbum, sellsOnMirlo } from "@/components/purchase/helpers";
+import { useClaimFreeAlbum } from "@/queries/listener";
+import { ownsAlbum } from "@/scripts/utils";
+import { showError } from "@/scripts/showError";
+import { theme } from "@/constants/theme";
 
 type AddAlbumButtonProps = {
   trackGroup: AlbumProps;
@@ -13,16 +17,30 @@ type AddAlbumButtonProps = {
   size?: number;
 };
 
-// Opens the purchase sheet for this release; hidden once the listener owns it
-export default function AddAlbumButton({ style, size, trackGroup }: AddAlbumButtonProps) {
+// Opens the purchase sheet for this release, or claims it immediately if free; hidden once the listener owns it
+export default function AddAlbumButton({ style, size = 32, trackGroup }: AddAlbumButtonProps) {
   const { user } = useAuthContext();
   const router = useRouter();
+  const { mutate: claimFree, isPending } = useClaimFreeAlbum();
 
-  const ids: number[] | undefined = user?.userTrackGroupPurchases?.map(
-    (purchase) => purchase.trackGroupId,
-  );
+  const isFree = sellsOnMirlo(trackGroup) && isFreeAlbum(trackGroup);
+  const owned = ownsAlbum(user, trackGroup);
+  const faircamp = faircampAction(trackGroup);
 
   const onPress = useCallback(() => {
+    if (isPending) return;
+
+    if (isFree) {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      claimFree(trackGroup, {
+        onError: showError("Could not add album to collection"),
+      });
+      return;
+    }
+
     openPurchase(router, {
       kind: "album",
       artist:
@@ -30,23 +48,29 @@ export default function AddAlbumButton({ style, size, trackGroup }: AddAlbumButt
         String(trackGroup.artist?.urlSlug || trackGroup.artistId),
       slug: trackGroup.urlSlug,
     });
-  }, [trackGroup, router]);
-
-  const owned = ids?.includes(trackGroup.id);
-  const faircamp = faircampAction(trackGroup);
+  }, [isPending, isFree, user, claimFree, trackGroup, router]);
 
   return owned || faircamp === "download" || faircamp === "none" ? null : (
     <Pressable
       onPress={onPress}
+      disabled={isPending}
       style={style}
       accessibilityRole="button"
       accessibilityLabel={
-        sellsOnMirlo(trackGroup) && isFreeAlbum(trackGroup)
-          ? "Add free album to collection"
-          : "Purchase album"
+        isPending
+          ? "Adding album to collection"
+          : isFree
+            ? "Add free album to collection"
+            : "Purchase album"
       }
     >
-      <Ionicons name="bag-handle-outline" size={size} color="#ababab" />
+      {isPending ? (
+        <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      ) : (
+        <Ionicons name="bag-handle-outline" size={size} color="#ababab" />
+      )}
     </Pressable>
   );
 }

@@ -105,7 +105,6 @@ function FreeAlbum({ album, onPay, busy, error }: CheckoutControls & { album: Al
           <ErrorText message={error} />
           <PrimaryButton
             label="Add to collection"
-            icon="add"
             busy={busy}
             onPress={() =>
               onPay({
