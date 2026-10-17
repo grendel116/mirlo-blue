@@ -4,7 +4,7 @@ import { usePlayer } from "@/state/PlayerContext";
 import { theme } from "@/constants/theme";
 
 export default function ShuffleButton() {
-  const { shuffled, toggleShuffle } = usePlayer();
+  const { shuffled, toggleShuffle } = usePlayer("shuffled", "toggleShuffle");
 
   return (
     <View>

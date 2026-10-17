@@ -17,7 +17,7 @@ export default function AddToQueueButton({
   size = 18,
   color = theme.colors.textSecondary,
 }: AddToQueueButtonProps) {
-  const { addToQueue } = usePlayer();
+  const { addToQueue } = usePlayer("addToQueue");
   const [justAdded, setJustAdded] = useState(false);
 
   const handlePress = (e: GestureResponderEvent) => {

@@ -197,7 +197,7 @@ export default function NowPlaying() {
 }
 
 function NowPlayingBody({ visible, close }: { visible: boolean; close: () => void }) {
-  const { activeTrack, looping } = usePlayer();
+  const { activeTrack, looping } = usePlayer("activeTrack", "looping");
   const router = useRouter();
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
@@ -474,7 +474,7 @@ function NowPlayingBody({ visible, close }: { visible: boolean; close: () => voi
 }
 
 function ProgressSection({ isLive }: { isLive: boolean }) {
-  const { skipNext } = usePlayer();
+  const { skipNext } = usePlayer("skipNext");
   const progress = useProgress();
   const [slidingValue, setSlidingValue] = useState<number | null>(null);
   const shown = slidingValue ?? (isLive ? getRadioTimerElapsed(progress.position) : progress.position);

@@ -211,7 +211,7 @@ export default function QueueScreen() {
     moveQueueItem,
     playFromUserQueue,
     skipToUpcoming,
-  } = usePlayer();
+  } = usePlayer("activeTrack", "queueSource", "userQueue", "upcoming", "clearUserQueue", "removeFromUserQueue", "moveQueueItem", "playFromUserQueue", "skipToUpcoming");
 
   const [activeMenu, setActiveMenu] = useState<{
     visible: boolean;

@@ -99,7 +99,7 @@ function MiniPlayerProgressBar({ isLiveSet }: { isLiveSet: boolean }) {
 
 export default function Footer({ style }: ViewProps) {
   const { bottom } = useSafeAreaInsets();
-  const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer();
+  const { activeTrack, isPlaying, togglePlayPause, skipNext, looping } = usePlayer("activeTrack", "isPlaying", "togglePlayPause", "skipNext", "looping");
   const { tab } = useMainTab();
   const pathname = usePathname();
   const isNowPlayingOpen = useNowPlayingOpen();

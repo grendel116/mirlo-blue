@@ -6,7 +6,7 @@ import { theme } from "@/constants/theme";
 const LABELS = { none: "Repeat off", queue: "Repeat all", track: "Repeat one" };
 
 export default function LoopButton() {
-  const { looping, cycleRepeat } = usePlayer();
+  const { looping, cycleRepeat } = usePlayer("looping", "cycleRepeat");
   const color = looping === "none" ? theme.colors.textSecondary : theme.colors.primary;
 
   return (

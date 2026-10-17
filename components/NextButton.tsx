@@ -4,7 +4,7 @@ import { usePlayer } from "@/state/PlayerContext";
 import { theme } from "@/constants/theme";
 
 export default function NextButton() {
-  const { skipNext } = usePlayer();
+  const { skipNext } = usePlayer("skipNext");
 
   return (
     <TouchableOpacity

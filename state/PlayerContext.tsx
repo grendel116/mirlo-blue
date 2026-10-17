@@ -11,9 +11,11 @@ import {
   useState,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useCallback,
+  useSyncExternalStore,
 } from "react";
 import { AppState } from "react-native";
 import TrackPlayer, {
@@ -234,7 +236,14 @@ export interface PlayerContextType {
   isTrackDisabled: (trackId?: number) => boolean;
 }
 
-export const PlayerContext = createContext<PlayerContextType | null>(null);
+type PlayerStore = {
+  get: () => PlayerContextType;
+  set: (value: PlayerContextType) => void;
+  subscribe: (listener: () => void) => () => void;
+};
+
+// Carries a store that never changes identity; components subscribe through usePlayer
+export const PlayerContext = createContext<PlayerStore | null>(null);
 
 export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -254,6 +263,19 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const incrementedRef = useRef(false);
   const [disabledTrackIds, setDisabledTrackIds] = useState<Set<number>>(new Set());
 
+  // The player's state as of the last render. Actions read it when they run, so each action
+  // keeps one identity and starting a track doesn't redraw every screen holding a button
+  const latest = useRef({
+    activeTrack: undefined as RNTrack | undefined,
+    playingQueue: [] as RNTrack[],
+    activeIndex: -1,
+    isPlaying: false,
+    shuffled: false,
+    looping: "none" as RepeatSetting,
+    user,
+    disabledTrackIds,
+  });
+
   useEffect(() => {
     getDisabledTrackIds().then((ids) => setDisabledTrackIds(new Set(ids)));
     return subscribeDisabledTracks((ids) => setDisabledTrackIds(new Set(ids)));
@@ -264,6 +286,14 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
       typeof trackId === "number" &&
       (disabledTrackIds.has(trackId) || isTrackDisabledSync(trackId)),
     [disabledTrackIds],
+  );
+
+  // The same check for actions, against the latest state
+  const trackDisabled = useCallback(
+    (trackId?: number) =>
+      typeof trackId === "number" &&
+      (latest.current.disabledTrackIds.has(trackId) || isTrackDisabledSync(trackId)),
+    [],
   );
 
   const activeTrackOwnedRef = useRef<boolean>(false);
@@ -293,7 +323,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (track: RNTrack) => {
       try {
         await ensureTrackPlayerInitialized();
-        if (track.id && isTrackDisabled(track.id) && !isTrackOwned(track, track.trackGroup, user)) {
+        if (track.id && trackDisabled(track.id) && !isTrackOwned(track, track.trackGroup, latest.current.user)) {
           return;
         }
         const { queue, active, queued } = await readPlayer();
@@ -306,7 +336,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Add to queue error:", err);
       }
     },
-    [refreshQueue, isTrackDisabled, user],
+    [refreshQueue, trackDisabled],
   );
 
   const removeFromUserQueue = useCallback(
@@ -545,10 +575,21 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     playBackState.state === State.Buffering ||
     playBackState.state === State.Loading;
 
+  latest.current = {
+    activeTrack,
+    playingQueue,
+    activeIndex,
+    isPlaying,
+    shuffled,
+    looping,
+    user,
+    disabledTrackIds,
+  };
+
   const togglePlayPause = useCallback(async () => {
     try {
       await ensureTrackPlayerInitialized();
-      if (isPlaying) {
+      if (latest.current.isPlaying) {
         await TrackPlayer.pause();
       } else {
         await TrackPlayer.play();
@@ -556,7 +597,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Toggle playback error:", err);
     }
-  }, [isPlaying]);
+  }, []);
 
   const playTrack = useCallback(
     async (track: RNTrack, albumTracks?: RNTrack[], source?: string) => {
@@ -564,6 +605,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         const nextSource = source || track.trackGroup?.title || "";
 
         await ensureTrackPlayerInitialized();
+        const { activeTrack, playingQueue, activeIndex, isPlaying, shuffled, user } = latest.current;
 
         const isExternal = Boolean(
           track.fairplayerTrackId ||
@@ -576,7 +618,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         if (
           !isExternal &&
           track.id &&
-          (isTrackDisabled(track.id) ||
+          (trackDisabled(track.id) ||
             (await reachedMaxPlays(track.id, track.trackGroup?.artist?.maxFreePlays))) &&
           !isTrackOwned(track, track.trackGroup, user)
         ) {
@@ -612,7 +654,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
           albumTracks && albumTracks.length > 0 ? albumTracks : [track];
         const rawTracks = candidateTracks.filter(
           (t) =>
-            !(t.id && isTrackDisabled(t.id) && !isTrackOwned(t, t.trackGroup, user)),
+            !(t.id && trackDisabled(t.id) && !isTrackOwned(t, t.trackGroup, user)),
         );
         if (rawTracks.length === 0) return;
 
@@ -675,7 +717,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Play track error:", err);
       }
     },
-    [activeTrack, playingQueue, activeIndex, isPlaying, shuffled, jumpTo, isTrackDisabled, user],
+    [jumpTo, trackDisabled],
   );
 
   const playFromUserQueue = useCallback(
@@ -709,6 +751,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     async (from: QueueSlot, to: QueueSlot) => {
       if (from.section === to.section && from.index === to.index) return;
       setPlayingQueue((prev) => {
+        const { activeIndex } = latest.current;
         if (activeIndex < 0) return prev;
         const first = activeIndex + 1;
         const after = prev.slice(first);
@@ -744,7 +787,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Move queue item error:", err);
       }
     },
-    [activeIndex, refreshQueue],
+    [refreshQueue],
   );
 
   // Keeps playback going: discovery previews always wait after the playlist, topped up as they play
@@ -790,6 +833,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const toggleShuffle = useCallback(async () => {
     try {
       await ensureTrackPlayerInitialized();
+      const { shuffled, playingQueue } = latest.current;
       const nextShuffled = !shuffled;
       setShuffled(nextShuffled);
 
@@ -822,7 +866,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Shuffle error:", err);
     }
-  }, [shuffled, playingQueue]);
+  }, []);
 
   // Repeat cycles off → repeat all → repeat one, using the player's own repeat mode so it
   // also works from the lock screen and when a song ends on its own. On a station it toggles
@@ -830,6 +874,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
   // listener's songs: previews leave the queue (except one already playing), and come back
   // when repeat is off
   const cycleRepeat = useCallback(async () => {
+    const { activeTrack, looping, playingQueue } = latest.current;
     const next: RepeatSetting = activeTrack?.liveStation
       ? looping === "track"
         ? "none"
@@ -855,7 +900,7 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("Repeat mode error:", err);
     }
-  }, [activeTrack, looping, playingQueue, refreshQueue]);
+  }, [refreshQueue]);
 
   const skipNext = useCallback(async () => {
     try {
@@ -960,15 +1005,47 @@ export const PlayerContextProvider: React.FC<{ children: React.ReactNode }> = ({
     ],
   );
 
-  return (
-    <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
-  );
+  const [store] = useState(() => createPlayerStore(value));
+  useLayoutEffect(() => store.set(value), [store, value]);
+
+  return <PlayerContext.Provider value={store}>{children}</PlayerContext.Provider>;
 };
 
-export const usePlayer = (): PlayerContextType => {
-  const context = useContext(PlayerContext);
-  if (!context) {
+// Holds the player's latest value and tells subscribed components when it changes
+function createPlayerStore(initial: PlayerContextType): PlayerStore {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => current,
+    set: (next) => {
+      current = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+// The player fields a component shows, e.g. usePlayer("isPlaying", "togglePlayPause").
+// The component redraws only when one of those fields changes
+export function usePlayer<K extends keyof PlayerContextType>(...keys: K[]): Pick<PlayerContextType, K> {
+  const store = useContext(PlayerContext);
+  if (!store) {
     throw new Error("usePlayer must be used within a PlayerContextProvider");
   }
-  return context;
-};
+  const picked = useRef<Pick<PlayerContextType, K> | undefined>(undefined);
+  const pick = () => {
+    const value = store.get();
+    const previous = picked.current;
+    if (previous && keys.every((key) => Object.is(previous[key], value[key]))) return previous;
+    const next = {} as Pick<PlayerContextType, K>;
+    for (const key of keys) next[key] = value[key];
+    picked.current = next;
+    return next;
+  };
+  return useSyncExternalStore(store.subscribe, pick);
+}

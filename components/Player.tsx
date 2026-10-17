@@ -45,7 +45,7 @@ export default function Player({ style }: ViewProps) {
 }
 
 function PlayerPlayButton({ buttonColor }: PlayButtonProps) {
-  const { togglePlayPause, isPlaying } = usePlayer();
+  const { togglePlayPause, isPlaying } = usePlayer("togglePlayPause", "isPlaying");
 
   return (
     <TouchableOpacity

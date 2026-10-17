@@ -37,7 +37,7 @@ import LoadingScreen from "@/components/LoadingScreen";
 type DateTimeFormatOptions = Intl.DateTimeFormatOptions;
 
 function AlbumPlayButton({ playableTracks }: { playableTracks: RNTrack[] }) {
-  const { isPlaying, activeTrack, playTrack, togglePlayPause } = usePlayer();
+  const { isPlaying, activeTrack, playTrack, togglePlayPause } = usePlayer("isPlaying", "activeTrack", "playTrack", "togglePlayPause");
 
   const isCurrentAlbum = Boolean(
     activeTrack &&
@@ -116,7 +116,7 @@ export default function AlbumTracks() {
     queryAlbum({ slug: slug, id: id }),
   );
   const router = useRouter();
-  const { disabledTrackIds } = usePlayer();
+  const { disabledTrackIds } = usePlayer("disabledTrackIds");
   const { user } = useAuthContext();
   const { t } = useTranslation("translation");
   const [showError, setShowError] = useState<boolean>(true);

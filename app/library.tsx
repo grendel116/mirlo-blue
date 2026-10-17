@@ -220,7 +220,7 @@ export default function LibraryScreen() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { mutate: logout } = useLogoutMutation();
-  const { playTrack, activeTrack } = usePlayer();
+  const { playTrack, activeTrack } = usePlayer("playTrack", "activeTrack");
   const activeTab = useLibraryTab();
   const downloadedTracks = useDownloads();
   const stationLikes = useStationLikes();

@@ -4,7 +4,7 @@ import { usePlayer } from "@/state/PlayerContext";
 import { theme } from "@/constants/theme";
 
 export default function PrevButton() {
-  const { skipPrevious } = usePlayer();
+  const { skipPrevious } = usePlayer("skipPrevious");
 
   return (
     <TouchableOpacity

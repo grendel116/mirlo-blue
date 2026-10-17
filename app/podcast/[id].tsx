@@ -62,7 +62,7 @@ export default function PodcastScreen() {
   const show = findPodcastShow(id);
   const router = useRouter();
   const { data: episodes = [], isPending, isError, refetch } = useQuery(queryPodcastEpisodes(show));
-  const { activeTrack, isPlaying, playTrack, togglePlayPause } = usePlayer();
+  const { activeTrack, isPlaying, playTrack, togglePlayPause } = usePlayer("activeTrack", "isPlaying", "playTrack", "togglePlayPause");
   const [imgError, setImgError] = useState(false);
 
   if (!show || !isQualityArtwork(show.artwork)) {

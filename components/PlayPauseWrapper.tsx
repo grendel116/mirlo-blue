@@ -23,7 +23,7 @@ export default function PlayPauseWrapper({
   style,
   selectedAlbum,
 }: PlayPauseWrapperProps) {
-  const { activeTrack, playTrack, disabledTrackIds } = usePlayer();
+  const { activeTrack, playTrack, disabledTrackIds } = usePlayer("activeTrack", "playTrack", "disabledTrackIds");
   const { user } = useAuthContext();
 
   const canPlayTrack = isTrackOwnedOrPreview(

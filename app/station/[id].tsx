@@ -31,7 +31,7 @@ export default function StationScreen() {
   const station = findStation(id);
   const router = useRouter();
   const { data: plays = [] } = useQuery(queryRadioPlays(station));
-  const { activeTrack } = usePlayer();
+  const { activeTrack } = usePlayer("activeTrack");
   const [imgError, setImgError] = useState(false);
 
   if (!station || !isQualityArtwork(station.artwork)) {
@@ -123,7 +123,7 @@ export default function StationScreen() {
 
 // Plays the station like an album's play button: pauses it when it's already on
 function StationPlayButton({ station }: { station: RadioStation }) {
-  const { activeTrack, isPlaying, playTrack, togglePlayPause } = usePlayer();
+  const { activeTrack, isPlaying, playTrack, togglePlayPause } = usePlayer("activeTrack", "isPlaying", "playTrack", "togglePlayPause");
   const isCurrent = activeTrack?.liveStation === station.id;
   const onPress = () => {
     if (isCurrent) return togglePlayPause();
