@@ -6,6 +6,8 @@ import {
   Image,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -37,11 +39,11 @@ export function formatBytes(bytes: number): string {
 function emptyText(folder: MusicFolderStatus): string {
   switch (folder) {
     case "ready":
-      return "Tap the download arrow on an album you own, or add songs to your music folder and rescan.";
+      return "Tap the download arrow on an album you own, or add songs to your music folder and pull down to scan it.";
     case "needs-permission":
       return "Reconnect your music folder to play the songs saved in it.";
     case "none":
-      return "Choose your music folder. The songs already in it show here, and you can rescan it any time.";
+      return "Choose your music folder. The songs already in it show here, and you can pull down to scan it any time.";
     case "unsupported":
       return "Offline music folders require a Chromium browser (such as Chrome, Edge, or Brave) or the Android app.";
   }
@@ -93,6 +95,17 @@ export default memo(function DownloadsTab() {
     }
   };
 
+  const refreshControl =
+    musicFolder.status === "ready" ? (
+      <RefreshControl
+        refreshing={importing}
+        onRefresh={() => runMusicFolder(rescanMusicFolder)}
+        tintColor={theme.colors.primary}
+        colors={[theme.colors.primary]}
+        progressBackgroundColor={theme.colors.surfaceElevated}
+      />
+    ) : undefined;
+
   return (
     <KeyboardAvoidingView style={styles.pane} behavior="padding">
       <View style={styles.bar}>
@@ -108,15 +121,17 @@ export default memo(function DownloadsTab() {
             {importing && <ActivityIndicator size="small" color={theme.colors.primary} />}
             {musicFolder.status === "ready" ? (
               <>
-                <TouchableOpacity
-                  onPress={() => runMusicFolder(rescanMusicFolder)}
-                  disabled={importing}
-                  style={styles.folderButton}
-                  accessibilityLabel="Look for new and removed songs in your music folder"
-                >
-                  <Ionicons name="refresh" size={14} color={theme.colors.primary} />
-                  <Text style={styles.folderButtonText}>Rescan</Text>
-                </TouchableOpacity>
+                {Platform.OS === "web" && (
+                  <TouchableOpacity
+                    onPress={() => runMusicFolder(rescanMusicFolder)}
+                    disabled={importing}
+                    style={styles.folderButton}
+                    accessibilityLabel="Look for new and removed songs in your music folder"
+                  >
+                    <Ionicons name="refresh" size={14} color={theme.colors.primary} />
+                    <Text style={styles.folderButtonText}>Rescan</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   onPress={() => runMusicFolder(chooseMusicFolder)}
                   disabled={importing}
@@ -147,14 +162,15 @@ export default memo(function DownloadsTab() {
       </View>
 
       {albums.length === 0 ? (
-        <View style={styles.empty}>
+        <ScrollView contentContainerStyle={styles.empty} refreshControl={refreshControl}>
           <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>No downloads yet</Text>
           <Text style={styles.emptyText}>{emptyText(musicFolder.status)}</Text>
-        </View>
+        </ScrollView>
       ) : (
         <FlatList
           data={albums}
+          refreshControl={refreshControl}
           keyExtractor={(album) => album.key}
           keyboardShouldPersistTaps="handled"
           initialNumToRender={12}
@@ -251,7 +267,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   folderButtonText: { color: theme.colors.primary, fontSize: 12, fontWeight: "700" },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 10 },
+  empty: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 10 },
   emptyTitle: { color: theme.colors.textPrimary, fontSize: 16, fontWeight: "700" },
   emptyText: { color: theme.colors.textSecondary, fontSize: 13, textAlign: "center" },
   list: { padding: 12, paddingBottom: 80 },
