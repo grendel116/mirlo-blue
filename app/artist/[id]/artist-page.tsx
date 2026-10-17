@@ -219,7 +219,11 @@ export default function ArtistPage() {
               </Markdown>
             ) : (
               <Text style={styles.bioFallback}>
-                {`${artistInfo.name} is an artist on Mirlo.`}
+                {artistInfo.onMirlo
+                  ? `${artistInfo.name} is an artist on Mirlo.`
+                  : routeId.startsWith("saved-")
+                    ? `${artistInfo.name} — music on this device.`
+                    : `${artistInfo.name} is an artist on Faircamp.`}
               </Text>
             )}
             {artistInfo.onMirlo ? (

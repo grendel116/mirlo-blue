@@ -190,9 +190,10 @@ export default function RootLayout() {
                   name="purchaseModal"
                   options={{
                     headerShown: false,
-                    presentation: "modal",
+                    presentation: "transparentModal",
                     animation: "slide_from_bottom",
                     animationDuration: 200,
+                    contentStyle: { backgroundColor: "transparent" },
                   }}
                 />
                 <Stack.Screen

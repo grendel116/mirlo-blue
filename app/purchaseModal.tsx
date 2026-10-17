@@ -1,5 +1,13 @@
-import { useState } from "react";
-import { ScrollView, StyleSheet } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { StyleSheet, useWindowDimensions } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -23,10 +31,97 @@ import {
   type PaymentsStatus,
 } from "@/components/purchase/ui";
 
+const SETTLE_MS = 220;
+const FLICK_VELOCITY = 600;
+
 // The one purchase sheet: an album, an artist's whole catalogue, or support for an artist.
 // Opened with openPurchase; `artist` is the artist route id the album and artist pages use
 export default function PurchaseModal() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
+  const translateY = useSharedValue(0);
+  const heightSv = useSharedValue(windowHeight);
+  const scrollOffset = useSharedValue(0);
+  const startedAtTop = useSharedValue(true);
+
+  useEffect(() => {
+    heightSv.value = windowHeight;
+  }, [windowHeight, heightSv]);
+
+  const dismiss = useCallback(() => {
+    if (router.canDismiss()) router.dismiss();
+    else router.replace("/");
+  }, [router]);
+
+  const close = useCallback(() => {
+    translateY.value = withTiming(heightSv.value, { duration: SETTLE_MS }, (finished) => {
+      if (finished) runOnJS(dismiss)();
+    });
+  }, [translateY, heightSv, dismiss]);
+
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollOffset.value = event.contentOffset.y;
+  });
+
+  const scrollGesture = useMemo(() => Gesture.Native(), []);
+
+  // Drag down to close the purchase/support sheet when scrolled to the top
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(10)
+        .failOffsetX([-16, 16])
+        .simultaneousWithExternalGesture(scrollGesture)
+        .onStart(() => {
+          startedAtTop.value = scrollOffset.value <= 0;
+        })
+        .onUpdate((event) => {
+          if (!startedAtTop.value) return;
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (!startedAtTop.value) return;
+          const shouldClose =
+            event.velocityY > FLICK_VELOCITY ||
+            (event.velocityY > -FLICK_VELOCITY && translateY.value > heightSv.value * 0.25);
+          translateY.value = withTiming(
+            shouldClose ? heightSv.value : 0,
+            { duration: SETTLE_MS },
+            (finished) => {
+              if (finished && shouldClose) runOnJS(dismiss)();
+            },
+          );
+        }),
+    [scrollGesture, scrollOffset, startedAtTop, translateY, heightSv, dismiss],
+  );
+
+  const headerPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(10)
+        .failOffsetX([-16, 16])
+        .onUpdate((event) => {
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          const shouldClose =
+            event.velocityY > FLICK_VELOCITY ||
+            (event.velocityY > -FLICK_VELOCITY && translateY.value > heightSv.value * 0.25);
+          translateY.value = withTiming(
+            shouldClose ? heightSv.value : 0,
+            { duration: SETTLE_MS },
+            (finished) => {
+              if (finished && shouldClose) runOnJS(dismiss)();
+            },
+          );
+        }),
+    [translateY, heightSv, dismiss],
+  );
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
   const params = useLocalSearchParams<{
     kind: PurchaseTarget["kind"];
     artist: string;
@@ -116,7 +211,7 @@ export default function PurchaseModal() {
           artistName={(forAlbum ? album?.artist?.name : artist?.name) ?? "the artist"}
           album={forAlbum ? album : undefined}
           email={request.guestEmail}
-          onDone={() => router.dismiss()}
+          onDone={close}
         />
       );
     }
@@ -124,16 +219,37 @@ export default function PurchaseModal() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <DismissModalBar />
+    <Animated.View style={[styles.container, sheetStyle]}>
       {stage.name === "pay" ? (
-        <PayStage checkoutUrl={stage.checkoutUrl} onPaid={checkout.confirm} onCancel={checkout.cancel} />
+        <SafeAreaView style={styles.container}>
+          <GestureDetector gesture={headerPanGesture}>
+            <DismissModalBar onPress={close} />
+          </GestureDetector>
+          <PayStage
+            checkoutUrl={stage.checkoutUrl}
+            onPaid={checkout.confirm}
+            onCancel={checkout.cancel}
+          />
+        </SafeAreaView>
       ) : (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Card>{stageView()}</Card>
-        </ScrollView>
+        <GestureDetector gesture={panGesture}>
+          <SafeAreaView style={styles.container}>
+            <DismissModalBar onPress={close} />
+            <GestureDetector gesture={scrollGesture}>
+              <Animated.ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
+              >
+                <Card>{stageView()}</Card>
+              </Animated.ScrollView>
+            </GestureDetector>
+          </SafeAreaView>
+        </GestureDetector>
       )}
-    </SafeAreaView>
+    </Animated.View>
   );
 }
 
