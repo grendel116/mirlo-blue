@@ -383,14 +383,6 @@ const HomePane = memo(function HomePane({ active }: { active: boolean }) {
           >
             <Ionicons name="search" size={22} color={theme.colors.textPrimary} />
           </Pressable>
-          <Pressable
-            onPress={() => router.push("/menu")}
-            style={styles.searchButton}
-            accessibilityRole="button"
-            accessibilityLabel="Menu"
-          >
-            <Ionicons name="menu-outline" size={22} color={theme.colors.textPrimary} />
-          </Pressable>
         </View>
       </View>
 

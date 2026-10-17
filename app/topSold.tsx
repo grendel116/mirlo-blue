@@ -5,7 +5,6 @@ import {
   Pressable,
   StyleSheet,
 } from "react-native";
-import MenuButton from "@/components/MenuButton";
 import { useQuery } from "@tanstack/react-query";
 import TrackGroupItem from "@/components/TrackGroupItem";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,7 +53,7 @@ export default function Index() {
           <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
         </Pressable>
         <Text style={styles.headerTitle}>POPULAR PURCHASES</Text>
-        <MenuButton />
+        <View style={{ width: 36 }} />
       </View>
 
       <FlatList

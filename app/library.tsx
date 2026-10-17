@@ -524,14 +524,6 @@ export default function LibraryScreen() {
                 </Text>
               </Pressable>
             )}
-            <Pressable
-              onPress={() => router.push("/menu")}
-              style={styles.menuButton}
-              accessibilityRole="button"
-              accessibilityLabel="Menu"
-            >
-              <Ionicons name="menu-outline" size={20} color={theme.colors.textPrimary} />
-            </Pressable>
           </View>
         </View>
 
@@ -693,16 +685,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: theme.colors.textSecondary,
-  },
-  menuButton: {
-    width: 36,
-    height: 36,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surfaceElevated,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceCardBorder,
   },
   title: {
     fontFamily: theme.fonts.display,

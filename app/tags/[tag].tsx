@@ -6,7 +6,6 @@ import {
   FlatList,
   Pressable,
 } from "react-native";
-import MenuButton from "@/components/MenuButton";
 import { useLocalSearchParams } from "expo-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -95,7 +94,7 @@ export default function TagsView() {
           />
         </Pressable>
         <Text style={styles.headerTitle}>#{String(tag).toUpperCase()}</Text>
-        <MenuButton />
+        <View style={{ width: 36 }} />
       </View>
 
       <FlatList
