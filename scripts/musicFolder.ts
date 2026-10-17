@@ -18,6 +18,7 @@ import {
   pickCover,
   safeFileName,
   songDetails,
+  sourceKey,
 } from "./songFiles";
 
 // The listener's chosen music folder on the phone (Android SAF / iOS directory picker).
@@ -198,6 +199,23 @@ export async function rescanMusicFolder(): Promise<void> {
   );
   const addedZips = zips.filter((z) => !knownZipPaths.has(z.path));
 
+  // A file already in the library counts once, whether it came from Mirlo, an earlier add,
+  // or another folder of this scan
+  const heldFiles = new Set(
+    remaining.map((t) => {
+      const savedName = decodeURIComponent(t.url.split("/").pop() || "");
+      return sourceKey(t.source === "file" ? savedName.replace(/^\d+-\d+-/, "") : savedName, t.bytes);
+    }),
+  );
+  const newAudio = added
+    .map((path) => audio.find((a) => a.path === path)!)
+    .filter((item) => {
+      const key = sourceKey(cleanEntryName(item.file.uri), item.file.size);
+      if (heldFiles.has(key)) return false;
+      heldFiles.add(key);
+      return true;
+    });
+
   const now = Date.now();
   const destFolder = downloadsFolder("files");
   const coversFolder = downloadsFolder("covers");
@@ -206,8 +224,7 @@ export async function rescanMusicFolder(): Promise<void> {
   const saved: DownloadedTrack[] = [];
   let index = 0;
 
-  for (const path of added) {
-    const item = audio.find((a) => a.path === path)!;
+  for (const item of newAudio) {
     const origName = cleanEntryName(item.file.uri);
     const destFile = new File(destFolder, `${now}-${index}-${safeFileName(origName)}`);
     await copyAsync({ from: item.file.uri, to: destFile.uri });

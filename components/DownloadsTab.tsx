@@ -18,11 +18,7 @@ import { askChoice } from "@/scripts/askChoice";
 import { theme } from "@/constants/theme";
 import { DownloadedAlbum, groupTracksIntoAlbums, useDownloads } from "@/scripts/downloadManager";
 import { openDownloadedAlbum } from "@/scripts/albumLookup";
-import {
-  PICKS_PHONE_FILES,
-  chooseAlbumCover,
-  importFiles,
-} from "@/scripts/offlineFiles";
+import { PICKS_PHONE_FILES, chooseAlbumCover } from "@/scripts/offlineFiles";
 import {
   chooseMusicFolder,
   MusicFolderStatus,
@@ -37,17 +33,15 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
-// What an empty Downloads tab suggests on the phone, and in each music folder state on web
-function emptyText(picksPhoneFiles: boolean, folder: MusicFolderStatus): string {
-  if (picksPhoneFiles)
-    return "Tap the download arrow on an album you own, or choose a music folder and add files from your phone.";
+// What an empty Downloads tab suggests in each music folder state
+function emptyText(folder: MusicFolderStatus): string {
   switch (folder) {
     case "ready":
       return "Tap the download arrow on an album you own, or add songs to your music folder and rescan.";
     case "needs-permission":
       return "Reconnect your music folder to play the songs saved in it.";
     case "none":
-      return "Choose a music folder on your computer. Albums you download go there, and the songs already in it show here.";
+      return "Choose your music folder. The songs already in it show here, and you can rescan it any time.";
     case "unsupported":
       return "Offline music folders require a Chromium browser (such as Chrome, Edge, or Brave) or the Android app.";
   }
@@ -61,7 +55,7 @@ export default memo(function DownloadsTab() {
   const musicFolder = useMusicFolder();
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
-  const [importing, setImporting] = useState<"files" | "music" | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const open = async (album: DownloadedAlbum) => {
     setOpeningKey(album.key);
@@ -88,25 +82,14 @@ export default memo(function DownloadsTab() {
       ...(Platform.OS === "ios" ? [{ text: "Cancel", style: "cancel" as const }] : []),
     ]);
 
-  const runImportFiles = async () => {
-    setImporting("files");
-    try {
-      await importFiles();
-    } catch (err) {
-      showError("Couldn't add files")(err);
-    } finally {
-      setImporting(null);
-    }
-  };
-
   const runMusicFolder = async (action: () => Promise<unknown>) => {
-    setImporting("music");
+    setImporting(true);
     try {
       await action();
     } catch (err) {
       showError("Couldn't open your music folder")(err);
     } finally {
-      setImporting(null);
+      setImporting(false);
     }
   };
 
@@ -120,44 +103,23 @@ export default memo(function DownloadsTab() {
               )}`
             : ""}
         </Text>
-        {PICKS_PHONE_FILES && (
-          <View style={styles.barActions}>
-            <TouchableOpacity
-              onPress={runImportFiles}
-              disabled={importing !== null}
-              style={styles.addButton}
-              accessibilityLabel="Add audio or zip files from this phone"
-            >
-              {importing === "files" ? (
-                <ActivityIndicator size="small" color={theme.colors.playButtonIcon} />
-              ) : (
-                <Ionicons name="add" size={15} color={theme.colors.playButtonIcon} />
-              )}
-              <Text style={styles.addButtonText}>Add files</Text>
-            </TouchableOpacity>
-          </View>
-        )}
         {musicFolder.status !== "unsupported" && (
           <View style={styles.barActions}>
-            {importing === "music" && <ActivityIndicator size="small" color={theme.colors.primary} />}
+            {importing && <ActivityIndicator size="small" color={theme.colors.primary} />}
             {musicFolder.status === "ready" ? (
               <>
-                <Ionicons name="folder-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={styles.total} numberOfLines={1}>
-                  {musicFolder.name}
-                </Text>
                 <TouchableOpacity
                   onPress={() => runMusicFolder(rescanMusicFolder)}
-                  disabled={importing !== null}
+                  disabled={importing}
                   style={styles.folderButton}
-                  accessibilityLabel={`Look for new and removed songs in ${musicFolder.name}`}
+                  accessibilityLabel="Look for new and removed songs in your music folder"
                 >
                   <Ionicons name="refresh" size={14} color={theme.colors.primary} />
                   <Text style={styles.folderButtonText}>Rescan</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => runMusicFolder(chooseMusicFolder)}
-                  disabled={importing !== null}
+                  disabled={importing}
                   style={styles.folderButton}
                 >
                   <Ionicons name="folder-open-outline" size={14} color={theme.colors.primary} />
@@ -171,14 +133,12 @@ export default memo(function DownloadsTab() {
                     musicFolder.status === "needs-permission" ? reconnectMusicFolder : chooseMusicFolder,
                   )
                 }
-                disabled={importing !== null}
+                disabled={importing}
                 style={styles.addButton}
               >
                 <Ionicons name="folder-open-outline" size={14} color={theme.colors.playButtonIcon} />
                 <Text style={styles.addButtonText}>
-                  {musicFolder.status === "needs-permission"
-                    ? `Reconnect ${musicFolder.name}`
-                    : "Choose music folder"}
+                  {musicFolder.status === "needs-permission" ? "Reconnect music folder" : "Choose music folder"}
                 </Text>
               </TouchableOpacity>
             )}
@@ -190,7 +150,7 @@ export default memo(function DownloadsTab() {
         <View style={styles.empty}>
           <Ionicons name="download-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>No downloads yet</Text>
-          <Text style={styles.emptyText}>{emptyText(PICKS_PHONE_FILES, musicFolder.status)}</Text>
+          <Text style={styles.emptyText}>{emptyText(musicFolder.status)}</Text>
         </View>
       ) : (
         <FlatList

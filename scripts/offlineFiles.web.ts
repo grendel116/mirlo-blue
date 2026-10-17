@@ -151,14 +151,6 @@ export async function downloadTrack(
   await downloadIntoFolder("tracks", track.id, album, format, onStage, () => track, () => false);
 }
 
-export async function importFiles(): Promise<string | null> {
-  throw new Error("Adding files works in the phone app");
-}
-
-export async function importFolder(): Promise<string | null> {
-  throw new Error("Adding folders works in the phone app");
-}
-
 // Deletes saved songs from the music folder, then the covers no saved song uses any more
 export async function removeDownloads(tracks: DownloadedTrack[]): Promise<void> {
   for (const t of tracks) if (t.path) await removeFile(t.path);

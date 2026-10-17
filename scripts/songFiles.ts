@@ -38,6 +38,13 @@ export const bytesReader =
   (offset, length) =>
     bytes.subarray(offset, offset + length);
 
+// A file is the same file when its name and size match. Saved copies are named
+// `<time>-<index>-<original name>`
+export function sourceKey(name: string, bytes: number | null | undefined): string {
+  return `${safeFileName(name)}:${bytes ?? ""}`;
+}
+
+
 // Comparing saved songs with the audio files found in the music folder: the ids of songs whose
 // files are gone, and the paths of files not saved yet
 export function folderChanges(
