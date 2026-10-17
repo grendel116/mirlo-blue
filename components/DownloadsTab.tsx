@@ -2,7 +2,6 @@ import { memo, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Image,
   Platform,
   Pressable,
@@ -14,13 +13,12 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import AlbumEditor, { confirmDeleteAlbum } from "@/components/AlbumEditor";
 import { showError } from "@/scripts/showError";
 import { askChoice } from "@/scripts/askChoice";
 import { theme } from "@/constants/theme";
 import { DownloadedAlbum, groupTracksIntoAlbums, useDownloads } from "@/scripts/downloadManager";
 import { openDownloadedAlbum } from "@/scripts/albumLookup";
-import { PICKS_PHONE_FILES, chooseAlbumCover } from "@/scripts/offlineFiles";
+import { PICKS_PHONE_FILES, chooseAlbumCover, removeDownloads } from "@/scripts/offlineFiles";
 import {
   chooseMusicFolder,
   MusicFolderStatus,
@@ -49,13 +47,28 @@ function emptyText(folder: MusicFolderStatus): string {
   }
 }
 
+function confirmDeleteAlbum(album: DownloadedAlbum) {
+  const count = album.tracks.length;
+  askChoice(
+    "Delete album?",
+    `Remove "${album.title}" and its ${count} ${count === 1 ? "song" : "songs"} from your downloads?`,
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => removeDownloads(album.tracks).catch(showError("Couldn't delete album")),
+      },
+    ],
+  );
+}
+
 // Everything saved on this phone, one row per album like the other Library boxes. Tapping an
-// album opens its page; holding it offers the cover, editing, and delete
+// album opens its page; holding it offers the cover and delete
 export default memo(function DownloadsTab() {
   const tracks = useDownloads();
   const albums = useMemo(() => groupTracksIntoAlbums(tracks), [tracks]);
   const musicFolder = useMusicFolder();
-  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -78,7 +91,6 @@ export default memo(function DownloadsTab() {
             },
           ]
         : []),
-      { text: "Edit", onPress: () => setEditingKey(album.key) },
       { text: "Delete", style: "destructive", onPress: () => confirmDeleteAlbum(album) },
       // Android shows three buttons at most and closes on a tap outside instead
       ...(Platform.OS === "ios" ? [{ text: "Cancel", style: "cancel" as const }] : []),
@@ -107,7 +119,7 @@ export default memo(function DownloadsTab() {
     ) : undefined;
 
   return (
-    <KeyboardAvoidingView style={styles.pane} behavior="padding">
+    <View style={styles.pane}>
       <View style={styles.bar}>
         <Text style={styles.total}>
           {albums.length > 0
@@ -178,14 +190,14 @@ export default memo(function DownloadsTab() {
           windowSize={5}
           contentContainerStyle={styles.list}
           renderItem={({ item: album }) => (
-            <View style={[styles.card, editingKey === album.key && styles.cardEditing]}>
+            <View style={styles.card}>
               <Pressable
                 android_ripple={{ color: theme.colors.ripple }}
                 onPress={() => open(album)}
                 onLongPress={() => showTools(album)}
                 disabled={openingKey !== null}
                 style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
-                accessibilityHint="Hold for cover, edit, and delete"
+                accessibilityHint="Hold for cover and delete"
               >
                 {album.artwork ? (
                   <Image source={{ uri: album.artwork }} style={styles.thumb} />
@@ -213,18 +225,11 @@ export default memo(function DownloadsTab() {
                 )}
               </Pressable>
 
-              {editingKey === album.key && (
-                <AlbumEditor
-                  album={album}
-                  onKeyChange={setEditingKey}
-                  onDone={() => setEditingKey(null)}
-                />
-              )}
             </View>
           )}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 });
 
@@ -278,10 +283,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.surfaceCardBorder,
-  },
-  cardEditing: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surfaceElevated,
   },
   row: { flexDirection: "row", alignItems: "center" },
   thumb: {

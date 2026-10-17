@@ -320,23 +320,3 @@ export async function updateAlbum(
   );
   return newKey;
 }
-
-export async function updateTrackTitle(trackId: number, title: string): Promise<void> {
-  const current = await getDownloadedTracks();
-  await persist(current.map((t) => (t.id === trackId ? { ...t, title } : t)));
-}
-
-// Moves a song one place up (-1) or down (1) within its album
-export async function moveTrack(albumKey: string, trackId: number, step: -1 | 1): Promise<void> {
-  const current = await getDownloadedTracks();
-  const album = groupTracksIntoAlbums(current).find((a) => a.key === albumKey);
-  if (!album) return;
-  const from = album.tracks.findIndex((t) => t.id === trackId);
-  const to = from + step;
-  if (from < 0 || to < 0 || to >= album.tracks.length) return;
-
-  const ordered = [...album.tracks];
-  [ordered[from], ordered[to]] = [ordered[to], ordered[from]];
-  const position = new Map(ordered.map((t, i) => [t.id, i + 1]));
-  await persist(current.map((t) => (position.has(t.id) ? { ...t, order: position.get(t.id) } : t)));
-}
