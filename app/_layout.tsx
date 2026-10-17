@@ -168,16 +168,6 @@ export default function RootLayout() {
                       headerShown: false,
                     }}
                   />
-                  <Stack.Screen
-                    name="maxPlaysReached"
-                    options={{
-                      headerShown: false,
-                      presentation: "transparentModal",
-                      animation: "slide_from_bottom",
-                      animationDuration: 200,
-                      contentStyle: { backgroundColor: "transparent" },
-                    }}
-                  />
 
                   <Stack.Screen
                     name="purchaseModal"
