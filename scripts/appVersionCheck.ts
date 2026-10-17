@@ -1,5 +1,6 @@
 import * as Application from "expo-application";
 import { Alert, Linking, Platform } from "react-native";
+import { askChoice } from "./askChoice";
 
 const GITHUB_LATEST_RELEASE_URL =
   "https://api.github.com/repos/grendel116/mirlo-blue/releases/latest";
@@ -143,20 +144,19 @@ function showAndroidUpdatePrompt(
   newVersion: string,
   downloadUrl: string,
 ) {
-  Alert.alert(
+  askChoice(
     "Update Available",
     `MirloBlue ${newVersion} is ready to install (you have ${currentVersion}). Download and install the latest APK update?`,
     [
       {
-        text: "Later",
-        style: "cancel",
-      },
-      {
         text: "Install Update",
         onPress: () => Linking.openURL(downloadUrl),
       },
+      {
+        text: "Later",
+        style: "cancel",
+      },
     ],
-    { cancelable: true },
   );
 }
 

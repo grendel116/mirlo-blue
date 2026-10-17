@@ -2,7 +2,7 @@
   "expo": {
     "name": "MirloBlue",
     "slug": "mirlo-blue",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/images/mirlo-blue-icon.png",
     "scheme": "mirloblue",
@@ -25,10 +25,7 @@
         "backgroundColor": "#070b14"
       },
       "permissions": [
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "space.mirlo.blue"
     },
@@ -55,17 +52,8 @@
           "faceIDPermission": "Allow MirloBlue to access your Face ID biometric data."
         }
       ],
-      [
-        "expo-media-library",
-        {
-          "photosPermission": "Allow MirloBlue to access your photos.",
-          "savePhotosPermission": "Allow MirloBlue to save music to your device.",
-          "granularPermissions": ["audio"]
-        }
-      ],
       "expo-localization",
       "expo-asset",
-      "react-native-zip-archive",
       "./plugins/withMirloAppLinks"
     ],
     "experiments": {
@@ -79,7 +67,7 @@
         "projectId": "797fb379-0d0b-4d23-b827-bb78570fb948"
       }
     },
-    "runtimeVersion": "1.0.7",
+    "runtimeVersion": "1.0.8",
     "owner": "drhodesw",
     "updates": {
       "url": "https://u.expo.dev/797fb379-0d0b-4d23-b827-bb78570fb948"
