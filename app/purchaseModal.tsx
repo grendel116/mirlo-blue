@@ -1,18 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  runOnJS,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
+import { StyleSheet } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import DismissModalBar from "@/components/DismissModalBar";
-import { theme } from "@/constants/theme";
+import SwipeDownSheet, { SheetScrollView, useSheetClose } from "@/components/SwipeDownSheet";
 import { queryAlbum, queryArtist } from "@/queries/queries";
 import { queryCatalogPrice, queryPaymentsEnabled } from "@/queries/listener";
 import type { PurchaseTarget } from "@/scripts/openPurchase";
@@ -31,114 +21,38 @@ import {
   type PaymentsStatus,
 } from "@/components/purchase/ui";
 
-const SETTLE_MS = 220;
-const FLICK_VELOCITY = 600;
-
 // The one purchase sheet: an album, an artist's whole catalogue, or support for an artist.
 // Opened with openPurchase; `artist` is the artist route id the album and artist pages use
 export default function PurchaseModal() {
-  const router = useRouter();
-  const { height: windowHeight } = useWindowDimensions();
-  const translateY = useSharedValue(0);
-  const heightSv = useSharedValue(windowHeight);
-  const scrollOffset = useSharedValue(0);
-  const startedAtTop = useSharedValue(true);
-  const closingRef = useRef(false);
-
-  useEffect(() => {
-    heightSv.value = windowHeight;
-  }, [windowHeight, heightSv]);
-
-  const dismiss = useCallback(() => {
-    if (router.canDismiss()) router.dismiss();
-    else router.replace("/");
-  }, [router]);
-
-  const close = useCallback(() => {
-    if (closingRef.current) return;
-    closingRef.current = true;
-    translateY.value = withTiming(heightSv.value, { duration: SETTLE_MS }, (finished) => {
-      if (finished) runOnJS(dismiss)();
-    });
-  }, [translateY, heightSv, dismiss]);
-
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollOffset.value = event.contentOffset.y;
-  });
-
-  const scrollGesture = useMemo(() => Gesture.Native(), []);
-
-  // Drag down to close the purchase/support sheet when scrolled to the top
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY(10)
-        .failOffsetX([-16, 16])
-        .simultaneousWithExternalGesture(scrollGesture)
-        .onStart(() => {
-          startedAtTop.value = scrollOffset.value <= 0;
-        })
-        .onUpdate((event) => {
-          if (!startedAtTop.value) return;
-          translateY.value = Math.max(0, event.translationY);
-        })
-        .onEnd((event) => {
-          if (!startedAtTop.value) return;
-          const shouldClose =
-            event.velocityY > FLICK_VELOCITY ||
-            (event.velocityY > -FLICK_VELOCITY && translateY.value > heightSv.value * 0.25);
-          translateY.value = withTiming(
-            shouldClose ? heightSv.value : 0,
-            { duration: SETTLE_MS },
-            (finished) => {
-              if (finished && shouldClose) runOnJS(dismiss)();
-            },
-          );
-        }),
-    [scrollGesture, scrollOffset, startedAtTop, translateY, heightSv, dismiss],
-  );
-
-  const headerPanGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY(10)
-        .failOffsetX([-16, 16])
-        .onUpdate((event) => {
-          translateY.value = Math.max(0, event.translationY);
-        })
-        .onEnd((event) => {
-          const shouldClose =
-            event.velocityY > FLICK_VELOCITY ||
-            (event.velocityY > -FLICK_VELOCITY && translateY.value > heightSv.value * 0.25);
-          translateY.value = withTiming(
-            shouldClose ? heightSv.value : 0,
-            { duration: SETTLE_MS },
-            (finished) => {
-              if (finished && shouldClose) runOnJS(dismiss)();
-            },
-          );
-        }),
-    [translateY, heightSv, dismiss],
-  );
-
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-
   const params = useLocalSearchParams<{
     kind: PurchaseTarget["kind"];
     artist: string;
     slug?: string;
   }>();
-  const [kind, setKind] = useState(params.kind);
   const checkout = useCheckout();
-  const { stage, request } = checkout;
+  const resetKey = `${params.kind}|${params.artist}|${params.slug ?? ""}`;
 
-  useEffect(() => {
-    closingRef.current = false;
-    translateY.value = 0;
-    setKind(params.kind);
-  }, [params.kind, params.artist, params.slug, translateY]);
+  return (
+    <SwipeDownSheet
+      // The payment page scrolls on its own, so only the bar drags the sheet there
+      dragFromBarOnly={checkout.stage.name === "pay"}
+      resetKey={resetKey}
+    >
+      <PurchaseBody key={resetKey} params={params} checkout={checkout} />
+    </SwipeDownSheet>
+  );
+}
+
+function PurchaseBody({
+  params,
+  checkout,
+}: {
+  params: { kind: PurchaseTarget["kind"]; artist: string; slug?: string };
+  checkout: ReturnType<typeof useCheckout>;
+}) {
+  const close = useSheetClose();
+  const [kind, setKind] = useState(params.kind);
+  const { stage, request } = checkout;
 
   const albumQuery = useQuery(queryAlbum({ slug: params.slug ?? "", id: params.artist }));
   const album = albumQuery.data?.result;
@@ -227,46 +141,23 @@ export default function PurchaseModal() {
     return chooseView();
   };
 
+  if (stage.name === "pay") {
+    return (
+      <PayStage checkoutUrl={stage.checkoutUrl} onPaid={checkout.confirm} onCancel={checkout.cancel} />
+    );
+  }
   return (
-    <Animated.View style={[styles.container, sheetStyle]}>
-      {stage.name === "pay" ? (
-        <SafeAreaView edges={["top"]} style={styles.container}>
-          <GestureDetector gesture={headerPanGesture}>
-            <DismissModalBar onPress={close} />
-          </GestureDetector>
-          <PayStage
-            checkoutUrl={stage.checkoutUrl}
-            onPaid={checkout.confirm}
-            onCancel={checkout.cancel}
-          />
-        </SafeAreaView>
-      ) : (
-        <GestureDetector gesture={panGesture}>
-          <SafeAreaView edges={["top"]} style={styles.container}>
-            <DismissModalBar onPress={close} />
-            <GestureDetector gesture={scrollGesture}>
-              <Animated.ScrollView
-                contentContainerStyle={styles.content}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                onScroll={scrollHandler}
-                scrollEventThrottle={16}
-              >
-                <Card>{stageView()}</Card>
-              </Animated.ScrollView>
-            </GestureDetector>
-          </SafeAreaView>
-        </GestureDetector>
-      )}
-    </Animated.View>
+    <SheetScrollView
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      <Card>{stageView()}</Card>
+    </SheetScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
   content: {
     flexGrow: 1,
     justifyContent: "center",

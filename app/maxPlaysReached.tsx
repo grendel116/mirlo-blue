@@ -2,19 +2,15 @@ import * as api from "../queries/fetch/fetchWrapper";
 import {
   View,
   Text,
-  StyleSheet,
   Pressable,
   FlatList} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter } from "expo-router";
+import SwipeDownSheet from "@/components/SwipeDownSheet";
 import { usePlayer } from "@/state/PlayerContext";
 import { mirloRed } from "@/constants/mirlo-red";
 import { useAuthContext } from "@/state/AuthContext";
 import { useState } from "react";
 
 export default function MaxPlaysReached() {
-  const router = useRouter();
   const { activeTrack } = usePlayer();
   const { user } = useAuthContext();
   const [isEmailSent, setIsEmailSent] = useState<boolean>(false);
@@ -36,35 +32,7 @@ export default function MaxPlaysReached() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          width: "100%",
-          height: 60,
-          backgroundColor: "#fafafa",
-        }}
-      >
-        <Pressable
-          onPress={() => router.dismiss()}
-          style={{
-            width: "100%",
-            height: "100%",
-            justifyContent: "center",
-            alignItems: "center",
-            flexDirection: "row",
-          }}
-        >
-          <Ionicons
-            name="chevron-down-outline"
-            size={40}
-            style={{ color: "#696969" }}
-          ></Ionicons>
-        </Pressable>
-      </View>
-
+    <SwipeDownSheet>
       <View
         style={{
           flex: 1,
@@ -205,15 +173,6 @@ export default function MaxPlaysReached() {
           )}
         />
       </View>
-    </SafeAreaView>
+    </SwipeDownSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "white",
-    alignItems: "center",
-    justifyContent: "flex-start",
-  },
-});

@@ -3,16 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 
-import DismissModalBar from "@/components/DismissModalBar";
+import SwipeDownSheet, { SheetScrollView } from "@/components/SwipeDownSheet";
 import { mirloRed } from "@/constants/mirlo-red";
 import {
   AUTH_PROFILE_QUERY_KEY,
@@ -117,9 +115,8 @@ export default function DeleteAccountScreen() {
   }, [deleteAccount, isDeleting, user?.id]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <DismissModalBar />
-      <ScrollView
+    <SwipeDownSheet style={styles.container}>
+      <SheetScrollView
         contentContainerStyle={styles.contentContainer}
         style={styles.content}
       >
@@ -184,8 +181,8 @@ export default function DeleteAccountScreen() {
         >
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </Pressable>
-      </ScrollView>
-    </SafeAreaView>
+      </SheetScrollView>
+    </SwipeDownSheet>
   );
 }
 

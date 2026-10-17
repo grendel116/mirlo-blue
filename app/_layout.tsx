@@ -142,9 +142,10 @@ export default function RootLayout() {
                     name="deleteAccount"
                     options={{
                       headerShown: false,
-                      presentation: "modal",
+                      presentation: "transparentModal",
                       animation: "slide_from_bottom",
                       animationDuration: 200,
+                      contentStyle: { backgroundColor: "transparent" },
                     }}
                   />
                   <Stack.Screen
@@ -181,9 +182,10 @@ export default function RootLayout() {
                     name="maxPlaysReached"
                     options={{
                       headerShown: false,
-                      presentation: "modal",
+                      presentation: "transparentModal",
                       animation: "slide_from_bottom",
                       animationDuration: 200,
+                      contentStyle: { backgroundColor: "transparent" },
                     }}
                   />
 
@@ -201,9 +203,10 @@ export default function RootLayout() {
                     name="emailVerificationModal"
                     options={{
                       headerShown: false,
-                      presentation: "modal",
+                      presentation: "transparentModal",
                       animation: "slide_from_bottom",
                       animationDuration: 200,
+                      contentStyle: { backgroundColor: "transparent" },
                     }}
                   />
                 </Stack>

@@ -36,9 +36,15 @@ jest.mock("@/queries/authQueries", () => ({
   clearLocalAuthSession: (...args: unknown[]) => mockClearSession(...args),
 }));
 
-jest.mock("@/components/DismissModalBar", () => {
-  const { View } = require("react-native");
-  return { __esModule: true, default: () => <View testID="dismiss-modal-bar" /> };
+jest.mock("@/components/SwipeDownSheet", () => {
+  const { View, ScrollView } = require("react-native");
+  return {
+    __esModule: true,
+    default: ({ children }: { children: React.ReactNode }) => (
+      <View testID="swipe-down-sheet">{children}</View>
+    ),
+    SheetScrollView: ScrollView,
+  };
 });
 
 const importScreen = () => require("@/app/deleteAccount").default;

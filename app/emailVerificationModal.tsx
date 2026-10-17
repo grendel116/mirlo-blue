@@ -11,10 +11,9 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { mirloRed } from "@/constants/mirlo-red";
 import { useRouter } from "expo-router";
-import DismissModalBar from "@/components/DismissModalBar";
+import SwipeDownSheet from "@/components/SwipeDownSheet";
 import { useTranslation } from "react-i18next";
 import ErrorNotification from "@/components/ErrorNotification";
 import { storeTokens } from "@/queries/authQueries";
@@ -108,8 +107,7 @@ export default function EmailVerificationModal() {
   );
 
   return !waitingForVerification ? (
-    <SafeAreaView style={styles.container}>
-      <DismissModalBar />
+    <SwipeDownSheet style={styles.container}>
       {emailError && (
         <ErrorNotification
           visible={showError}
@@ -185,10 +183,9 @@ export default function EmailVerificationModal() {
           <Text style={styles.text}>{tVerify("verifyEmail")}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </SwipeDownSheet>
   ) : (
-    <SafeAreaView style={styles.container}>
-      <DismissModalBar />
+    <SwipeDownSheet style={styles.container}>
       {codeError && (
         <ErrorNotification
           visible={showError}
@@ -228,7 +225,7 @@ export default function EmailVerificationModal() {
           <Text style={styles.text}>{tVerify("verifyEmailCode")}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </SwipeDownSheet>
   );
 }
 

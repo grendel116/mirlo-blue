@@ -108,7 +108,10 @@ export default function Footer({ style }: ViewProps) {
     isNowPlayingOpen ||
     pathname.includes("/tracks/") ||
     pathname.endsWith("/tracks") ||
-    pathname === "/purchaseModal";
+    pathname === "/purchaseModal" ||
+    pathname === "/deleteAccount" ||
+    pathname === "/emailVerificationModal" ||
+    pathname === "/maxPlaysReached";
   const isLiveSet = Boolean(activeTrack?.liveStation && looping !== "track");
 
   const activeTab: MainTab | null =
