@@ -8,6 +8,7 @@ import {
   checkoutCompleteUrl,
   latestTransactionId,
   startCheckout,
+  type DeferredQuote,
   type PurchaseItem,
 } from "@/queries/listener";
 
@@ -29,9 +30,11 @@ export type CheckoutControls = {
   error?: string;
 };
 
-// The pay stage shows Mirlo's checkout page: inside the sheet on Android, in a tab on the web
+// The pay stage shows Mirlo's checkout: in-app Stripe Elements or hosted fallback
 export type PayStageProps = {
-  checkoutUrl: string;
+  checkoutUrl?: string;
+  deferred?: DeferredQuote;
+  guestEmail?: string;
   onPaid: () => void;
   onCancel: () => void;
 };
@@ -42,7 +45,7 @@ export type CheckoutOutcome = "recorded" | "emailed" | "processing";
 
 export type CheckoutStage =
   | { name: "choose" }
-  | { name: "pay"; checkoutUrl: string }
+  | { name: "pay"; checkoutUrl?: string; deferred?: DeferredQuote }
   | { name: "confirming" }
   | { name: "done"; outcome: CheckoutOutcome };
 
@@ -77,32 +80,29 @@ export function useCheckout() {
     [userId],
   );
 
-  // Call straight from a button press: on the web the checkout tab opens before any
-  // network call, while the browser still counts it as the listener's tap.
   // Mirlo adds a free album on the spot, with no checkout page to open or payment to watch
   const pay = async (next: CheckoutRequest) => {
     const free = next.items.every((item) => "price" in item && item.price === "0");
-    const tab = Platform.OS === "web" && !free ? window.open("", "_blank") : null;
     setBusy(true);
     setError(undefined);
     setRequest(next);
     try {
       previousTransaction.current =
         userId && !free ? await latestTransactionId(userId) : undefined;
-      const { checkoutUrl } = await startCheckout({
+      const { checkoutUrl, deferred } = await startCheckout({
         artistId: next.artistId,
         items: next.items,
         email: user?.email ?? next.guestEmail,
         successUrl: checkoutCompleteUrl(next.artistSlug, next.items[0].type),
       });
-      if (checkoutUrl) {
-        if (tab) tab.location.href = checkoutUrl;
+      if (deferred) {
+        setStage({ name: "pay", deferred });
+      } else if (checkoutUrl) {
         setStage({ name: "pay", checkoutUrl });
       } else {
         await finish();
       }
     } catch (err) {
-      tab?.close();
       setError(err instanceof Error ? err.message : "Couldn't start the checkout. Try again.");
     } finally {
       setBusy(false);

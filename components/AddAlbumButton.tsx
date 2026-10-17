@@ -5,7 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback } from "react";
 import { fairplayerReleaseSlug } from "@/queries/fairplayer";
 import { openPurchase } from "@/scripts/openPurchase";
-import { isFreeAlbum, sellsOnMirlo } from "@/components/purchase/helpers";
+import { faircampAction, isFreeAlbum, sellsOnMirlo } from "@/components/purchase/helpers";
 
 type AddAlbumButtonProps = {
   trackGroup: AlbumProps;
@@ -32,7 +32,10 @@ export default function AddAlbumButton({ style, size, trackGroup }: AddAlbumButt
     });
   }, [trackGroup, router]);
 
-  return ids && ids.includes(trackGroup.id) ? null : (
+  const owned = ids?.includes(trackGroup.id);
+  const faircamp = faircampAction(trackGroup);
+
+  return owned || faircamp === "download" || faircamp === "none" ? null : (
     <Pressable
       onPress={onPress}
       style={style}

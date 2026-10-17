@@ -178,20 +178,50 @@ export function isCheckoutCompleteUrl(url: string): boolean {
   }
 }
 
-// Opens a checkout on Mirlo. Paid items answer with the URL of Mirlo's checkout page;
-// a free album for a signed-in listener is added on the spot and answers with a relative path.
-// The checkout page has no app login, so the listener's email ties the purchase to their account
+export const MIRLO_STRIPE_PUBLISHABLE_KEY =
+  "pk_live_51Mqk7sLg9Wvtcfb9V94fKToU4k4uWxyp6N3HqtOPd5xhvb3ubHIRyA2LyFvHVTdmSc5pJ9IL0rG9Kzf3DbrUQiel00QeWKDimZ";
+
+export type DeferredQuote = {
+  mode: "payment" | "setup";
+  amount: number;
+  currency: string;
+  stripeAccountId: string;
+  requiresShipping: boolean;
+  checkoutId: string;
+  buyerEmailKnown: boolean;
+  artistName: string;
+  successUrl?: string | null;
+};
+
+// Opens a checkout on Mirlo. Requests an in-app deferred Stripe quote;
+// falls back to hosted URL if deferred is not supported for this purchase.
 export async function startCheckout(body: {
   artistId: number;
   items: PurchaseItem[];
   email?: string;
   successUrl: string;
-}): Promise<{ checkoutUrl?: string }> {
-  const { redirectUrl } = await api.post<object, { redirectUrl?: string }>("/v1/purchase", {
+}): Promise<{ checkoutUrl?: string; deferred?: DeferredQuote }> {
+  const res = await api.post<
+    object,
+    { redirectUrl?: string; deferred?: DeferredQuote }
+  >("/v1/purchase", {
     ...body,
-    hosted: true,
+    deferred: true,
   });
-  return { checkoutUrl: redirectUrl?.startsWith("http") ? redirectUrl : undefined };
+  if (res.deferred) {
+    return { deferred: res.deferred };
+  }
+  return { checkoutUrl: res.redirectUrl?.startsWith("http") ? res.redirectUrl : undefined };
+}
+
+// Confirms purchase intent and retrieves the Stripe clientSecret for PaymentElement
+export async function confirmPurchaseIntent(body: {
+  checkoutId: string;
+  amount: number;
+  email?: string;
+  shippingAddress?: unknown;
+}): Promise<{ clientSecret: string; stripeAccountId: string; paymentIntentId: string }> {
+  return api.post("/v1/purchase", body);
 }
 
 // The id of the listener's newest Mirlo transaction. Stripe tells Mirlo about a payment a moment

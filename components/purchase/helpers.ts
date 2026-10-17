@@ -12,6 +12,15 @@ export function isFreeAlbum(album: Pick<AlbumProps, "minPrice">): boolean {
   return !album.minPrice;
 }
 
+// What the album page offers for a Faircamp release: the shop for paid, code and external
+// downloads, the download button for free ones, and neither when downloads are off.
+// Undefined for releases from other sources
+export function faircampAction(album: Pick<AlbumProps, "source" | "faircampShop">): "shop" | "download" | "none" | undefined {
+  if (album.source !== "Faircamp") return undefined;
+  if (!album.faircampShop) return "none";
+  return album.faircampShop.mode === "free" ? "download" : "shop";
+}
+
 // The price the sheet starts on, as the website does: the suggestion, else the minimum
 export function defaultAlbumPrice(album: Pick<AlbumProps, "minPrice" | "suggestedPrice">): number {
   return album.suggestedPrice ?? album.minPrice ?? 0;
@@ -79,8 +88,15 @@ export function formatPurchaseButtonLabel(
   const sourceName = label?.trim() || fallbackSource;
   const lower = sourceName.toLowerCase();
 
-  // Explicit actions like "Subscribe on Mirlo" or "Support on Patreon"
-  if (lower.startsWith("subscribe") || lower.startsWith("support")) {
+  // Explicit actions like "Subscribe on Mirlo", "Download release", or "Support on Patreon"
+  if (
+    lower.startsWith("subscribe") ||
+    lower.startsWith("support") ||
+    lower.startsWith("download")
+  ) {
+    if (lower === "downloads" || lower === "download") {
+      return "Download release";
+    }
     return sourceName;
   }
   if (lower.includes("subscription")) {
@@ -96,11 +112,12 @@ export function formatPurchaseButtonLabel(
     .replace(/^(buy|purchase)\s+/i, "")
     .trim();
 
-  // If the label was generic "Album" or "Release", use fallbackSource
+  // If the label was generic "Album", "Release", or "Downloads", use fallbackSource
   const isGeneric =
     !cleanSource ||
     cleanSource.toLowerCase() === "album" ||
-    cleanSource.toLowerCase() === "release";
+    cleanSource.toLowerCase() === "release" ||
+    cleanSource.toLowerCase() === "downloads";
 
   // Normalize Mirlo Space / mirlo to "Mirlo"
   const normalizedSource = isGeneric

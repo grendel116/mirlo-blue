@@ -107,16 +107,19 @@ export function PrimaryButton({
 export function SecondaryButton({
   label,
   onPress,
+  disabled,
   icon,
 }: {
   label: string;
   onPress: () => void;
+  disabled?: boolean;
   icon?: IconName;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.button, styles.secondaryButton]}
+      disabled={disabled}
+      style={[styles.button, styles.secondaryButton, disabled && styles.buttonDisabled]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >

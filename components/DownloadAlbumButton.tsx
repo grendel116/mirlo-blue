@@ -13,6 +13,7 @@ import { showError } from "@/scripts/showError";
 import { askChoice } from "@/scripts/askChoice";
 import { ownsAlbum } from "@/scripts/utils";
 import { CAN_DOWNLOAD, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
+import { chooseFaircampDownload } from "@/scripts/faircampDownload";
 
 const STAGE_LABELS: Record<DownloadStage, string> = {
   preparing: "Preparing",
@@ -21,16 +22,19 @@ const STAGE_LABELS: Record<DownloadStage, string> = {
 };
 
 // Saves an album you own: to the phone for offline listening (where it can be removed again),
-// or as a zip through the browser on web
+// or as a zip through the browser on web. Faircamp free downloads offer their zips the same way
 export default function DownloadAlbumButton({ album, size = 32 }: { album: AlbumProps; size?: number }) {
   const { user } = useAuthContext();
   const downloads = useDownloads();
   const [stage, setStage] = useState<DownloadStage | null>(null);
+  // Faircamp free downloads offer their zips straight from the album page
+  const shop = album.source === "Faircamp" ? album.faircampShop : undefined;
+  const faircampDownloads = shop?.mode === "free" ? shop.downloadsUrl : undefined;
 
-  if (!CAN_DOWNLOAD || !ownsAlbum(user, album)) return null;
+  if (!faircampDownloads && (!CAN_DOWNLOAD || !ownsAlbum(user, album))) return null;
 
   const saved = downloads.filter((d) => album.tracks?.some((t) => t.id === d.id));
-  const isDownloaded = saved.length > 0 && saved.length >= (album.tracks?.length ?? 0);
+  const isDownloaded = !faircampDownloads && saved.length > 0 && saved.length >= (album.tracks?.length ?? 0);
 
   const start = (format: DownloadFormat) => {
     setStage("preparing");
@@ -41,6 +45,13 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
 
   const onPress = () => {
     if (stage) return;
+    if (faircampDownloads) {
+      setStage("preparing");
+      chooseFaircampDownload(faircampDownloads)
+        .catch(showError("Download failed"))
+        .finally(() => setStage(null));
+      return;
+    }
     if (isDownloaded) {
       askChoice("Remove download?", `${album.title} will only play online.`, [
         { text: "Cancel", style: "cancel" },

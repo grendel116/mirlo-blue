@@ -2,6 +2,7 @@ import { Text } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuthContext } from "@/state/AuthContext";
 import { openInBrowser } from "@/scripts/openInBrowser";
+import { FaircampShop } from "./FaircampShop";
 import {
   defaultAlbumPrice,
   externalPurchaseLinks,
@@ -28,11 +29,22 @@ type AlbumPurchaseProps = CheckoutControls & {
   payments: PaymentsStatus;
   // Switches the sheet to the artist's subscriptions
   onSupport: () => void;
+  // Opens an external store page inside the in-app viewer
+  onBrowseExternal?: (url: string) => void;
 };
 
 // Buying one release: Mirlo releases check out on Mirlo, other sources link to their stores
-export function AlbumPurchase({ album, currency, payments, onSupport, ...checkout }: AlbumPurchaseProps) {
-  if (!sellsOnMirlo(album)) return <ExternalStores album={album} />;
+export function AlbumPurchase({
+  album,
+  currency,
+  payments,
+  onSupport,
+  onBrowseExternal,
+  ...checkout
+}: AlbumPurchaseProps) {
+  if (!sellsOnMirlo(album)) {
+    return <ExternalStores album={album} onBrowseExternal={onBrowseExternal} />;
+  }
   if (album.isGettable === false) {
     return (
       <>
@@ -116,35 +128,41 @@ function FreeAlbum({ album, onPay, busy, error }: CheckoutControls & { album: Al
   );
 }
 
-function ExternalStores({ album }: { album: AlbumProps }) {
+// Releases sold elsewhere. Faircamp releases get the sheet's own Faircamp checkout; other
+// sources list their stores, which open in the viewer
+function ExternalStores({
+  album,
+  onBrowseExternal,
+}: {
+  album: AlbumProps;
+  onBrowseExternal?: (url: string) => void;
+}) {
   const links = externalPurchaseLinks(album);
   const artistName = album.artist?.name || "the artist";
-  const isFaircamp = album.source === "Faircamp";
+  const open = (url: string) => (onBrowseExternal ? onBrowseExternal(url) : openInBrowser(url));
+
+  if (album.source === "Faircamp") {
+    return (
+      <>
+        <AlbumHeader album={album} />
+        <FaircampShop album={album} onOpen={open} />
+      </>
+    );
+  }
+
   return (
     <>
       <AlbumHeader album={album} />
       {links.length > 0 ? (
         <>
           <Text style={styles.body}>
-            {isFaircamp
-              ? `Opens "${album.title}" on ${artistName}'s Faircamp page to buy or download directly from the artist.`
-              : `Buying directly supports ${artistName} and unlocks downloads on their store.`}
+            Buying directly supports {artistName} and unlocks downloads on their store.
           </Text>
           {links.map((link, index) =>
             index === 0 ? (
-              <PrimaryButton
-                key={link.url}
-                label={link.label}
-                icon="open-outline"
-                onPress={() => openInBrowser(link.url)}
-              />
+              <PrimaryButton key={link.url} label={link.label} icon="storefront-outline" onPress={() => open(link.url)} />
             ) : (
-              <SecondaryButton
-                key={link.url}
-                label={link.label}
-                icon="open-outline"
-                onPress={() => openInBrowser(link.url)}
-              />
+              <SecondaryButton key={link.url} label={link.label} icon="storefront-outline" onPress={() => open(link.url)} />
             ),
           )}
         </>

@@ -11,6 +11,7 @@ import { useCheckout, type CheckoutControls } from "@/components/purchase/useChe
 import { AlbumPurchase } from "@/components/purchase/AlbumPurchase";
 import { CataloguePurchase } from "@/components/purchase/CataloguePurchase";
 import { SupportPurchase } from "@/components/purchase/SupportPurchase";
+import { InAppStoreView } from "@/components/purchase/InAppStoreView";
 import { PayStage } from "@/components/purchase/PayStage";
 import { Confirming, Done } from "@/components/purchase/CheckoutResult";
 import {
@@ -30,15 +31,22 @@ export default function PurchaseModal() {
     slug?: string;
   }>();
   const checkout = useCheckout();
+  const [browsingUrl, setBrowsingUrl] = useState<string | null>(null);
   const resetKey = `${params.kind}|${params.artist}|${params.slug ?? ""}`;
 
   return (
     <SwipeDownSheet
-      // The payment page scrolls on its own, so only the bar drags the sheet there
-      dragFromBarOnly={checkout.stage.name === "pay"}
+      // The payment page and in-app store viewer scroll on their own, so only the bar drags the sheet there
+      dragFromBarOnly={checkout.stage.name === "pay" || Boolean(browsingUrl)}
       resetKey={resetKey}
     >
-      <PurchaseBody key={resetKey} params={params} checkout={checkout} />
+      <PurchaseBody
+        key={resetKey}
+        params={params}
+        checkout={checkout}
+        browsingUrl={browsingUrl}
+        setBrowsingUrl={setBrowsingUrl}
+      />
     </SwipeDownSheet>
   );
 }
@@ -46,9 +54,13 @@ export default function PurchaseModal() {
 function PurchaseBody({
   params,
   checkout,
+  browsingUrl,
+  setBrowsingUrl,
 }: {
   params: { kind: PurchaseTarget["kind"]; artist: string; slug?: string };
   checkout: ReturnType<typeof useCheckout>;
+  browsingUrl: string | null;
+  setBrowsingUrl: (url: string | null) => void;
 }) {
   const close = useSheetClose();
   const [kind, setKind] = useState(params.kind);
@@ -88,6 +100,7 @@ function PurchaseBody({
           currency={albumCurrency(album, artist ?? album.artist)}
           payments={payments}
           onSupport={() => setKind("support")}
+          onBrowseExternal={setBrowsingUrl}
           {...controls}
         />
       );
@@ -141,9 +154,26 @@ function PurchaseBody({
     return chooseView();
   };
 
+  if (browsingUrl) {
+    return (
+      <InAppStoreView
+        url={browsingUrl}
+        title={album?.title}
+        source={album?.source}
+        onClose={() => setBrowsingUrl(null)}
+      />
+    );
+  }
+
   if (stage.name === "pay") {
     return (
-      <PayStage checkoutUrl={stage.checkoutUrl} onPaid={checkout.confirm} onCancel={checkout.cancel} />
+      <PayStage
+        checkoutUrl={stage.checkoutUrl}
+        deferred={stage.deferred}
+        guestEmail={request?.guestEmail}
+        onPaid={checkout.confirm}
+        onCancel={checkout.cancel}
+      />
     );
   }
   return (
