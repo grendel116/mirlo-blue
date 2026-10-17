@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Directory, File, Paths } from "expo-file-system";
 import { copyAsync } from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { unzip } from "react-native-zip-archive";
 import { readTags } from "./readTags";
 import {
   DownloadedTrack,
@@ -18,17 +17,15 @@ import {
   pickCover,
   safeFileName,
   songDetails,
-  sourceKey,
 } from "./songFiles";
 
 // The listener's chosen music folder on the phone (Android SAF / iOS directory picker).
-// Its URI is kept in AsyncStorage so the app remembers it across visits, and Rescan brings
-// Downloads in line with the files and zip archives inside it
+// Its URI is kept in AsyncStorage so the app remembers it across visits. The app only indexes
+// and plays what's in it; Rescan brings Downloads in line with the folder's audio files
 
 export type MusicFolderStatus = "unsupported" | "none" | "needs-permission" | "ready";
 
 const FOLDER_URI_KEY = "mirlo_blue_music_folder_uri";
-const ZIP_FILE = /\.zip$/i;
 
 let folderUri: string | null = null;
 let status: MusicFolderStatus = "none";
@@ -90,23 +87,24 @@ export async function reconnectMusicFolder(): Promise<boolean> {
   return chooseMusicFolder();
 }
 
+
 function cleanEntryName(uri: string): string {
   const decoded = decodeURIComponent(uri).replace(/\/+$/, "");
   return decoded.split(/[/:]/).pop() || "file";
 }
 
-function pathOf(uri: string): string {
-  return decodeURIComponent(uri.replace(/^file:\/\//, ""));
-}
-
-function downloadsFolder(name: string): Directory {
-  const folder = new Directory(Paths.document, "downloads", name);
+function coversFolder(): Directory {
+  const folder = new Directory(Paths.document, "downloads", "covers");
   folder.create({ intermediates: true, idempotent: true });
   return folder;
 }
 
-function tagsOf(file: File) {
-  const handle = file.open();
+// The folder's access grants don't let the tag reader open its files directly, so a song's
+// tags are read from a short-lived copy in the cache
+async function tagsOf(source: File, name: string, index: number) {
+  const temp = new File(Paths.cache, `scan-${index}-${safeFileName(name)}`);
+  await copyAsync({ from: source.uri, to: temp.uri });
+  const handle = temp.open();
   try {
     return readTags((offset, length) => {
       handle.offset = offset;
@@ -114,13 +112,8 @@ function tagsOf(file: File) {
     });
   } finally {
     handle.close();
+    if (temp.exists) temp.delete();
   }
-}
-
-function filesIn(folder: Directory): File[] {
-  return folder
-    .list()
-    .flatMap((entry) => (entry instanceof Directory ? filesIn(entry) : [entry]));
 }
 
 type FoundItem = {
@@ -130,10 +123,9 @@ type FoundItem = {
   dirName: string;
 };
 
-function scanTree(dir: Directory, prefix: string): { audio: FoundItem[]; images: FoundItem[]; zips: FoundItem[] } {
+function scanTree(dir: Directory, prefix: string): { audio: FoundItem[]; images: FoundItem[] } {
   const audio: FoundItem[] = [];
   const images: FoundItem[] = [];
-  const zips: FoundItem[] = [];
   const dirName = cleanEntryName(dir.uri);
 
   for (const entry of dir.list()) {
@@ -143,18 +135,18 @@ function scanTree(dir: Directory, prefix: string): { audio: FoundItem[]; images:
       const sub = scanTree(entry, path);
       audio.push(...sub.audio);
       images.push(...sub.images);
-      zips.push(...sub.zips);
     } else if (AUDIO_FILE.test(name)) {
       audio.push({ path, file: entry, dirPath: prefix, dirName });
     } else if (IMAGE_FILE.test(name)) {
       images.push({ path, file: entry, dirPath: prefix, dirName });
-    } else if (ZIP_FILE.test(name)) {
-      zips.push({ path, file: entry, dirPath: prefix, dirName });
     }
   }
-  return { audio, images, zips };
+  return { audio, images };
 }
 
+// Brings Downloads in line with the folder: songs whose files are gone are forgotten, and audio
+// files not indexed yet join as your own songs, described by their tags, names and folders.
+// The songs stay where they are and play from there
 export async function rescanMusicFolder(): Promise<void> {
   if (!folderUri) return;
   const root = new Directory(folderUri);
@@ -163,179 +155,56 @@ export async function rescanMusicFolder(): Promise<void> {
     return;
   }
 
-  const { audio, images, zips } = scanTree(root, "");
-  const foundPaths = [
-    ...audio.map((a) => a.path),
-    ...zips.map((z) => z.path),
-  ];
-
-  const currentTracks = await getDownloadedTracks();
-  // Tracks imported from a zip archive share a path prefix `<zipPath>::<innerName>`
-  const goneIds = currentTracks
-    .filter((t) => {
-      if (!t.path) return false;
-      const basePath = t.path.split("::")[0];
-      return !foundPaths.includes(basePath);
-    })
-    .map((t) => t.id);
-
-  if (goneIds.length > 0) {
-    const goneTracks = currentTracks.filter((t) => goneIds.includes(t.id));
-    for (const t of goneTracks) {
-      try {
-        const f = new File(t.url);
-        if (f.exists) f.delete();
-      } catch {}
-    }
-    await forgetDownloadedTracks(goneIds);
-  }
-
-  const remaining = await getDownloadedTracks();
-  const { added } = folderChanges(remaining, audio.map((a) => a.path));
-  const knownZipPaths = new Set(
-    remaining
-      .map((t) => t.path?.split("::")[0])
-      .filter((p): p is string => Boolean(p)),
+  const { audio, images } = scanTree(root, "");
+  const { gone, added } = folderChanges(
+    await getDownloadedTracks(),
+    audio.map((a) => a.path),
   );
-  const addedZips = zips.filter((z) => !knownZipPaths.has(z.path));
-
-  // A file already in the library counts once, whether it came from Mirlo, an earlier add,
-  // or another folder of this scan
-  const heldFiles = new Set(
-    remaining.map((t) => {
-      const savedName = decodeURIComponent(t.url.split("/").pop() || "");
-      return sourceKey(t.source === "file" ? savedName.replace(/^\d+-\d+-/, "") : savedName, t.bytes);
-    }),
-  );
-  const newAudio = added
-    .map((path) => audio.find((a) => a.path === path)!)
-    .filter((item) => {
-      const key = sourceKey(cleanEntryName(item.file.uri), item.file.size);
-      if (heldFiles.has(key)) return false;
-      heldFiles.add(key);
-      return true;
-    });
+  await forgetDownloadedTracks(gone);
 
   const now = Date.now();
-  const destFolder = downloadsFolder("files");
-  const coversFolder = downloadsFolder("covers");
   const coversByAlbum = new Map<string, string>();
-  const dirCoverCache = new Map<string, string>();
   const saved: DownloadedTrack[] = [];
-  let index = 0;
 
-  for (const item of newAudio) {
-    const origName = cleanEntryName(item.file.uri);
-    const destFile = new File(destFolder, `${now}-${index}-${safeFileName(origName)}`);
-    await copyAsync({ from: item.file.uri, to: destFile.uri });
-
-    let folderCover = dirCoverCache.get(item.dirPath);
-    if (!folderCover) {
-      const dirImages = images.filter((img) => img.dirPath === item.dirPath);
-      const pickedImgPath = pickCover(dirImages.map((img) => img.path));
-      const pickedImg = dirImages.find((img) => img.path === pickedImgPath);
-      if (pickedImg) {
-        const ext = cleanEntryName(pickedImg.file.uri).split(".").pop() || "jpg";
-        const destCover = new File(coversFolder, `${now}-${index}-cover.${ext}`);
-        await copyAsync({ from: pickedImg.file.uri, to: destCover.uri });
-        folderCover = destCover.uri;
-        dirCoverCache.set(item.dirPath, folderCover);
-      }
-    }
-
-    const tags = tagsOf(destFile);
+  for (const [index, path] of added.entries()) {
+    const item = audio.find((a) => a.path === path)!;
+    const name = cleanEntryName(item.file.uri);
+    const tags = await tagsOf(item.file, name, index);
     const parent = namesFromFile(item.dirName);
     const details = songDetails(
       tags,
-      origName,
+      name,
       index,
       parent.title || item.dirName,
       parent.artist || undefined,
     );
     const albumKey = details.albumTitle.toLowerCase();
 
-    if (tags.cover && !coversByAlbum.has(albumKey)) {
-      const ext = tags.cover.mime.includes("png") ? "png" : "jpg";
-      const cover = new File(coversFolder, `${now}-${index}.${ext}`);
-      cover.write(tags.cover.bytes);
-      coversByAlbum.set(albumKey, cover.uri);
-    } else if (folderCover && !coversByAlbum.has(albumKey)) {
-      coversByAlbum.set(albumKey, folderCover);
+    if (!coversByAlbum.has(albumKey)) {
+      if (tags.cover) {
+        const ext = tags.cover.mime.includes("png") ? "png" : "jpg";
+        const cover = new File(coversFolder(), `${now}-${index}.${ext}`);
+        cover.write(tags.cover.bytes);
+        coversByAlbum.set(albumKey, cover.uri);
+      } else {
+        const dirImages = images.filter((img) => img.dirPath === item.dirPath);
+        const picked = pickCover(dirImages.map((img) => img.path));
+        const image = dirImages.find((img) => img.path === picked);
+        if (image) coversByAlbum.set(albumKey, image.file.uri);
+      }
     }
 
     saved.push({
       id: -(now + index),
       ...details,
       artwork: coversByAlbum.get(albumKey),
-      url: destFile.uri,
+      url: item.file.uri,
       path: item.path,
-      bytes: destFile.size,
+      bytes: item.file.size,
       downloadedAt: now,
       source: "file",
     });
-    index++;
   }
 
-  for (const zipItem of addedZips) {
-    const origZipName = cleanEntryName(zipItem.file.uri);
-    const tempZip = new File(Paths.cache, `folder-zip-${now}-${index}.zip`);
-    const tempDir = new Directory(Paths.cache, `folder-unzip-${now}-${index}`);
-    tempDir.create({ intermediates: true, idempotent: true });
-    try {
-      await copyAsync({ from: zipItem.file.uri, to: tempZip.uri });
-      await unzip(pathOf(tempZip.uri), pathOf(tempDir.uri));
-      const unpacked = filesIn(tempDir);
-      const unpackedAudio = unpacked.filter((f) => AUDIO_FILE.test(f.name));
-      const unpackedImg = unpacked.find((f) => IMAGE_FILE.test(f.name));
-
-      let zipCover: string | undefined;
-      if (unpackedImg && unpackedAudio.length > 0) {
-        const ext = unpackedImg.name.split(".").pop() || "jpg";
-        const destCover = new File(coversFolder, `${now}-${index}-cover.${ext}`);
-        unpackedImg.copy(destCover);
-        zipCover = destCover.uri;
-      }
-
-      const namedZip = namesFromFile(origZipName);
-      const parent = namesFromFile(zipItem.dirName);
-      const fallbackAlbum = namedZip.title || parent.title || zipItem.dirName;
-      const fallbackArtist = namedZip.artist || parent.artist || undefined;
-
-      for (const audioFile of unpackedAudio) {
-        const destFile = new File(destFolder, `${now}-${index}-${safeFileName(audioFile.name)}`);
-        audioFile.copy(destFile);
-        const tags = tagsOf(destFile);
-        const details = songDetails(tags, audioFile.name, index, fallbackAlbum, fallbackArtist);
-        const albumKey = details.albumTitle.toLowerCase();
-
-        if (tags.cover && !coversByAlbum.has(albumKey)) {
-          const ext = tags.cover.mime.includes("png") ? "png" : "jpg";
-          const cover = new File(coversFolder, `${now}-${index}.${ext}`);
-          cover.write(tags.cover.bytes);
-          coversByAlbum.set(albumKey, cover.uri);
-        } else if (zipCover && !coversByAlbum.has(albumKey)) {
-          coversByAlbum.set(albumKey, zipCover);
-        }
-
-        saved.push({
-          id: -(now + index),
-          ...details,
-          artwork: coversByAlbum.get(albumKey),
-          url: destFile.uri,
-          path: `${zipItem.path}::${audioFile.name}`,
-          bytes: destFile.size,
-          downloadedAt: now,
-          source: "file",
-        });
-        index++;
-      }
-    } finally {
-      if (tempDir.exists) tempDir.delete();
-      if (tempZip.exists) tempZip.delete();
-    }
-  }
-
-  if (saved.length > 0) {
-    await saveDownloadedTracks(saved);
-  }
+  if (saved.length > 0) await saveDownloadedTracks(saved);
 }

@@ -27,16 +27,19 @@ export type DownloadedTrack = {
 // Browser links for files in the music folder, by path
 export type FolderLinks = { audio: Map<string, string>; covers: Map<string, string> };
 
+// Phone songs play from a file:// or content:// uri that outlives the app; browser links don't
+const isPhoneUri = (url: string) => /^(file|content):\/\//.test(url);
+
 // What storage keeps of a song: browser links last only as long as the page, so songs in the
-// web music folder keep their paths alone while phone files keep their file:// urls
+// web music folder keep their paths alone while phone files keep their uris
 export function storedTrack(track: DownloadedTrack): DownloadedTrack {
-  if (!track.path || track.url.startsWith("file://")) return track;
+  if (!track.path || isPhoneUri(track.url)) return track;
   return { ...track, url: "", artwork: track.coverPath ? undefined : track.artwork };
 }
 
 // A stored song with browser links for its files, when the music folder is open
 export function linkedTrack(track: DownloadedTrack, links: FolderLinks): DownloadedTrack {
-  if (!track.path || track.url.startsWith("file://")) return track;
+  if (!track.path || isPhoneUri(track.url)) return track;
   return {
     ...track,
     url: links.audio.get(track.path) ?? "",
