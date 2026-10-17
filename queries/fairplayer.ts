@@ -647,6 +647,9 @@ function deriveReleaseUrlFromAudioUrl(audioUrl: string): string | undefined {
     if (codecIdx >= 2 && /^\d+$/.test(segments[codecIdx - 1])) {
       return `${parsed.origin}/${segments.slice(0, codecIdx - 1).join("/")}/`;
     }
+    if (codecIdx >= 1) {
+      return `${parsed.origin}/${segments.slice(0, codecIdx).join("/")}/`;
+    }
     if (segments.length >= 2) {
       return `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
     }
