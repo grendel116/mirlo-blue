@@ -13,19 +13,26 @@ function read(command) {
   return execSync(command, { encoding: "utf8", shell: true }).trim();
 }
 
+// The last commit that changed source: its subject and body describe what this push ships
+const sourcePaths = "-- . :!docs/app :!docs/404.html";
+const subject = read(`git log -1 --format=%s ${sourcePaths}`);
+const body = read(`git log -1 --format=%b ${sourcePaths}`);
+
 run("npm run build:web");
 
 run("git add -A docs/app docs/404.html");
 const webBuildChanged = read("git diff --cached --name-only -- docs/app docs/404.html") !== "";
 if (webBuildChanged) {
-  run('git commit -m "Update web app build" -- docs/app docs/404.html');
+  const commitMessage = `Rebuild web app: ${subject}`;
+  run(`git commit -m ${JSON.stringify(commitMessage)} -- docs/app docs/404.html`);
 } else {
   console.log("\nWeb app build is unchanged.");
 }
 
 run("git push");
 
-const message = read("git log -1 --format=%s -- . :!docs/app :!docs/404.html");
+// Update messages are one line, so the body's lines are joined after the subject
+const message = [subject, ...body.split(/\r?\n/).filter(Boolean)].join(" | ");
 run(
   `npx --yes eas-cli@latest update --channel production --environment production --platform android --non-interactive --message ${JSON.stringify(message)}`,
 );
