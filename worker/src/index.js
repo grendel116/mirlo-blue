@@ -570,6 +570,75 @@ function isVerifiedFaircampCatalog(hubHtml, expectedDomain) {
   return "";
 }
 
+let memoryCatalogMap = null;
+let memoryCatalogMapExpiresAt = 0;
+
+async function getVerifiedCatalogUrl(expectedDomain) {
+  const now = Date.now();
+  if (memoryCatalogMap && memoryCatalogMapExpiresAt > now) {
+    return memoryCatalogMap[expectedDomain] || "";
+  }
+
+  const cache = globalThis.caches?.default;
+  const cacheKey = new Request("https://mirlo-blue-share.workers.dev/internal/fairplayer-catalogs-map");
+  if (cache) {
+    try {
+      const match = await cache.match(cacheKey);
+      if (match) {
+        memoryCatalogMap = await match.json();
+        memoryCatalogMapExpiresAt = now + 120000;
+        return memoryCatalogMap[expectedDomain] || "";
+      }
+    } catch (e) {
+      console.warn("Could not read cached catalog map:", e);
+    }
+  }
+
+  try {
+    const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`);
+    if (!hubResponse.ok) return "";
+    const hubHtml = await hubResponse.text();
+    const anchors = hubHtml.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi);
+    const map = {};
+    for (const [, attributes, content] of anchors) {
+      const href = getHtmlAttribute(attributes, "href");
+      const domain = normalizedCatalogDomain(href);
+      const isVerified = /bg-success|title=["'](?:verified|verificat)/i.test(content);
+      if (
+        domain &&
+        /faircamp/i.test(content.replace(/<[^>]*>/g, " ")) &&
+        isVerified
+      ) {
+        map[domain] = href;
+      }
+    }
+
+    memoryCatalogMap = map;
+    memoryCatalogMapExpiresAt = now + 120000;
+
+    if (cache) {
+      try {
+        await cache.put(
+          cacheKey,
+          new Response(JSON.stringify(map), {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=7200",
+            },
+          }),
+        );
+      } catch (e) {
+        console.warn("Could not cache catalog map:", e);
+      }
+    }
+
+    return map[expectedDomain] || "";
+  } catch (err) {
+    console.error("Failed to fetch verified catalog map:", err);
+    return "";
+  }
+}
+
 function getFairplayerSongElements(html) {
   return [...html.matchAll(/<div\b[^>]*\bclass=["'][^"']*\bsong\b[^"']*["'][^>]*>/gi)]
     .map((match) => match[0]);
@@ -1388,17 +1457,7 @@ export default {
         }
 
         try {
-          const hubResponse = await fetch(`${FAIRPLAYER_ROOT}/hub/`, {
-            cf: { cacheTtl: 600, cacheEverything: true },
-          });
-          if (!hubResponse.ok) {
-            return new Response("Fairplayer hub unavailable.", {
-              status: 502,
-              headers: corsHeaders,
-            });
-          }
-          const hubHtml = await hubResponse.text();
-          const catalogUrl = isVerifiedFaircampCatalog(hubHtml, domain);
+          const catalogUrl = await getVerifiedCatalogUrl(domain);
           if (!catalogUrl) {
             return new Response("Unverified Faircamp domain.", {
               status: 403,
@@ -1406,47 +1465,66 @@ export default {
             });
           }
 
+          const cleanBase = catalogUrl.replace(/\/+$/, "");
+          const expectedReleaseUrl = `${cleanBase}/${encodeURIComponent(idMatch[1])}/`;
           const fairplayerUrl = new URL(
             `/player/release/${encodeURIComponent(releaseId)}`,
             FAIRPLAYER_ROOT,
           );
-          const releaseResponse = await fetch(fairplayerUrl, {
-            headers: { Accept: "text/html" },
-            cf: { cacheTtl: 600, cacheEverything: true },
-          });
+
+          // Fetch Fairplayer release HTML and Artist release page in parallel
+          const [releaseResponse, pageResponse] = await Promise.all([
+            fetch(fairplayerUrl, {
+              headers: { Accept: "text/html" },
+              cf: { cacheTtl: 1800, cacheEverything: true },
+            }),
+            fetch(expectedReleaseUrl, {
+              headers: {
+                Accept: "text/html,application/xhtml+xml",
+                "User-Agent": "MirloBlueSocialBot/1.0",
+              },
+              cf: { cacheTtl: 1800, cacheEverything: true },
+            }).catch((pageErr) => {
+              console.warn("Could not fetch Faircamp release page:", pageErr);
+              return null;
+            }),
+          ]);
+
           if (!releaseResponse.ok) {
             return new Response("Fairplayer release unavailable.", {
               status: releaseResponse.status,
               headers: corsHeaders,
             });
           }
+
           const releaseHtml = await releaseResponse.text();
+          let pageHtml = pageResponse && pageResponse.ok ? await pageResponse.text() : null;
+          let releaseUrl = expectedReleaseUrl;
+
           const songs = getFairplayerSongElements(releaseHtml);
           const firstAudio = songs.length ? getHtmlAttribute(songs[0], "data-url") : "";
-          let releaseUrl = deriveReleaseUrlFromAudioUrl(firstAudio);
-          if (!releaseUrl) {
-            const cleanBase = catalogUrl.replace(/\/+$/, "");
-            releaseUrl = `${cleanBase}/${encodeURIComponent(idMatch[1])}/`;
-          }
-
-          let pageHtml = null;
-          let shopHtml = null;
-
-          try {
-            const pageResponse = await fetch(releaseUrl, {
-              headers: {
-                Accept: "text/html,application/xhtml+xml",
-                "User-Agent": "MirloBlueSocialBot/1.0",
-              },
-              cf: { cacheTtl: 600, cacheEverything: true },
-            });
-            if (pageResponse.ok) {
-              pageHtml = await pageResponse.text();
+          const derivedReleaseUrl = deriveReleaseUrlFromAudioUrl(firstAudio);
+          if (derivedReleaseUrl && derivedReleaseUrl !== expectedReleaseUrl) {
+            releaseUrl = derivedReleaseUrl;
+            if (!pageHtml) {
+              try {
+                const altPageResponse = await fetch(derivedReleaseUrl, {
+                  headers: {
+                    Accept: "text/html,application/xhtml+xml",
+                    "User-Agent": "MirloBlueSocialBot/1.0",
+                  },
+                  cf: { cacheTtl: 1800, cacheEverything: true },
+                });
+                if (altPageResponse.ok) {
+                  pageHtml = await altPageResponse.text();
+                }
+              } catch (altErr) {
+                console.warn("Could not fetch alt Faircamp release page:", altErr);
+              }
             }
-          } catch (pageErr) {
-            console.warn("Could not fetch Faircamp release page:", pageErr);
           }
 
+          let shopHtml = null;
           if (pageHtml) {
             const shopUrl = findFaircampDownloadAccessUrl(pageHtml, releaseUrl);
             if (shopUrl) {
@@ -1456,7 +1534,7 @@ export default {
                     Accept: "text/html,application/xhtml+xml",
                     "User-Agent": "MirloBlueSocialBot/1.0",
                   },
-                  cf: { cacheTtl: 600, cacheEverything: true },
+                  cf: { cacheTtl: 1800, cacheEverything: true },
                 });
                 if (shopResponse.ok) {
                   shopHtml = await shopResponse.text();
@@ -1478,7 +1556,7 @@ export default {
 
           const headers = new Headers(corsHeaders);
           headers.set("Content-Type", "application/json; charset=utf-8");
-          headers.set("Cache-Control", "public, max-age=1800");
+          headers.set("Cache-Control", "public, max-age=7200");
 
           const response = new Response(request.method === "HEAD" ? null : payload, {
             status: 200,
