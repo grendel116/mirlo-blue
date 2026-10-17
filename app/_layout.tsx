@@ -14,6 +14,7 @@ import { AppReadyContextProvider } from "@/state/AppReadyContext";
 import { useEffect, useState } from "react";
 import Footer from "@/components/Footer";
 import NowPlaying from "@/components/NowPlaying";
+import ChoiceSheet from "@/components/ChoiceSheet";
 import "../i18n";
 import { checkForUpdates } from "../scripts/appVersionCheck";
 import { openMusicFolder } from "@/scripts/musicFolder";
@@ -206,6 +207,7 @@ export default function RootLayout() {
               </Stack>
               <Footer />
               <NowPlaying />
+              <ChoiceSheet />
               <StatusBar style="light" backgroundColor="#070b14" />
             </SearchContextProvider>
           </PlayerContextProvider>
