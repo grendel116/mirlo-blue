@@ -36,3 +36,6 @@ Once deployed, set your worker URL in `.env`:
 EXPO_PUBLIC_SHARE_HUB_URL="https://mirlo-blue-share.<your-subdomain>.workers.dev/listen/"
 ```
 Or paste the URL directly into `components/ShareTrackButton.tsx`.
+
+The web app at https://grendel116.github.io/mirlo-blue/app/ reaches Mirlo through `/mirlo/*`, which carries login tokens as `x-mirlo-jwt` / `x-mirlo-refresh` headers, and reads podcast RSS through `/feed-proxy?url=`. Build it with `npm run build:web`, which writes `docs/app` and `docs/404.html`.
+

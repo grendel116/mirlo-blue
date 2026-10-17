@@ -126,8 +126,8 @@ export function parsePodcastRss(xml: string, limit: number = 30): PodcastEpisode
 }
 
 export function resolveFeedUrl(url: string): string {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    return `/feed-proxy?url=${encodeURIComponent(url)}`;
+  if (Platform.OS === "web") {
+    return `${new URL("/feed-proxy", SHARE_HUB_URL).href}?url=${encodeURIComponent(url)}`;
   }
   return url;
 }

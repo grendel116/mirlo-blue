@@ -69,7 +69,8 @@
       "./plugins/withMirloAppLinks"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/mirlo-blue/app"
     },
     "extra": {
       "router": {

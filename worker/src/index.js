@@ -1073,6 +1073,110 @@ function renderHtml(meta) {
 </html>`;
 }
 
+const MIRLO_API_ORIGIN = "https://mirlo.space";
+
+const MIRLO_PROXY_CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "*",
+  "Access-Control-Expose-Headers":
+    "x-mirlo-jwt, x-mirlo-refresh, Content-Length, Content-Range, Accept-Ranges",
+  "Access-Control-Max-Age": "86400",
+};
+
+function readCookieValue(setCookie, name) {
+  const pair = setCookie.split(";")[0];
+  const separator = pair.indexOf("=");
+  if (separator === -1 || pair.slice(0, separator).trim() !== name) return "";
+  return pair.slice(separator + 1).trim();
+}
+
+// Lets the web app talk to Mirlo's API. Browsers keep Mirlo's login cookies
+// away from other sites, so the app sends its tokens as x-mirlo-* headers and
+// receives fresh ones the same way.
+async function proxyMirloApi(request, url) {
+  const target = new URL(url.pathname.replace(/^\/mirlo/, "") + url.search, MIRLO_API_ORIGIN);
+
+  const headers = new Headers(request.headers);
+  const jwt = headers.get("x-mirlo-jwt");
+  const refresh = headers.get("x-mirlo-refresh");
+  for (const name of ["host", "origin", "referer", "cookie", "accept-encoding", "x-mirlo-jwt", "x-mirlo-refresh"]) {
+    headers.delete(name);
+  }
+  const cookies = [];
+  if (jwt) cookies.push(`jwt=${jwt}`);
+  if (refresh) cookies.push(`refresh=${refresh}`);
+  if (cookies.length) headers.set("cookie", cookies.join("; "));
+
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+
+  let upstream;
+  try {
+    upstream = await fetch(target, {
+      method: request.method,
+      headers,
+      body: hasBody ? await request.arrayBuffer() : undefined,
+      redirect: "follow",
+    });
+  } catch (err) {
+    console.error("Mirlo API proxy failed:", err);
+    return Response.json({ error: "Mirlo is unreachable" }, { status: 502, headers: MIRLO_PROXY_CORS });
+  }
+
+  let jwtToken = "";
+  let refreshToken = "";
+  for (const setCookie of upstream.headers.getSetCookie()) {
+    jwtToken = readCookieValue(setCookie, "jwt") || jwtToken;
+    refreshToken = readCookieValue(setCookie, "refresh") || refreshToken;
+  }
+
+  const responseHeaders = new Headers(upstream.headers);
+  responseHeaders.delete("set-cookie");
+  for (const [name, value] of Object.entries(MIRLO_PROXY_CORS)) responseHeaders.set(name, value);
+  if (jwtToken) responseHeaders.set("x-mirlo-jwt", jwtToken);
+  if (refreshToken) responseHeaders.set("x-mirlo-refresh", refreshToken);
+
+  const isJson = (upstream.headers.get("content-type") || "").includes("application/json");
+  if (isJson && (jwtToken || refreshToken)) {
+    const json = await upstream.json();
+    json._tokens = { jwt: jwtToken, refresh: refreshToken };
+    responseHeaders.delete("content-length");
+    responseHeaders.delete("content-encoding");
+    return new Response(JSON.stringify(json), { status: upstream.status, headers: responseHeaders });
+  }
+
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+}
+
+// Lets the web app read podcast RSS feeds, which rarely allow cross-site requests.
+async function proxyPodcastFeed(url, corsHeaders) {
+  const feedUrl = url.searchParams.get("url") || "";
+  if (!/^https?:\/\//i.test(feedUrl)) {
+    return new Response("Missing feed URL.", { status: 400, headers: corsHeaders });
+  }
+
+  try {
+    const feedRes = await fetch(feedUrl, {
+      headers: {
+        "User-Agent": "MirloBlue/1.0",
+        Accept: "application/rss+xml, application/xml, text/xml, */*",
+      },
+      cf: { cacheTtl: 600, cacheEverything: true },
+    });
+    return new Response(feedRes.body, {
+      status: feedRes.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=600",
+      },
+    });
+  } catch (err) {
+    console.error("Podcast feed proxy failed:", err);
+    return new Response("Failed to fetch feed.", { status: 502, headers: corsHeaders });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1086,8 +1190,16 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: corsHeaders,
+        headers: url.pathname.startsWith("/mirlo/") ? MIRLO_PROXY_CORS : corsHeaders,
       });
+    }
+
+    if (url.pathname.startsWith("/mirlo/")) {
+      return proxyMirloApi(request, url);
+    }
+
+    if (url.pathname === "/feed-proxy") {
+      return proxyPodcastFeed(url, corsHeaders);
     }
 
     if (url.pathname === "/api/podcasts") {
