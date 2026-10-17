@@ -18,6 +18,7 @@ import { optionDisplay } from "@/components/SearchOptionRenderer";
 import { useRouter } from "expo-router";
 import { theme } from "@/constants/theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTranslation } from "react-i18next";
 
 export default function SearchPage() {
   const {
@@ -35,6 +36,7 @@ export default function SearchPage() {
   );
   const { top, bottom } = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation("translation");
   const tagPills = useMemo(() => {
     return tags?.results.map((tag, index) => (
       <TagPill key={index} tagName={tag.tag} />
@@ -97,7 +99,7 @@ export default function SearchPage() {
           style={styles.contentScrollView}
           contentContainerStyle={styles.contentContainer}
         >
-          <Text style={styles.sectionHeader}>POPULAR TAGS</Text>
+          <Text style={styles.sectionHeader}>{t("mobileApp.searchScreen.popularTags")}</Text>
           <View style={styles.tagWrap}>{tagPills}</View>
           <TypeLinks />
         </ScrollView>
@@ -115,7 +117,7 @@ export default function SearchPage() {
         >
           {searchResults.length > 0 ? (
             <View>
-              <Text style={styles.sectionHeader}>CATALOG RESULTS</Text>
+              <Text style={styles.sectionHeader}>{t("mobileApp.searchScreen.catalogResults")}</Text>
               {searchResults.map((item, index) => (
                 <View key={`${index}-${item.id || item.name}`}>
                   {optionDisplay(item, index)}
@@ -127,7 +129,7 @@ export default function SearchPage() {
             <View style={styles.emptyContainer}>
               <Ionicons name="search" size={40} color={theme.colors.textMuted} />
               <Text style={styles.emptyText}>
-                {`Couldn't find anything for "${searchValue}". Try another search!`}
+                {t("mobileApp.searchScreen.noResults", { query: searchValue })}
               </Text>
             </View>
           ) : null}
@@ -139,16 +141,17 @@ export default function SearchPage() {
 
 function TypeLinks() {
   const router = useRouter();
+  const { t } = useTranslation("translation");
   return (
     <View style={styles.typeLinksContainer}>
-      <Text style={styles.sectionHeader}>DISCOVER BY CATEGORY</Text>
+      <Text style={styles.sectionHeader}>{t("mobileApp.searchScreen.discoverByCategory")}</Text>
       <Pressable
         onPress={() => router.navigate("/topSold")}
         style={styles.typeLinkCard}
         accessibilityRole="button"
       >
         <View style={styles.typeLinkRow}>
-          <Text style={styles.typeLinkText}>Popular Purchases</Text>
+          <Text style={styles.typeLinkText}>{t("mobileApp.searchScreen.popularPurchases")}</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
         </View>
       </Pressable>
@@ -158,7 +161,7 @@ function TypeLinks() {
         accessibilityRole="button"
       >
         <View style={styles.typeLinkRow}>
-          <Text style={styles.typeLinkText}>Most Listened To</Text>
+          <Text style={styles.typeLinkText}>{t("mobileApp.searchScreen.topListened")}</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
         </View>
       </Pressable>

@@ -501,6 +501,14 @@ export default function LibraryScreen() {
             </Text>
           </View>
           <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => router.push("/aboutModal")}
+              style={[styles.headerPill, { width: 36, paddingHorizontal: 0, justifyContent: "center" }]}
+              accessibilityRole="button"
+              accessibilityLabel="About Mirlo"
+            >
+              <Ionicons name="information-circle-outline" size={16} color={theme.colors.textSecondary} />
+            </Pressable>
             {user ? (
               <Pressable
                 onPress={() => logout()}

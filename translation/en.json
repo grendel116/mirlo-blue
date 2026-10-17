@@ -918,5 +918,16 @@
     "faqDescription": "Some frequently asked questions about Mirlo",
     "whatWeBuilding": "What we're building",
     "people": "The people doing it "
+  },
+  "mobileApp": {
+    "searchScreen": {
+      "searchByPopular": "Search by popular tags",
+      "popularTags": "Popular tags",
+      "discoverByCategory": "Discover by category",
+      "popularPurchases": "Popular purchases",
+      "topListened": "Most listened to",
+      "catalogResults": "Catalog results",
+      "noResults": "Couldn't find anything for \"{{query}}\". Try another search!"
+    }
   }
 }
