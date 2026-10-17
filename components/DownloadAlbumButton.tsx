@@ -14,6 +14,7 @@ import { askChoice } from "@/scripts/askChoice";
 import { ownsAlbum } from "@/scripts/utils";
 import { CAN_DOWNLOAD, downloadAlbum, removeDownloads } from "@/scripts/offlineFiles";
 import { chooseFaircampDownload } from "@/scripts/faircampDownload";
+import { useFaircampShop } from "@/components/purchase/useFaircampShop";
 
 const STAGE_LABELS: Record<DownloadStage, string> = {
   preparing: "Preparing",
@@ -28,7 +29,7 @@ export default function DownloadAlbumButton({ album, size = 32 }: { album: Album
   const downloads = useDownloads();
   const [stage, setStage] = useState<DownloadStage | null>(null);
   // Faircamp free downloads offer their zips straight from the album page
-  const shop = album.source === "Faircamp" ? album.faircampShop : undefined;
+  const { shop } = useFaircampShop(album);
   const faircampDownloads = shop?.mode === "free" ? shop.downloadsUrl : undefined;
 
   if (!faircampDownloads && (!CAN_DOWNLOAD || !ownsAlbum(user, album))) return null;

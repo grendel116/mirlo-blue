@@ -92,8 +92,8 @@ interface AlbumProps {
   source?: string;
   sourceUrl?: string;
   purchaseLinks?: { label: string; url: string }[];
-  // Faircamp releases: how the release offers downloads; absent when downloads are off
-  faircampShop?: import("@/queries/fairplayer").FaircampShop;
+  // Faircamp releases: where the download button leads; absent when downloads are off
+  faircampDownloadAccess?: import("@/queries/fairplayer").FaircampDownloadAccess;
 }
 
 interface TrackProps {
