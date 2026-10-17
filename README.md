@@ -2,7 +2,7 @@
 
 A music player for Mirlo, Faircamp, independent radio, podcasts, and your own files.
 
-<img src="docs/preview-v4.png" alt="MirloBlue home screen" width="300"/>
+<img src="docs/preview-v8.png" alt="MirloBlue home screen" width="300"/>
 
 ## Features
 

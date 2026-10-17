@@ -1830,7 +1830,7 @@ export default {
 
     const proxiedArtwork = artwork
       ? `${url.origin}/image?url=${encodeURIComponent(artwork)}`
-      : "https://grendel116.github.io/mirlo-blue/preview-v2.png";
+      : "https://grendel116.github.io/mirlo-blue/preview-v8.png";
 
     const html = renderHtml({
       title,
