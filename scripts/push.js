@@ -1,7 +1,7 @@
 // Ships the current branch everywhere at once:
 // 1. builds the web app into docs/app and commits it
 // 2. pushes to GitHub, which publishes the web app on GitHub Pages
-// 3. sends an over-the-air update to Android devices on the development channel
+// 3. sends an over-the-air update to Android devices on the production channel
 const { execSync } = require("child_process");
 
 function run(command) {
@@ -27,7 +27,7 @@ run("git push");
 
 const message = read("git log -1 --format=%s -- . :!docs/app :!docs/404.html");
 run(
-  `npx --yes eas-cli@latest update --channel development --environment development --platform android --non-interactive --message ${JSON.stringify(message)}`,
+  `npx --yes eas-cli@latest update --channel production --environment production --platform android --non-interactive --message ${JSON.stringify(message)}`,
 );
 
-console.log("\nPushed to GitHub, web app published, and development update sent.");
+console.log("\nPushed to GitHub, web app published, and production update sent.");
